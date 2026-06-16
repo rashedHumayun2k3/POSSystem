@@ -1,0 +1,8 @@
+D:\Personal\ShoppingApplication\backend\artifacts\verify-obj\ResellerApi\Debug\net10.0\ResellerApi.csproj.AssemblyReference.cache
+D:\Personal\ShoppingApplication\backend\artifacts\verify-obj\ResellerApi\Debug\net10.0\rpswa.dswa.cache.json
+D:\Personal\ShoppingApplication\backend\artifacts\verify-obj\ResellerApi\Debug\net10.0\ResellerApi.GeneratedMSBuildEditorConfig.editorconfig
+D:\Personal\ShoppingApplication\backend\artifacts\verify-obj\ResellerApi\Debug\net10.0\ResellerApi.AssemblyInfoInputs.cache
+D:\Personal\ShoppingApplication\backend\artifacts\verify-obj\ResellerApi\Debug\net10.0\ResellerApi.AssemblyInfo.cs
+D:\Personal\ShoppingApplication\backend\artifacts\verify-obj\ResellerApi\Debug\net10.0\ResellerApi.csproj.CoreCompileInputs.cache
+D:\Personal\ShoppingApplication\backend\artifacts\verify-obj\ResellerApi\Debug\net10.0\ResellerApi.MvcApplicationPartsAssemblyInfo.cs
+D:\Personal\ShoppingApplication\backend\artifacts\verify-obj\ResellerApi\Debug\net10.0\ResellerApi.MvcApplicationPartsAssemblyInfo.cache

@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dotnet new *)",
+      "Bash(dotnet sln *)",
+      "Bash(dotnet build *)",
+      "Bash(dotnet remove *)",
+      "Bash(dotnet-ef migrations *)",
+      "Bash(dotnet-ef database *)",
+      "Bash(dotnet run *)",
+      "Bash(curl -s -X POST http://localhost:5000/api/v1/auth/login -H \"Content-Type: application/json\" -d '{\"phone\":\"01700000000\",\"password\":\"password123\"}')",
+      "Bash(pkill -f \"dotnet run\")",
+      "Bash(npx --yes create-next-app@latest frontend --typescript --tailwind --eslint --app --src-dir --import-alias \"@/*\" --no-turbopack)",
+      "Bash(npx create-next-app@latest frontend --typescript --tailwind --eslint --app --src-dir --import-alias \"@/*\" --no-turbopack)",
+      "Bash(npm install *)",
+      "Bash(npm run *)",
+      "Bash(ASPNETCORE_ENVIRONMENT=Development dotnet /tmp/resellerapi/ResellerApi.dll --urls http://localhost:5000)",
+      "PowerShell(cd \"d:\\\\Personal\\\\ShoppingApplication\\\\frontend\"; npx tsc --noEmit --skipLibCheck 2>&1 | Where-Object { $_ -match \"error TS\" } | Select-Object -First 30)",
+      "Bash(dotnet ef *)",
+      "Bash(dotnet test *)",
+      "PowerShell(Get-Process -Name \"ResellerApi\" -ErrorAction SilentlyContinue)",
+      "PowerShell(Stop-Process -Id 23604 -Force)",
+      "PowerShell(Start-Process -FilePath \"dotnet\" -ArgumentList \"run\", \"--project\", \"src\\\\ResellerApi\\\\ResellerApi.csproj\", \"--configuration\", \"Release\" -WorkingDirectory \"d:\\\\Personal\\\\ShoppingApplication\\\\backend\" -WindowStyle Hidden)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5166/api/v1/purchase-trips -H \"Authorization: Bearer test\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5166/scalar)",
+      "PowerShell(Get-Process -Name \"dotnet\" -ErrorAction SilentlyContinue)",
+      "Bash(netstat -ano)",
+      "PowerShell(Get-Process -Name \"ResellerApi\" -ErrorAction SilentlyContinue | Stop-Process -Force -PassThru | ForEach-Object { Write-Host \"Stopped PID $\\($_.Id\\)\" })"
+    ]
+  }
+}
