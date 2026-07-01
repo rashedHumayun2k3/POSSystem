@@ -12,7 +12,16 @@ public record PartnerDto(
     DateTime? JoinDate,
     string? Note,
     long CapitalBalancePaisa,
-    long ProfitBalancePaisa
+    long ProfitBalancePaisa,
+    string? NidNumber,
+    string? Address,
+    string? Email,
+    string? BankAccountNumber,
+    string? BankName,
+    decimal? AgreedProfitSharePct,
+    string? EmergencyContactName,
+    string? EmergencyContactPhone,
+    string? EmergencyContactRelation
 );
 
 public record CreatePartnerRequest(
@@ -20,7 +29,16 @@ public record CreatePartnerRequest(
     string? Phone,
     string PartnerType,
     DateTime? JoinDate,
-    string? Note
+    string? Note,
+    string NidNumber,
+    string Address,
+    string? Email,
+    string? BankAccountNumber,
+    string? BankName,
+    decimal? AgreedProfitSharePct,
+    string? EmergencyContactName,
+    string? EmergencyContactPhone,
+    string? EmergencyContactRelation
 );
 
 public record UpdatePartnerRequest(
@@ -28,7 +46,46 @@ public record UpdatePartnerRequest(
     string? Phone,
     string PartnerType,
     DateTime? JoinDate,
+    string? Note,
+    string NidNumber,
+    string Address,
+    string? Email,
+    string? BankAccountNumber,
+    string? BankName,
+    decimal? AgreedProfitSharePct,
+    string? EmergencyContactName,
+    string? EmergencyContactPhone,
+    string? EmergencyContactRelation
+);
+
+// R15.11 — new partner approval workflow.
+
+public record PartnerApprovalVoteDto(
+    Guid Id,
+    Guid PartnerId,
+    Guid VotedByPartnerId,
+    string VotedByPartnerName,
+    string Decision,
+    string? Note,
+    DateTime VotedAt
+);
+
+public record CastApprovalVoteRequest(
+    Guid VotedByPartnerId,
+    string Decision, // APPROVE | REJECT
     string? Note
+);
+
+public record CancelPendingPartnerRequest(string Reason);
+
+public record PartnerApprovalStatusDto(
+    Guid PartnerId,
+    string Status,
+    int ApproveCount,
+    int RejectCount,
+    int RequiredVotes,
+    int ActiveManagingPartnerCount,
+    List<PartnerApprovalVoteDto> Votes
 );
 
 public record PartnerBalanceDto(

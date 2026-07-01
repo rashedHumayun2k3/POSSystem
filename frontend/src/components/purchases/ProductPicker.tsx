@@ -3,19 +3,23 @@
 import { useState, useRef, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import SlidePanel from '@/components/ui/SlidePanel';
+import BarcodeScanner from '@/components/ui/BarcodeScanner';
 import {
   searchProducts,
   browseProducts,
   getRecentlyPurchasedProducts,
   getActiveCategories,
+  lookupBarcode,
 } from '@/lib/catalogApi';
 import type { ProductSearchResult } from '@/types/catalog';
 import { useLanguage } from '@/i18n/LanguageContext';
+import { QrCodeIcon } from '@heroicons/react/24/outline';
 
 interface Props {
   open: boolean;
   onClose: () => void;
   onSelect: (result: ProductSearchResult) => void;
+  cartVariantIds?: Set<string>;
 }
 
 // Build A-Z grouped map from a flat list
@@ -29,12 +33,14 @@ function buildAzGroups(items: ProductSearchResult[]): Record<string, ProductSear
   return groups;
 }
 
-export default function ProductPicker({ open, onClose, onSelect }: Props) {
+export default function ProductPicker({ open, onClose, onSelect, cartVariantIds }: Props) {
   const [search, setSearch] = useState('');
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [searchResults, setSearchResults] = useState<ProductSearchResult[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState('');
+  const [showScanner, setShowScanner] = useState(false);
+  const [scanError, setScanError] = useState('');
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { t } = useLanguage();
 
@@ -44,8 +50,20 @@ export default function ProductPicker({ open, onClose, onSelect }: Props) {
       setSearch('');
       setSearchResults([]);
       setSearchError('');
+      setScanError('');
     }
   }, [open]);
+
+  const handleBarcodeScan = async (barcode: string) => {
+    setShowScanner(false);
+    setScanError('');
+    try {
+      const result = await lookupBarcode(barcode);
+      onSelect(result);
+    } catch {
+      setScanError(`${t('pickers.barcodeNotFound')}: ${barcode}`);
+    }
+  };
 
   // Active categories (only those with ≥1 active product)
   const { data: categories = [] } = useQuery({
@@ -120,24 +138,37 @@ export default function ProductPicker({ open, onClose, onSelect }: Props) {
   const recentVariantIds = new Set(recentlyPurchased.map((r) => r.variantId));
 
   return (
+    <>
     <SlidePanel open={open} onClose={handleClose} title={t('pickers.chooseProduct')}>
-      {/* Search box */}
-      <div className="px-4 py-3 border-b border-gray-100 shrink-0">
-        <div className="relative">
-          <input
-            className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm bg-gray-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400 pr-9"
-            placeholder={t('pickers.searchProduct')}
-            value={search}
-            onChange={(e) => handleSearch(e.target.value)}
-            autoFocus
-          />
-          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-300 pointer-events-none">
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
-          </span>
+      {/* Search box + scan button */}
+      <div className="px-4 py-3 border-b border-gray-100 shrink-0 space-y-2">
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <input
+              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm bg-gray-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400 pr-9"
+              placeholder={t('pickers.searchProduct')}
+              value={search}
+              onChange={(e) => handleSearch(e.target.value)}
+              autoFocus
+            />
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-300 pointer-events-none">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+            </span>
+          </div>
+          <button
+            onClick={() => { setScanError(''); setShowScanner(true); }}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-600 text-white text-xs font-semibold shrink-0"
+          >
+            <QrCodeIcon className="w-4 h-4" />
+            {t('pickers.scanBarcode')}
+          </button>
         </div>
+        {scanError && (
+          <p className="text-xs text-red-500 font-medium px-1">{scanError}</p>
+        )}
       </div>
 
       {/* ── Search mode ───────────────────────────────────────────────── */}
@@ -158,7 +189,7 @@ export default function ProductPicker({ open, onClose, onSelect }: Props) {
             <div key={letter}>
               <SectionHeader label={letter} />
               {searchGroups[letter].map((r) => (
-                <ProductRow key={r.variantId} product={r} onSelect={handleSelect} t={t} />
+                <ProductRow key={r.variantId} product={r} onSelect={handleSelect} t={t} inCart={cartVariantIds?.has(r.variantId) ?? false} />
               ))}
             </div>
           ))}
@@ -173,7 +204,7 @@ export default function ProductPicker({ open, onClose, onSelect }: Props) {
             <div>
               <SectionHeader label={t('pickers.recentlyPurchased')} accent />
               {recentlyPurchased.map((r) => (
-                <ProductRow key={r.variantId} product={r} onSelect={handleSelect} t={t} />
+                <ProductRow key={r.variantId} product={r} onSelect={handleSelect} t={t} inCart={cartVariantIds?.has(r.variantId) ?? false} />
               ))}
             </div>
           )}
@@ -218,7 +249,7 @@ export default function ProductPicker({ open, onClose, onSelect }: Props) {
               <div key={letter}>
                 <SectionHeader label={letter} />
                 {items.map((r) => (
-                  <ProductRow key={r.variantId} product={r} onSelect={handleSelect} t={t} />
+                  <ProductRow key={r.variantId} product={r} onSelect={handleSelect} t={t} inCart={cartVariantIds?.has(r.variantId) ?? false} />
                 ))}
               </div>
             );
@@ -226,6 +257,15 @@ export default function ProductPicker({ open, onClose, onSelect }: Props) {
         </div>
       )}
     </SlidePanel>
+
+    {showScanner && (
+      <BarcodeScanner
+        onScan={handleBarcodeScan}
+        onClose={() => setShowScanner(false)}
+        errorMessage={scanError || undefined}
+      />
+    )}
+    </>
   );
 }
 
@@ -245,10 +285,12 @@ function ProductRow({
   product,
   onSelect,
   t,
+  inCart,
 }: {
   product: ProductSearchResult;
   onSelect: (r: ProductSearchResult) => void;
   t: (key: string, params?: Record<string, string | number>) => string;
+  inCart: boolean;
 }) {
   let variantLabel = '';
   try {
@@ -261,18 +303,31 @@ function ProductRow({
 
   return (
     <button
-      className="w-full text-left px-4 py-3 border-b border-gray-50 active:bg-indigo-50 transition-colors"
+      className={`w-full text-left px-4 py-3 border-b transition-colors ${
+        inCart
+          ? 'bg-indigo-50 border-indigo-100 active:bg-indigo-100'
+          : 'border-gray-50 active:bg-indigo-50'
+      }`}
       onClick={() => onSelect(product)}
     >
       <div className="flex items-center justify-between gap-2">
-        <div className="min-w-0">
-          <p className="text-sm font-medium text-gray-900 truncate">
-            {product.productName}
-            {variantLabel && (
-              <span className="text-gray-400 font-normal"> · {variantLabel}</span>
-            )}
-          </p>
-          <p className="text-xs text-gray-400 mt-0.5">{product.variantSku}</p>
+        <div className="min-w-0 flex items-start gap-2">
+          {inCart && (
+            <span className="mt-0.5 shrink-0 w-4 h-4 rounded-full bg-indigo-600 flex items-center justify-center">
+              <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+            </span>
+          )}
+          <div className="min-w-0">
+            <p className={`text-sm font-medium truncate ${inCart ? 'text-indigo-700' : 'text-gray-900'}`}>
+              {product.productName}
+              {variantLabel && (
+                <span className={`font-normal ${inCart ? 'text-indigo-400' : 'text-gray-400'}`}> · {variantLabel}</span>
+              )}
+            </p>
+            <p className="text-xs text-gray-400 mt-0.5">{product.variantSku}</p>
+          </div>
         </div>
         <div className="text-right shrink-0">
           <p className="text-[9px] text-gray-300 uppercase tracking-wide leading-none mb-1">{t('pickers.stockPrice')}</p>

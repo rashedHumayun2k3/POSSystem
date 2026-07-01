@@ -61,16 +61,30 @@ export interface ProductDetail {
   variants: Variant[];
 }
 
-export interface PriceHistoryEntry {
+export interface PriceSlot {
   id: string;
-  oldPrice: number;
+  label: string;
+  price: number;
+  reason: string | null;
+  isActive: boolean;
+  createdAt: string;
+  createdByName: string;
+}
+
+export interface PriceActivationLog {
+  id: string;
+  slotId: string;
+  labelSnapshot: string;
+  priceSnapshot: number;
+  activatedAt: string;
+  deactivatedAt: string | null;
+  activatedByName: string;
+}
+
+export interface CreateSlotPayload {
+  label: string;
   newPrice: number;
-  effectiveFrom: string;
-  effectiveTo: string | null;
-  changedByName: string;
-  reason: string;
-  isScheduled: boolean;
-  isRevert: boolean;
+  reason?: string | null;
 }
 
 export interface CreateProductPayload {
@@ -103,10 +117,3 @@ export interface ProductSearchResult {
   avgLandedCost: number;
 }
 
-export interface ChangePricePayload {
-  variantId: string;
-  newPrice: number;
-  reason: string;
-  effectiveFrom?: string | null;
-  revertAt?: string | null;
-}

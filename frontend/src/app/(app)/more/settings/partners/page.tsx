@@ -16,6 +16,29 @@ const EMPTY_FORM = {
   partnerType: "SLEEPING" as PartnerType,
   joinDate: "",
   note: "",
+  nidNumber: "",
+  address: "",
+  email: "",
+  bankAccountNumber: "",
+  bankName: "",
+  agreedProfitSharePct: "",
+  emergencyContactName: "",
+  emergencyContactPhone: "",
+  emergencyContactRelation: "",
+};
+
+const STATUS_BADGE: Record<string, string> = {
+  ACTIVE: "bg-green-100 text-green-700",
+  PENDING_APPROVAL: "bg-amber-100 text-amber-700",
+  REJECTED: "bg-red-100 text-red-700",
+  EXITED: "bg-gray-100 text-gray-500",
+};
+
+const STATUS_LABEL_KEY: Record<string, string> = {
+  ACTIVE: "partners.statusActive",
+  PENDING_APPROVAL: "partners.statusPending",
+  REJECTED: "partners.statusRejected",
+  EXITED: "partners.statusExited",
 };
 
 export default function PartnersPage() {
@@ -46,6 +69,15 @@ export default function PartnersPage() {
         partnerType: form.partnerType,
         joinDate: form.joinDate || undefined,
         note: form.note.trim() || undefined,
+        nidNumber: form.nidNumber.trim(),
+        address: form.address.trim(),
+        email: form.email.trim() || undefined,
+        bankAccountNumber: form.bankAccountNumber.trim() || undefined,
+        bankName: form.bankName.trim() || undefined,
+        agreedProfitSharePct: form.agreedProfitSharePct ? parseFloat(form.agreedProfitSharePct) : undefined,
+        emergencyContactName: form.emergencyContactName.trim() || undefined,
+        emergencyContactPhone: form.emergencyContactPhone.trim() || undefined,
+        emergencyContactRelation: form.emergencyContactRelation.trim() || undefined,
       }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["partners"] }); close(); },
     onError: () => setError(t("partners.failedSavePartner")),
@@ -60,8 +92,8 @@ export default function PartnersPage() {
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
           <p className="text-sm font-semibold text-gray-900">{p.name}</p>
-          <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${p.status === "ACTIVE" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>
-            {p.status === "ACTIVE" ? t("partners.statusActive") : t("partners.statusExited")}
+          <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${STATUS_BADGE[p.status]}`}>
+            {t(STATUS_LABEL_KEY[p.status])}
           </span>
         </div>
         {p.phone && <p className="text-xs text-gray-400 mt-0.5">{p.phone}</p>}
@@ -115,7 +147,7 @@ export default function PartnersPage() {
             {error && <p className="text-xs text-red-600 mb-2">{error}</p>}
             <button
               onClick={() => saveMutation.mutate()}
-              disabled={saveMutation.isPending || !form.name.trim()}
+              disabled={saveMutation.isPending || !form.name.trim() || !form.nidNumber.trim() || !form.address.trim()}
               className="w-full h-12 rounded-xl bg-indigo-600 text-white font-semibold text-sm disabled:opacity-40"
             >
               {saveMutation.isPending ? t("common.saving") : t("common.save")}
@@ -146,6 +178,35 @@ export default function PartnersPage() {
 
           <input placeholder={t("partners.joinDate")} value={form.joinDate} type="date"
             onChange={(e) => setForm((f) => ({ ...f, joinDate: e.target.value }))}
+            className="w-full h-11 px-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+
+          <input placeholder={t("partners.nidNumber")} value={form.nidNumber}
+            onChange={(e) => setForm((f) => ({ ...f, nidNumber: e.target.value }))}
+            className="w-full h-11 px-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+          <input placeholder={t("partners.address")} value={form.address}
+            onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
+            className="w-full h-11 px-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+          <input placeholder={t("partners.email")} value={form.email} type="email"
+            onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+            className="w-full h-11 px-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+          <input placeholder={t("partners.bankAccountNumber")} value={form.bankAccountNumber}
+            onChange={(e) => setForm((f) => ({ ...f, bankAccountNumber: e.target.value }))}
+            className="w-full h-11 px-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+          <input placeholder={t("partners.bankName")} value={form.bankName}
+            onChange={(e) => setForm((f) => ({ ...f, bankName: e.target.value }))}
+            className="w-full h-11 px-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+          <input placeholder={t("partners.agreedProfitSharePct")} value={form.agreedProfitSharePct}
+            type="number" inputMode="decimal"
+            onChange={(e) => setForm((f) => ({ ...f, agreedProfitSharePct: e.target.value }))}
+            className="w-full h-11 px-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+          <input placeholder={t("partners.emergencyContactName")} value={form.emergencyContactName}
+            onChange={(e) => setForm((f) => ({ ...f, emergencyContactName: e.target.value }))}
+            className="w-full h-11 px-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+          <input placeholder={t("partners.emergencyContactPhone")} value={form.emergencyContactPhone} type="tel"
+            onChange={(e) => setForm((f) => ({ ...f, emergencyContactPhone: e.target.value }))}
+            className="w-full h-11 px-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+          <input placeholder={t("partners.emergencyContactRelation")} value={form.emergencyContactRelation}
+            onChange={(e) => setForm((f) => ({ ...f, emergencyContactRelation: e.target.value }))}
             className="w-full h-11 px-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
 
           <textarea placeholder={t("partners.note")} value={form.note} rows={3}

@@ -5,9 +5,10 @@ import type {
   ProductSummary,
   ProductDetail,
   ProductSearchResult,
-  PriceHistoryEntry,
+  PriceSlot,
+  PriceActivationLog,
+  CreateSlotPayload,
   CreateProductPayload,
-  ChangePricePayload,
 } from '@/types/catalog';
 
 // ── Categories ────────────────────────────────────────────────────────────────
@@ -122,6 +123,11 @@ export const searchProducts = async (q: string): Promise<ProductSearchResult[]> 
   return data.map(mapSearchResult);
 };
 
+export const lookupBarcode = async (barcode: string): Promise<ProductSearchResult> => {
+  const { data } = await api.get<RawSearchResult>(`/products/barcode/${encodeURIComponent(barcode)}`);
+  return mapSearchResult(data);
+};
+
 export const getProduct = async (id: string): Promise<ProductDetail> => {
   const { data } = await api.get(`/products/${id}`);
   return data;
@@ -144,15 +150,24 @@ export const archiveProduct = async (id: string): Promise<void> => {
   await api.patch(`/products/${id}/archive`);
 };
 
-// ── Price history ─────────────────────────────────────────────────────────────
+// ── Price slots ───────────────────────────────────────────────────────────────
 
-export const getPriceHistory = async (variantId: string): Promise<PriceHistoryEntry[]> => {
-  const { data } = await api.get(`/products/variants/${variantId}/prices`);
+export const getPriceSlots = async (variantId: string): Promise<PriceSlot[]> => {
+  const { data } = await api.get(`/products/variants/${variantId}/slots`);
   return data;
 };
 
-export const changePrice = async (variantId: string, payload: ChangePricePayload): Promise<PriceHistoryEntry> => {
-  const { data } = await api.post(`/products/variants/${variantId}/prices`, payload);
+export const createPriceSlot = async (variantId: string, payload: CreateSlotPayload): Promise<PriceSlot> => {
+  const { data } = await api.post(`/products/variants/${variantId}/slots`, payload);
+  return data;
+};
+
+export const activatePriceSlot = async (variantId: string, slotId: string): Promise<void> => {
+  await api.post(`/products/variants/${variantId}/slots/${slotId}/activate`);
+};
+
+export const getPriceSlotHistory = async (variantId: string): Promise<PriceActivationLog[]> => {
+  const { data } = await api.get(`/products/variants/${variantId}/slot-history`);
   return data;
 };
 
@@ -161,4 +176,26 @@ export const changePrice = async (variantId: string, payload: ChangePricePayload
 export const getUnits = async (): Promise<{ code: string; name: string; allowsDecimal: boolean }[]> => {
   const { data } = await api.get('/units');
   return data;
+};
+
+export const downloadBarcodeLabels = async (
+  productId: string,
+  qty: number,
+  variantId?: string
+): Promise<void> => {
+  const params: Record<string, string | number> = { qty };
+  if (variantId) params.variantId = variantId;
+  const response = await api.get(`/products/${productId}/barcode-labels`, {
+    params,
+    responseType: 'blob',
+  });
+  const url = URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
+  const win = window.open(url, '_blank');
+  setTimeout(() => URL.revokeObjectURL(url), 30_000);
+  if (!win) {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `labels-${productId}.pdf`;
+    a.click();
+  }
 };

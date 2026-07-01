@@ -67,14 +67,24 @@ builder.Services.AddScoped<IActivityLogService, ActivityLogService>();
 builder.Services.AddScoped<ICategoryService, CategoryService>();
 builder.Services.AddScoped<IProductService, ProductService>();
 builder.Services.AddScoped<IPriceHistoryService, PriceHistoryService>();
+builder.Services.AddScoped<IPriceSlotService, PriceSlotService>();
 // Phase 3 — Inventory / Purchases
 builder.Services.AddScoped<IPurchaseTripService, PurchaseTripService>();
 builder.Services.AddScoped<ISuppliersService, SuppliersService>();
 // Carton module
 builder.Services.AddScoped<ICartonService, CartonService>();
+// Phase 4 — Orders
+builder.Services.AddScoped<ICustomerService, CustomerService>();
+builder.Services.AddScoped<IOrderService, OrderService>();
+builder.Services.AddScoped<IRemittanceService, RemittanceService>();
 // Module 15 — Partnership & Capital Ledger (sub-phase 15a)
 builder.Services.AddScoped<IPartnerCapitalService, PartnerCapitalService>();
 builder.Services.AddScoped<IPartnerService, PartnerService>();
+// Phase 7 — Expenses & Petty Cash
+builder.Services.AddScoped<IExpenseService, ExpenseService>();
+builder.Services.AddScoped<IPettyCashService, PettyCashService>();
+// Phase 10 — Reports
+builder.Services.AddScoped<IReportService, ReportService>();
 
 // ── FluentValidation ──────────────────────────────────────────────────────
 builder.Services.AddValidatorsFromAssemblyContaining<LoginRequestValidator>();
@@ -367,6 +377,682 @@ static async Task SeedAsync(AppDbContext db)
             }
         );
         await db.SaveChangesAsync();
+    }
+
+    // ── Seed sample customers ─────────────────────────────────────────────
+    if (biz != null && !await db.Customers.IgnoreQueryFilters().AnyAsync(c => c.BusinessId == biz.Id))
+    {
+        db.Customers.AddRange(
+            new ResellerApi.Entities.Customer
+            {
+                BusinessId = biz.Id, Name = "Rahim Uddin", Phone = "01711000001",
+                Address = "House 12, Road 5, Mirpur-10, Dhaka",
+                CreditLimit = 5000, StoreCreditBalance = 0, IsRejecterFlag = false
+            },
+            new ResellerApi.Entities.Customer
+            {
+                BusinessId = biz.Id, Name = "Karim Hossain", Phone = "01712000002",
+                Address = "Flat 3B, Jigatala, Dhaka-1209",
+                CreditLimit = 3000, StoreCreditBalance = 200, IsRejecterFlag = false
+            },
+            new ResellerApi.Entities.Customer
+            {
+                BusinessId = biz.Id, Name = "Sumaiya Begum", Phone = "01813000003",
+                Address = "Village: Gopalpur, Thana: Savar, Dhaka",
+                CreditLimit = 2000, StoreCreditBalance = 0, IsRejecterFlag = false
+            },
+            new ResellerApi.Entities.Customer
+            {
+                BusinessId = biz.Id, Name = "Nasrin Akter", Phone = "01914000004",
+                Address = "Mohammadpur, Dhaka",
+                CreditLimit = 1000, StoreCreditBalance = 0, IsRejecterFlag = false
+            },
+            new ResellerApi.Entities.Customer
+            {
+                BusinessId = biz.Id, Name = "Jahir Rahman", Phone = "01615000005",
+                Address = "Chittagong City, Ward-15",
+                CreditLimit = 4000, StoreCreditBalance = 500, IsRejecterFlag = false
+            },
+            new ResellerApi.Entities.Customer
+            {
+                BusinessId = biz.Id, Name = "Farida Khanam", Phone = "01516000006",
+                Address = "Sylhet Sadar, Sylhet",
+                CreditLimit = 1000, StoreCreditBalance = 0, IsRejecterFlag = true,
+                Note = "Returned 3 orders without reason"
+            },
+            new ResellerApi.Entities.Customer
+            {
+                BusinessId = biz.Id, Name = "Anwar Islam", Phone = "01817000007",
+                Address = "Narayanganj, Fatullah",
+                CreditLimit = 2000, StoreCreditBalance = 0, IsRejecterFlag = false
+            },
+            new ResellerApi.Entities.Customer
+            {
+                BusinessId = biz.Id, Name = "Mitu Akter", Phone = "01718000008",
+                Address = "Uttara, Sector-7, Dhaka",
+                CreditLimit = 3000, StoreCreditBalance = 100, IsRejecterFlag = false
+            }
+        );
+        await db.SaveChangesAsync();
+    }
+
+    // ── Seed sample orders ────────────────────────────────────────────────
+    if (biz != null && !await db.Orders.IgnoreQueryFilters().AnyAsync(o => o.BusinessId == biz.Id))
+    {
+        var ownerUser   = await db.Users.FirstOrDefaultAsync();
+        var varTMW      = await db.ProductVariants.IgnoreQueryFilters().FirstOrDefaultAsync(v => v.Sku == "P-0001-02");
+        var varTLW      = await db.ProductVariants.IgnoreQueryFilters().FirstOrDefaultAsync(v => v.Sku == "P-0001-03");
+        var varJ34      = await db.ProductVariants.IgnoreQueryFilters().FirstOrDefaultAsync(v => v.Sku == "P-0002-02");
+        var varCar      = await db.ProductVariants.IgnoreQueryFilters().FirstOrDefaultAsync(v => v.Sku == "P-0004-01");
+        var cRahim      = await db.Customers.IgnoreQueryFilters().FirstOrDefaultAsync(c => c.Phone == "01711000001");
+        var cKarim      = await db.Customers.IgnoreQueryFilters().FirstOrDefaultAsync(c => c.Phone == "01712000002");
+        var cSumaiya    = await db.Customers.IgnoreQueryFilters().FirstOrDefaultAsync(c => c.Phone == "01813000003");
+        var cNasrin     = await db.Customers.IgnoreQueryFilters().FirstOrDefaultAsync(c => c.Phone == "01914000004");
+        var cJahir      = await db.Customers.IgnoreQueryFilters().FirstOrDefaultAsync(c => c.Phone == "01615000005");
+        var steadfast   = await db.Couriers.IgnoreQueryFilters().FirstOrDefaultAsync(c => c.BusinessId == biz.Id);
+
+        if (ownerUser != null && varTMW != null && varJ34 != null && varCar != null && cRahim != null)
+        {
+            int seq = 0;
+            string NextOrderNo() => $"ORD-{++seq:D4}";
+
+            // ── Order 1: Confirmed, Packed, In-transit ───────────────────
+            var o1 = new ResellerApi.Entities.Order
+            {
+                BusinessId = biz.Id, OrderNo = NextOrderNo(), Channel = "FACEBOOK",
+                CustomerId = cRahim?.Id, CustomerName = "Rahim Uddin", CustomerPhone = "01711000001",
+                CustomerAddress = "House 12, Road 5, Mirpur-10, Dhaka",
+                OrderStatus = "OPEN", PaymentStatus = "UNPAID", FulfillmentStatus = "IN_TRANSIT",
+                IsDraft = false,
+                DeliveryChargeCustomer = 130, DeliveryCostActual = 130,
+                CourierId = steadfast?.Id, TrackingNo = "SS-20260001",
+                CreatedBy = ownerUser.Id, ConfirmedAt = DateTime.UtcNow.AddDays(-3),
+                HandedOverAt = DateTime.UtcNow.AddDays(-2)
+            };
+            db.Orders.Add(o1);
+            await db.SaveChangesAsync();
+            if (varTMW != null) db.OrderItems.Add(new ResellerApi.Entities.OrderItem { OrderId = o1.Id, VariantId = varTMW.Id, Qty = 2, UnitPrice = 650, UnitCostSnapshot = 280 });
+            if (varJ34 != null) db.OrderItems.Add(new ResellerApi.Entities.OrderItem { OrderId = o1.Id, VariantId = varJ34.Id, Qty = 1, UnitPrice = 1800, UnitCostSnapshot = 850 });
+            await db.SaveChangesAsync();
+
+            // ── Order 2: Draft ───────────────────────────────────────────
+            var o2 = new ResellerApi.Entities.Order
+            {
+                BusinessId = biz.Id, OrderNo = NextOrderNo(), Channel = "WHATSAPP",
+                CustomerId = cKarim?.Id, CustomerName = "Karim Hossain", CustomerPhone = "01712000002",
+                CustomerAddress = "Flat 3B, Jigatala, Dhaka-1209",
+                OrderStatus = "OPEN", PaymentStatus = "UNPAID", FulfillmentStatus = "UNFULFILLED",
+                IsDraft = true, DeliveryChargeCustomer = 70,
+                CreatedBy = ownerUser.Id
+            };
+            db.Orders.Add(o2);
+            await db.SaveChangesAsync();
+            if (varTMW != null) db.OrderItems.Add(new ResellerApi.Entities.OrderItem { OrderId = o2.Id, VariantId = varTMW.Id, Qty = 3, UnitPrice = 650 });
+            await db.SaveChangesAsync();
+
+            // ── Order 3: Confirmed, Partially Paid ──────────────────────
+            var o3 = new ResellerApi.Entities.Order
+            {
+                BusinessId = biz.Id, OrderNo = NextOrderNo(), Channel = "FACEBOOK",
+                CustomerId = cSumaiya?.Id, CustomerName = "Sumaiya Begum", CustomerPhone = "01813000003",
+                CustomerAddress = "Village: Gopalpur, Thana: Savar, Dhaka",
+                OrderStatus = "OPEN", PaymentStatus = "PARTIALLY_PAID", FulfillmentStatus = "PACKED",
+                IsDraft = false, DeliveryChargeCustomer = 130, AdvancePaid = 200,
+                CreatedBy = ownerUser.Id, ConfirmedAt = DateTime.UtcNow.AddDays(-1)
+            };
+            db.Orders.Add(o3);
+            await db.SaveChangesAsync();
+            if (varCar != null) db.OrderItems.Add(new ResellerApi.Entities.OrderItem { OrderId = o3.Id, VariantId = varCar.Id, Qty = 2, UnitPrice = 350, UnitCostSnapshot = 120 });
+            db.OrderPayments.Add(new ResellerApi.Entities.OrderPayment { OrderId = o3.Id, Method = "BKASH", Amount = 200, ReceivedAt = DateTime.UtcNow.AddDays(-1), UserId = ownerUser.Id });
+            await db.SaveChangesAsync();
+
+            // ── Order 4: Delivered, COD pending remittance (courier holds cash) ──
+            var o4 = new ResellerApi.Entities.Order
+            {
+                BusinessId = biz.Id, OrderNo = NextOrderNo(), Channel = "PHONE",
+                CustomerId = cNasrin?.Id, CustomerName = "Nasrin Akter", CustomerPhone = "01914000004",
+                CustomerAddress = "Mohammadpur, Dhaka",
+                OrderStatus = "COMPLETED", PaymentStatus = "UNPAID", FulfillmentStatus = "DELIVERED",
+                IsDraft = false, DeliveryChargeCustomer = 70,
+                DiscountType = "FIXED", DiscountValue = 50,
+                CourierId = steadfast?.Id, TrackingNo = "SS-20260002",
+                CodRemittanceStatus = "PENDING",
+                CreatedBy = ownerUser.Id,
+                ConfirmedAt = DateTime.UtcNow.AddDays(-10),
+                HandedOverAt = DateTime.UtcNow.AddDays(-9),
+                DeliveredAt = DateTime.UtcNow.AddDays(-7)
+            };
+            db.Orders.Add(o4);
+            await db.SaveChangesAsync();
+            if (varTLW != null) db.OrderItems.Add(new ResellerApi.Entities.OrderItem { OrderId = o4.Id, VariantId = varTLW.Id, Qty = 1, UnitPrice = 650, UnitCostSnapshot = 280 });
+            await db.SaveChangesAsync();
+
+            // ── Order 5: Cancelled ───────────────────────────────────────
+            var o5 = new ResellerApi.Entities.Order
+            {
+                BusinessId = biz.Id, OrderNo = NextOrderNo(), Channel = "INSTAGRAM",
+                CustomerId = cJahir?.Id, CustomerName = "Jahir Rahman", CustomerPhone = "01615000005",
+                CustomerAddress = "Chittagong City, Ward-15",
+                OrderStatus = "CANCELLED", PaymentStatus = "UNPAID", FulfillmentStatus = "UNFULFILLED",
+                IsDraft = false, DeliveryChargeCustomer = 130,
+                CancelledReason = "Customer unreachable after 3 calls",
+                CodRemittanceStatus = "NOT_APPLICABLE",
+                CreatedBy = ownerUser.Id, ConfirmedAt = DateTime.UtcNow.AddDays(-5)
+            };
+            db.Orders.Add(o5);
+            await db.SaveChangesAsync();
+            if (varJ34 != null) db.OrderItems.Add(new ResellerApi.Entities.OrderItem { OrderId = o5.Id, VariantId = varJ34.Id, Qty = 1, UnitPrice = 1800 });
+            await db.SaveChangesAsync();
+
+            // ── Order 6: Open, Unpaid (brand new) ───────────────────────
+            var o6 = new ResellerApi.Entities.Order
+            {
+                BusinessId = biz.Id, OrderNo = NextOrderNo(), Channel = "FACEBOOK",
+                CustomerName = "Walk-in Customer", CustomerPhone = "01700000099",
+                CustomerAddress = "Dhaka",
+                OrderStatus = "OPEN", PaymentStatus = "UNPAID", FulfillmentStatus = "UNFULFILLED",
+                IsDraft = false, DeliveryChargeCustomer = 70,
+                CreatedBy = ownerUser.Id, ConfirmedAt = DateTime.UtcNow
+            };
+            db.Orders.Add(o6);
+            await db.SaveChangesAsync();
+            if (varCar != null) db.OrderItems.Add(new ResellerApi.Entities.OrderItem { OrderId = o6.Id, VariantId = varCar.Id, Qty = 1, UnitPrice = 350 });
+            await db.SaveChangesAsync();
+        }
+    }
+
+    // ── Seed additional sample orders (7-12) if not yet present ─────────
+    if (biz != null && !await db.Orders.IgnoreQueryFilters().AnyAsync(o => o.BusinessId == biz.Id && o.OrderNo == "ORD-0007"))
+    {
+        var ownerUser2  = await db.Users.FirstOrDefaultAsync();
+        var varTMW2     = await db.ProductVariants.IgnoreQueryFilters().FirstOrDefaultAsync(v => v.Sku == "P-0001-02");
+        var varTLW2     = await db.ProductVariants.IgnoreQueryFilters().FirstOrDefaultAsync(v => v.Sku == "P-0001-03");
+        var varJ342     = await db.ProductVariants.IgnoreQueryFilters().FirstOrDefaultAsync(v => v.Sku == "P-0002-02");
+        var varCar2     = await db.ProductVariants.IgnoreQueryFilters().FirstOrDefaultAsync(v => v.Sku == "P-0004-01");
+        var steadfast2  = await db.Couriers.IgnoreQueryFilters().FirstOrDefaultAsync(c => c.BusinessId == biz.Id);
+
+        if (ownerUser2 != null)
+        {
+            int seq2 = 6;
+            string NextNo() => $"ORD-{++seq2:D4}";
+
+            // ── Order 7: Delivered & Fully Paid (Completed) ─────────────
+            var o7 = new ResellerApi.Entities.Order
+            {
+                BusinessId = biz.Id, OrderNo = NextNo(), Channel = "FACEBOOK",
+                CustomerName = "Rafiqul Islam", CustomerPhone = "01811111111",
+                CustomerAddress = "Uttara, Sector 11, Dhaka",
+                OrderStatus = "COMPLETED", PaymentStatus = "PAID", FulfillmentStatus = "DELIVERED",
+                IsDraft = false, DeliveryChargeCustomer = 130, DeliveryCostActual = 130,
+                CourierId = steadfast2?.Id, TrackingNo = "SS-20260010",
+                CodRemittanceStatus = "NOT_APPLICABLE",
+                CreatedBy = ownerUser2.Id,
+                ConfirmedAt = DateTime.UtcNow.AddDays(-14),
+                HandedOverAt = DateTime.UtcNow.AddDays(-13),
+                DeliveredAt = DateTime.UtcNow.AddDays(-11)
+            };
+            db.Orders.Add(o7);
+            await db.SaveChangesAsync();
+            if (varTMW2 != null) db.OrderItems.Add(new ResellerApi.Entities.OrderItem { OrderId = o7.Id, VariantId = varTMW2.Id, Qty = 1, UnitPrice = 650, UnitCostSnapshot = 280 });
+            db.OrderPayments.Add(new ResellerApi.Entities.OrderPayment { OrderId = o7.Id, Method = "BKASH", Amount = 780, ReceivedAt = DateTime.UtcNow.AddDays(-13), UserId = ownerUser2.Id });
+            await db.SaveChangesAsync();
+
+            // ── Order 8: Returned ────────────────────────────────────────
+            var o8 = new ResellerApi.Entities.Order
+            {
+                BusinessId = biz.Id, OrderNo = NextNo(), Channel = "WHATSAPP",
+                CustomerName = "Shirin Akter", CustomerPhone = "01922222222",
+                CustomerAddress = "Comilla Sadar, Comilla",
+                OrderStatus = "COMPLETED", PaymentStatus = "UNPAID", FulfillmentStatus = "RETURNED",
+                IsDraft = false, DeliveryChargeCustomer = 130, DeliveryCostActual = 130,
+                CourierId = steadfast2?.Id, TrackingNo = "SS-20260011",
+                CodRemittanceStatus = "NOT_APPLICABLE",
+                CancelledReason = "Customer refused delivery",
+                CreatedBy = ownerUser2.Id,
+                ConfirmedAt = DateTime.UtcNow.AddDays(-8),
+                HandedOverAt = DateTime.UtcNow.AddDays(-7)
+            };
+            db.Orders.Add(o8);
+            await db.SaveChangesAsync();
+            if (varJ342 != null) db.OrderItems.Add(new ResellerApi.Entities.OrderItem { OrderId = o8.Id, VariantId = varJ342.Id, Qty = 1, UnitPrice = 1800, UnitCostSnapshot = 850 });
+            await db.SaveChangesAsync();
+
+            // ── Order 9: COD pending (another Steadfast delivered order) ─
+            var o9 = new ResellerApi.Entities.Order
+            {
+                BusinessId = biz.Id, OrderNo = NextNo(), Channel = "INSTAGRAM",
+                CustomerName = "Tania Sultana", CustomerPhone = "01633333333",
+                CustomerAddress = "Gazipur Sadar, Gazipur",
+                OrderStatus = "COMPLETED", PaymentStatus = "UNPAID", FulfillmentStatus = "DELIVERED",
+                IsDraft = false, DeliveryChargeCustomer = 60,
+                CourierId = steadfast2?.Id, TrackingNo = "SS-20260012",
+                CodRemittanceStatus = "PENDING",
+                CreatedBy = ownerUser2.Id,
+                ConfirmedAt = DateTime.UtcNow.AddDays(-6),
+                HandedOverAt = DateTime.UtcNow.AddDays(-5),
+                DeliveredAt = DateTime.UtcNow.AddDays(-3)
+            };
+            db.Orders.Add(o9);
+            await db.SaveChangesAsync();
+            if (varCar2 != null) db.OrderItems.Add(new ResellerApi.Entities.OrderItem { OrderId = o9.Id, VariantId = varCar2.Id, Qty = 3, UnitPrice = 350, UnitCostSnapshot = 120 });
+            await db.SaveChangesAsync();
+
+            // ── Order 10: Shop counter sale, Paid ────────────────────────
+            var o10 = new ResellerApi.Entities.Order
+            {
+                BusinessId = biz.Id, OrderNo = NextNo(), Channel = "SHOP",
+                CustomerName = "Counter Customer", CustomerPhone = "01744444444",
+                OrderStatus = "COMPLETED", PaymentStatus = "PAID", FulfillmentStatus = "DELIVERED",
+                IsDraft = false, DeliveryChargeCustomer = 0,
+                CodRemittanceStatus = "NOT_APPLICABLE",
+                CreatedBy = ownerUser2.Id,
+                ConfirmedAt = DateTime.UtcNow.AddDays(-2),
+                DeliveredAt = DateTime.UtcNow.AddDays(-2)
+            };
+            db.Orders.Add(o10);
+            await db.SaveChangesAsync();
+            if (varTLW2 != null) db.OrderItems.Add(new ResellerApi.Entities.OrderItem { OrderId = o10.Id, VariantId = varTLW2.Id, Qty = 2, UnitPrice = 650, UnitCostSnapshot = 280 });
+            db.OrderPayments.Add(new ResellerApi.Entities.OrderPayment { OrderId = o10.Id, Method = "CASH", Amount = 1300, ReceivedAt = DateTime.UtcNow.AddDays(-2), UserId = ownerUser2.Id });
+            await db.SaveChangesAsync();
+
+            // ── Order 11: Draft, two items ───────────────────────────────
+            var o11 = new ResellerApi.Entities.Order
+            {
+                BusinessId = biz.Id, OrderNo = NextNo(), Channel = "FACEBOOK",
+                CustomerName = "Farhana Khanom", CustomerPhone = "01755555555",
+                OrderStatus = "OPEN", PaymentStatus = "UNPAID", FulfillmentStatus = "UNFULFILLED",
+                IsDraft = true, DeliveryChargeCustomer = 130,
+                CreatedBy = ownerUser2.Id
+            };
+            db.Orders.Add(o11);
+            await db.SaveChangesAsync();
+            if (varTMW2 != null) db.OrderItems.Add(new ResellerApi.Entities.OrderItem { OrderId = o11.Id, VariantId = varTMW2.Id, Qty = 2, UnitPrice = 650 });
+            if (varCar2 != null) db.OrderItems.Add(new ResellerApi.Entities.OrderItem { OrderId = o11.Id, VariantId = varCar2.Id, Qty = 1, UnitPrice = 350 });
+            await db.SaveChangesAsync();
+
+            // ── Order 12: Confirmed with 10% discount, Partially paid ────
+            var o12 = new ResellerApi.Entities.Order
+            {
+                BusinessId = biz.Id, OrderNo = NextNo(), Channel = "PHONE",
+                CustomerName = "Belal Hossain", CustomerPhone = "01666666666",
+                CustomerAddress = "Sylhet Sadar, Sylhet",
+                OrderStatus = "OPEN", PaymentStatus = "PARTIALLY_PAID", FulfillmentStatus = "UNFULFILLED",
+                IsDraft = false, DeliveryChargeCustomer = 130,
+                DiscountType = "PERCENT", DiscountValue = 10,
+                AdvancePaid = 500,
+                CreatedBy = ownerUser2.Id, ConfirmedAt = DateTime.UtcNow.AddHours(-3)
+            };
+            db.Orders.Add(o12);
+            await db.SaveChangesAsync();
+            if (varJ342 != null) db.OrderItems.Add(new ResellerApi.Entities.OrderItem { OrderId = o12.Id, VariantId = varJ342.Id, Qty = 2, UnitPrice = 1800, UnitCostSnapshot = 850 });
+            db.OrderPayments.Add(new ResellerApi.Entities.OrderPayment { OrderId = o12.Id, Method = "NAGAD", Amount = 500, ReceivedAt = DateTime.UtcNow.AddHours(-3), UserId = ownerUser2.Id });
+            await db.SaveChangesAsync();
+        }
+    }
+
+    // ── Seed extended orders (13-30) covering return/refund/exchange scenarios ──
+    if (biz != null && !await db.Orders.IgnoreQueryFilters().AnyAsync(o => o.BusinessId == biz.Id && o.OrderNo == "ORD-0013"))
+    {
+        var u       = await db.Users.FirstOrDefaultAsync();
+        var vT      = await db.ProductVariants.IgnoreQueryFilters().FirstOrDefaultAsync(v => v.Sku == "P-0001-02"); // T-shirt M White
+        var vTL     = await db.ProductVariants.IgnoreQueryFilters().FirstOrDefaultAsync(v => v.Sku == "P-0001-03"); // T-shirt L White
+        var vJ      = await db.ProductVariants.IgnoreQueryFilters().FirstOrDefaultAsync(v => v.Sku == "P-0002-02"); // Jeans W34
+        var vC      = await db.ProductVariants.IgnoreQueryFilters().FirstOrDefaultAsync(v => v.Sku == "P-0004-01"); // Carton
+        var cRahim  = await db.Customers.IgnoreQueryFilters().FirstOrDefaultAsync(c => c.Phone == "01711000001");
+        var cKarim  = await db.Customers.IgnoreQueryFilters().FirstOrDefaultAsync(c => c.Phone == "01712000002");
+        var cSumaiya= await db.Customers.IgnoreQueryFilters().FirstOrDefaultAsync(c => c.Phone == "01813000003");
+        var cNasrin = await db.Customers.IgnoreQueryFilters().FirstOrDefaultAsync(c => c.Phone == "01914000004");
+        var cJahir  = await db.Customers.IgnoreQueryFilters().FirstOrDefaultAsync(c => c.Phone == "01615000005");
+        var cFarida = await db.Customers.IgnoreQueryFilters().FirstOrDefaultAsync(c => c.Phone == "01516000006"); // serial rejecter
+        var cAnwar  = await db.Customers.IgnoreQueryFilters().FirstOrDefaultAsync(c => c.Phone == "01817000007");
+        var cMitu   = await db.Customers.IgnoreQueryFilters().FirstOrDefaultAsync(c => c.Phone == "01718000008");
+        var courier = await db.Couriers.IgnoreQueryFilters().FirstOrDefaultAsync(c => c.BusinessId == biz.Id);
+
+        if (u != null)
+        {
+            // ── ORD-0013: COURIER RETURN — parcel bounced back (Farida, serial rejecter) ──
+            var o13 = new ResellerApi.Entities.Order {
+                BusinessId = biz.Id, OrderNo = "ORD-0013",
+                Channel = "FACEBOOK", CustomerName = cFarida?.Name ?? "Farida Khanam",
+                CustomerPhone = cFarida?.Phone ?? "01516000006", CustomerId = cFarida?.Id,
+                CustomerAddress = "Sylhet Sadar, Sylhet",
+                OrderStatus = "OPEN", PaymentStatus = "UNPAID",
+                FulfillmentStatus = "RETURNED",
+                IsDraft = false, DeliveryChargeCustomer = 130,
+                CourierId = courier?.Id, TrackingNo = "SS-20260013",
+                CodRemittanceStatus = "NOT_APPLICABLE",
+                ReturnResolution = "COURIER_RETURN",
+                ReturnNote = "Customer refused to receive — serial rejecter flag set",
+                ReturnedAt = DateTime.UtcNow.AddDays(-1),
+                CreatedBy = u.Id, ConfirmedAt = DateTime.UtcNow.AddDays(-5),
+                HandedOverAt = DateTime.UtcNow.AddDays(-3)
+            };
+            db.Orders.Add(o13); await db.SaveChangesAsync();
+            if (vT != null) db.OrderItems.Add(new ResellerApi.Entities.OrderItem { OrderId = o13.Id, VariantId = vT.Id, Qty = 2, UnitPrice = 650, UnitCostSnapshot = 280 });
+            await db.SaveChangesAsync();
+
+            // ── ORD-0014: REFUND — customer returned wrong size, full cash refund ──
+            var o14 = new ResellerApi.Entities.Order {
+                BusinessId = biz.Id, OrderNo = "ORD-0014",
+                Channel = "WHATSAPP", CustomerName = cMitu?.Name ?? "Mitu Akter",
+                CustomerPhone = cMitu?.Phone ?? "01718000008", CustomerId = cMitu?.Id,
+                CustomerAddress = "Uttara, Sector-7, Dhaka",
+                OrderStatus = "OPEN", PaymentStatus = "REFUNDED",
+                FulfillmentStatus = "RETURNED",
+                IsDraft = false, DeliveryChargeCustomer = 70,
+                CourierId = courier?.Id, TrackingNo = "SS-20260014",
+                CodRemittanceStatus = "NOT_APPLICABLE",
+                ReturnResolution = "REFUND",
+                ReturnNote = "Wrong size ordered — full bKash refund",
+                ReturnedAt = DateTime.UtcNow.AddDays(-2),
+                CreatedBy = u.Id, ConfirmedAt = DateTime.UtcNow.AddDays(-8),
+                HandedOverAt = DateTime.UtcNow.AddDays(-6), DeliveredAt = DateTime.UtcNow.AddDays(-5)
+            };
+            db.Orders.Add(o14); await db.SaveChangesAsync();
+            if (vTL != null) db.OrderItems.Add(new ResellerApi.Entities.OrderItem { OrderId = o14.Id, VariantId = vTL.Id, Qty = 1, UnitPrice = 650, UnitCostSnapshot = 280 });
+            db.OrderPayments.Add(new ResellerApi.Entities.OrderPayment { OrderId = o14.Id, Method = "COD", Amount = 720, ReceivedAt = DateTime.UtcNow.AddDays(-5), UserId = u.Id });
+            db.OrderPayments.Add(new ResellerApi.Entities.OrderPayment { OrderId = o14.Id, Method = "REFUND_BKASH", Amount = -720, ReceivedAt = DateTime.UtcNow.AddDays(-2), UserId = u.Id });
+            await db.SaveChangesAsync();
+
+            // ── ORD-0015: STORE CREDIT — damaged item, customer wants credit instead of cash ──
+            var o15 = new ResellerApi.Entities.Order {
+                BusinessId = biz.Id, OrderNo = "ORD-0015",
+                Channel = "INSTAGRAM", CustomerName = cAnwar?.Name ?? "Anwar Islam",
+                CustomerPhone = cAnwar?.Phone ?? "01817000007", CustomerId = cAnwar?.Id,
+                CustomerAddress = "Narayanganj, Fatullah",
+                OrderStatus = "OPEN", PaymentStatus = "REFUNDED",
+                FulfillmentStatus = "RETURNED",
+                IsDraft = false, DeliveryChargeCustomer = 130,
+                CourierId = courier?.Id, TrackingNo = "SS-20260015",
+                CodRemittanceStatus = "NOT_APPLICABLE",
+                ReturnResolution = "STORE_CREDIT",
+                ReturnNote = "Item arrived damaged — customer chose store credit",
+                ReturnedAt = DateTime.UtcNow.AddDays(-3),
+                CreatedBy = u.Id, ConfirmedAt = DateTime.UtcNow.AddDays(-12),
+                HandedOverAt = DateTime.UtcNow.AddDays(-10), DeliveredAt = DateTime.UtcNow.AddDays(-9)
+            };
+            db.Orders.Add(o15); await db.SaveChangesAsync();
+            if (vJ != null) db.OrderItems.Add(new ResellerApi.Entities.OrderItem { OrderId = o15.Id, VariantId = vJ.Id, Qty = 1, UnitPrice = 1800, UnitCostSnapshot = 850 });
+            db.OrderPayments.Add(new ResellerApi.Entities.OrderPayment { OrderId = o15.Id, Method = "COD", Amount = 1930, ReceivedAt = DateTime.UtcNow.AddDays(-9), UserId = u.Id });
+            db.OrderPayments.Add(new ResellerApi.Entities.OrderPayment { OrderId = o15.Id, Method = "STORE_CREDIT", Amount = -1930, ReceivedAt = DateTime.UtcNow.AddDays(-3), UserId = u.Id });
+            await db.SaveChangesAsync();
+
+            // ── ORD-0016: EXCHANGE — wrong product, waiting for replacement ──
+            var o16 = new ResellerApi.Entities.Order {
+                BusinessId = biz.Id, OrderNo = "ORD-0016",
+                Channel = "PHONE", CustomerName = cJahir?.Name ?? "Jahir Rahman",
+                CustomerPhone = cJahir?.Phone ?? "01615000005", CustomerId = cJahir?.Id,
+                CustomerAddress = "Chittagong City, Ward-15",
+                OrderStatus = "OPEN", PaymentStatus = "PAID",
+                FulfillmentStatus = "RETURNED",
+                IsDraft = false, DeliveryChargeCustomer = 130,
+                CourierId = courier?.Id, TrackingNo = "SS-20260016",
+                CodRemittanceStatus = "NOT_APPLICABLE",
+                ReturnResolution = "EXCHANGE_DIFFERENT",
+                ReturnNote = "Sent wrong item — replacement order ORD-0017 created",
+                ReturnedAt = DateTime.UtcNow.AddDays(-1),
+                CreatedBy = u.Id, ConfirmedAt = DateTime.UtcNow.AddDays(-7),
+                HandedOverAt = DateTime.UtcNow.AddDays(-5), DeliveredAt = DateTime.UtcNow.AddDays(-4)
+            };
+            db.Orders.Add(o16); await db.SaveChangesAsync();
+            if (vT != null) db.OrderItems.Add(new ResellerApi.Entities.OrderItem { OrderId = o16.Id, VariantId = vT.Id, Qty = 1, UnitPrice = 650, UnitCostSnapshot = 280 });
+            db.OrderPayments.Add(new ResellerApi.Entities.OrderPayment { OrderId = o16.Id, Method = "BKASH", Amount = 780, ReceivedAt = DateTime.UtcNow.AddDays(-7), UserId = u.Id });
+            await db.SaveChangesAsync();
+
+            // ── ORD-0017: Replacement for ORD-0016, now IN_TRANSIT ──
+            var o17 = new ResellerApi.Entities.Order {
+                BusinessId = biz.Id, OrderNo = "ORD-0017",
+                Channel = "PHONE", CustomerName = cJahir?.Name ?? "Jahir Rahman",
+                CustomerPhone = cJahir?.Phone ?? "01615000005", CustomerId = cJahir?.Id,
+                CustomerAddress = "Chittagong City, Ward-15",
+                OrderStatus = "OPEN", PaymentStatus = "PAID",
+                FulfillmentStatus = "IN_TRANSIT",
+                IsDraft = false, DeliveryChargeCustomer = 130,
+                CourierId = courier?.Id, TrackingNo = "SS-20260017",
+                CodRemittanceStatus = "PENDING",
+                Note = "Replacement for ORD-0016 (exchange)",
+                CreatedBy = u.Id, ConfirmedAt = DateTime.UtcNow.AddDays(-1),
+                HandedOverAt = DateTime.UtcNow.AddDays(-1)
+            };
+            db.Orders.Add(o17); await db.SaveChangesAsync();
+            if (vJ != null) db.OrderItems.Add(new ResellerApi.Entities.OrderItem { OrderId = o17.Id, VariantId = vJ.Id, Qty = 1, UnitPrice = 1800, UnitCostSnapshot = 850 });
+            db.OrderPayments.Add(new ResellerApi.Entities.OrderPayment { OrderId = o17.Id, Method = "BKASH", Amount = 780, ReceivedAt = DateTime.UtcNow.AddDays(-1), UserId = u.Id });
+            await db.SaveChangesAsync();
+
+            // ── ORD-0018: Open, packed, waiting handover ──
+            var o18 = new ResellerApi.Entities.Order {
+                BusinessId = biz.Id, OrderNo = "ORD-0018",
+                Channel = "FACEBOOK", CustomerName = cRahim?.Name ?? "Rahim Uddin",
+                CustomerPhone = cRahim?.Phone ?? "01711000001", CustomerId = cRahim?.Id,
+                CustomerAddress = "House 12, Road 5, Mirpur-10, Dhaka",
+                OrderStatus = "OPEN", PaymentStatus = "UNPAID",
+                FulfillmentStatus = "PACKED",
+                IsDraft = false, DeliveryChargeCustomer = 70,
+                CourierId = courier?.Id, CodRemittanceStatus = "PENDING",
+                CreatedBy = u.Id, ConfirmedAt = DateTime.UtcNow.AddDays(-1)
+            };
+            db.Orders.Add(o18); await db.SaveChangesAsync();
+            if (vT != null) db.OrderItems.Add(new ResellerApi.Entities.OrderItem { OrderId = o18.Id, VariantId = vT.Id, Qty = 3, UnitPrice = 650, UnitCostSnapshot = 280 });
+            await db.SaveChangesAsync();
+
+            // ── ORD-0019: Open, confirmed, partial advance ──
+            var o19 = new ResellerApi.Entities.Order {
+                BusinessId = biz.Id, OrderNo = "ORD-0019",
+                Channel = "WHATSAPP", CustomerName = cKarim?.Name ?? "Karim Hossain",
+                CustomerPhone = cKarim?.Phone ?? "01712000002", CustomerId = cKarim?.Id,
+                CustomerAddress = "Flat 3B, Jigatala, Dhaka-1209",
+                OrderStatus = "OPEN", PaymentStatus = "PARTIALLY_PAID",
+                FulfillmentStatus = "UNFULFILLED",
+                IsDraft = false, DeliveryChargeCustomer = 70, AdvancePaid = 300,
+                CourierId = courier?.Id, CodRemittanceStatus = "PENDING",
+                CreatedBy = u.Id, ConfirmedAt = DateTime.UtcNow
+            };
+            db.Orders.Add(o19); await db.SaveChangesAsync();
+            if (vTL != null) db.OrderItems.Add(new ResellerApi.Entities.OrderItem { OrderId = o19.Id, VariantId = vTL.Id, Qty = 2, UnitPrice = 650, UnitCostSnapshot = 280 });
+            db.OrderPayments.Add(new ResellerApi.Entities.OrderPayment { OrderId = o19.Id, Method = "NAGAD", Amount = 300, ReceivedAt = DateTime.UtcNow, UserId = u.Id });
+            await db.SaveChangesAsync();
+
+            // ── ORD-0020: Shop sale (counter, full cash, delivered) ──
+            var o20 = new ResellerApi.Entities.Order {
+                BusinessId = biz.Id, OrderNo = "ORD-0020",
+                Channel = "SHOP", CustomerName = cNasrin?.Name ?? "Nasrin Akter",
+                CustomerPhone = cNasrin?.Phone ?? "01914000004", CustomerId = cNasrin?.Id,
+                OrderStatus = "COMPLETED", PaymentStatus = "PAID",
+                FulfillmentStatus = "DELIVERED",
+                IsDraft = false, DeliveryChargeCustomer = 0,
+                CodRemittanceStatus = "NOT_APPLICABLE",
+                CreatedBy = u.Id, ConfirmedAt = DateTime.UtcNow.AddHours(-5),
+                DeliveredAt = DateTime.UtcNow.AddHours(-5)
+            };
+            db.Orders.Add(o20); await db.SaveChangesAsync();
+            if (vT != null) db.OrderItems.Add(new ResellerApi.Entities.OrderItem { OrderId = o20.Id, VariantId = vT.Id, Qty = 1, UnitPrice = 650, UnitCostSnapshot = 280 });
+            db.OrderPayments.Add(new ResellerApi.Entities.OrderPayment { OrderId = o20.Id, Method = "CASH", Amount = 650, ReceivedAt = DateTime.UtcNow.AddHours(-5), UserId = u.Id });
+            await db.SaveChangesAsync();
+
+            // ── ORD-0021: Delivered, COD collected, fully paid ──
+            var o21 = new ResellerApi.Entities.Order {
+                BusinessId = biz.Id, OrderNo = "ORD-0021",
+                Channel = "FACEBOOK", CustomerName = cSumaiya?.Name ?? "Sumaiya Begum",
+                CustomerPhone = cSumaiya?.Phone ?? "01813000003", CustomerId = cSumaiya?.Id,
+                CustomerAddress = "Village: Gopalpur, Thana: Savar, Dhaka",
+                OrderStatus = "COMPLETED", PaymentStatus = "PAID",
+                FulfillmentStatus = "DELIVERED",
+                IsDraft = false, DeliveryChargeCustomer = 130,
+                CourierId = courier?.Id, TrackingNo = "SS-20260021",
+                CodRemittanceStatus = "PENDING",
+                CreatedBy = u.Id, ConfirmedAt = DateTime.UtcNow.AddDays(-4),
+                HandedOverAt = DateTime.UtcNow.AddDays(-3), DeliveredAt = DateTime.UtcNow.AddDays(-2)
+            };
+            db.Orders.Add(o21); await db.SaveChangesAsync();
+            if (vJ != null) db.OrderItems.Add(new ResellerApi.Entities.OrderItem { OrderId = o21.Id, VariantId = vJ.Id, Qty = 1, UnitPrice = 1800, UnitCostSnapshot = 850 });
+            db.OrderPayments.Add(new ResellerApi.Entities.OrderPayment { OrderId = o21.Id, Method = "COD", Amount = 1930, ReceivedAt = DateTime.UtcNow.AddDays(-2), UserId = u.Id });
+            await db.SaveChangesAsync();
+
+            // ── ORD-0022: Instagram, in-transit right now ──
+            var o22 = new ResellerApi.Entities.Order {
+                BusinessId = biz.Id, OrderNo = "ORD-0022",
+                Channel = "INSTAGRAM", CustomerName = cAnwar?.Name ?? "Anwar Islam",
+                CustomerPhone = cAnwar?.Phone ?? "01817000007", CustomerId = cAnwar?.Id,
+                CustomerAddress = "Narayanganj, Fatullah",
+                OrderStatus = "OPEN", PaymentStatus = "UNPAID",
+                FulfillmentStatus = "IN_TRANSIT",
+                IsDraft = false, DeliveryChargeCustomer = 70,
+                CourierId = courier?.Id, TrackingNo = "SS-20260022",
+                CodRemittanceStatus = "PENDING",
+                CreatedBy = u.Id, ConfirmedAt = DateTime.UtcNow.AddDays(-2),
+                HandedOverAt = DateTime.UtcNow.AddDays(-2)
+            };
+            db.Orders.Add(o22); await db.SaveChangesAsync();
+            if (vC != null) db.OrderItems.Add(new ResellerApi.Entities.OrderItem { OrderId = o22.Id, VariantId = vC.Id, Qty = 1, UnitPrice = 350, UnitCostSnapshot = 120 });
+            await db.SaveChangesAsync();
+
+            // ── ORD-0023: Draft (customer said "will confirm tomorrow") ──
+            var o23 = new ResellerApi.Entities.Order {
+                BusinessId = biz.Id, OrderNo = "ORD-0023",
+                Channel = "WHATSAPP", CustomerName = cMitu?.Name ?? "Mitu Akter",
+                CustomerPhone = cMitu?.Phone ?? "01718000008", CustomerId = cMitu?.Id,
+                OrderStatus = "OPEN", PaymentStatus = "UNPAID",
+                FulfillmentStatus = "UNFULFILLED",
+                IsDraft = true, DeliveryChargeCustomer = 70,
+                CreatedBy = u.Id
+            };
+            db.Orders.Add(o23); await db.SaveChangesAsync();
+            if (vT != null) db.OrderItems.Add(new ResellerApi.Entities.OrderItem { OrderId = o23.Id, VariantId = vT.Id, Qty = 2, UnitPrice = 650, UnitCostSnapshot = 280 });
+            await db.SaveChangesAsync();
+
+            // ── ORD-0024: Cancelled — customer ordered by mistake ──
+            var o24 = new ResellerApi.Entities.Order {
+                BusinessId = biz.Id, OrderNo = "ORD-0024",
+                Channel = "PHONE", CustomerName = cKarim?.Name ?? "Karim Hossain",
+                CustomerPhone = cKarim?.Phone ?? "01712000002", CustomerId = cKarim?.Id,
+                OrderStatus = "CANCELLED", PaymentStatus = "UNPAID",
+                FulfillmentStatus = "UNFULFILLED",
+                IsDraft = false, DeliveryChargeCustomer = 70,
+                CancelledReason = "Customer ordered by mistake, called to cancel",
+                CreatedBy = u.Id, ConfirmedAt = DateTime.UtcNow.AddDays(-3)
+            };
+            db.Orders.Add(o24); await db.SaveChangesAsync();
+            if (vTL != null) db.OrderItems.Add(new ResellerApi.Entities.OrderItem { OrderId = o24.Id, VariantId = vTL.Id, Qty = 1, UnitPrice = 650, UnitCostSnapshot = 280 });
+            await db.SaveChangesAsync();
+
+            // ── ORD-0025: Partially paid, packed, about to handover ──
+            var o25 = new ResellerApi.Entities.Order {
+                BusinessId = biz.Id, OrderNo = "ORD-0025",
+                Channel = "FACEBOOK", CustomerName = cRahim?.Name ?? "Rahim Uddin",
+                CustomerPhone = cRahim?.Phone ?? "01711000001", CustomerId = cRahim?.Id,
+                CustomerAddress = "House 12, Road 5, Mirpur-10, Dhaka",
+                OrderStatus = "OPEN", PaymentStatus = "PARTIALLY_PAID",
+                FulfillmentStatus = "PACKED",
+                IsDraft = false, DeliveryChargeCustomer = 130, AdvancePaid = 500,
+                CourierId = courier?.Id, CodRemittanceStatus = "PENDING",
+                CreatedBy = u.Id, ConfirmedAt = DateTime.UtcNow.AddDays(-1)
+            };
+            db.Orders.Add(o25); await db.SaveChangesAsync();
+            if (vJ != null) db.OrderItems.Add(new ResellerApi.Entities.OrderItem { OrderId = o25.Id, VariantId = vJ.Id, Qty = 1, UnitPrice = 1800, UnitCostSnapshot = 850 });
+            if (vT != null) db.OrderItems.Add(new ResellerApi.Entities.OrderItem { OrderId = o25.Id, VariantId = vT.Id, Qty = 1, UnitPrice = 650, UnitCostSnapshot = 280 });
+            db.OrderPayments.Add(new ResellerApi.Entities.OrderPayment { OrderId = o25.Id, Method = "BKASH", Amount = 500, ReceivedAt = DateTime.UtcNow.AddDays(-1), UserId = u.Id });
+            await db.SaveChangesAsync();
+
+            // ── ORD-0026: Full refund after delivery — product broken ──
+            var o26 = new ResellerApi.Entities.Order {
+                BusinessId = biz.Id, OrderNo = "ORD-0026",
+                Channel = "FACEBOOK", CustomerName = cNasrin?.Name ?? "Nasrin Akter",
+                CustomerPhone = cNasrin?.Phone ?? "01914000004", CustomerId = cNasrin?.Id,
+                CustomerAddress = "Mohammadpur, Dhaka",
+                OrderStatus = "OPEN", PaymentStatus = "REFUNDED",
+                FulfillmentStatus = "RETURNED",
+                IsDraft = false, DeliveryChargeCustomer = 70,
+                CourierId = courier?.Id, TrackingNo = "SS-20260026",
+                CodRemittanceStatus = "NOT_APPLICABLE",
+                ReturnResolution = "REFUND",
+                ReturnNote = "Product came broken — full cash refund given",
+                ReturnedAt = DateTime.UtcNow.AddDays(-1),
+                CreatedBy = u.Id, ConfirmedAt = DateTime.UtcNow.AddDays(-6),
+                HandedOverAt = DateTime.UtcNow.AddDays(-4), DeliveredAt = DateTime.UtcNow.AddDays(-3)
+            };
+            db.Orders.Add(o26); await db.SaveChangesAsync();
+            if (vC != null) db.OrderItems.Add(new ResellerApi.Entities.OrderItem { OrderId = o26.Id, VariantId = vC.Id, Qty = 2, UnitPrice = 350, UnitCostSnapshot = 120 });
+            db.OrderPayments.Add(new ResellerApi.Entities.OrderPayment { OrderId = o26.Id, Method = "COD", Amount = 770, ReceivedAt = DateTime.UtcNow.AddDays(-3), UserId = u.Id });
+            db.OrderPayments.Add(new ResellerApi.Entities.OrderPayment { OrderId = o26.Id, Method = "REFUND_CASH", Amount = -770, ReceivedAt = DateTime.UtcNow.AddDays(-1), UserId = u.Id });
+            await db.SaveChangesAsync();
+
+            // ── ORD-0027: Replace same — customer wants same item resent ──
+            var o27 = new ResellerApi.Entities.Order {
+                BusinessId = biz.Id, OrderNo = "ORD-0027",
+                Channel = "INSTAGRAM", CustomerName = cSumaiya?.Name ?? "Sumaiya Begum",
+                CustomerPhone = cSumaiya?.Phone ?? "01813000003", CustomerId = cSumaiya?.Id,
+                CustomerAddress = "Village: Gopalpur, Thana: Savar, Dhaka",
+                OrderStatus = "OPEN", PaymentStatus = "PAID",
+                FulfillmentStatus = "RETURNED",
+                IsDraft = false, DeliveryChargeCustomer = 130,
+                CourierId = courier?.Id, TrackingNo = "SS-20260027",
+                CodRemittanceStatus = "NOT_APPLICABLE",
+                ReturnResolution = "REPLACE_SAME",
+                ReturnNote = "Defective unit, customer wants same item — replacement dispatched",
+                ReturnedAt = DateTime.UtcNow.AddDays(-2),
+                CreatedBy = u.Id, ConfirmedAt = DateTime.UtcNow.AddDays(-9),
+                HandedOverAt = DateTime.UtcNow.AddDays(-7), DeliveredAt = DateTime.UtcNow.AddDays(-6)
+            };
+            db.Orders.Add(o27); await db.SaveChangesAsync();
+            if (vTL != null) db.OrderItems.Add(new ResellerApi.Entities.OrderItem { OrderId = o27.Id, VariantId = vTL.Id, Qty = 1, UnitPrice = 650, UnitCostSnapshot = 280 });
+            db.OrderPayments.Add(new ResellerApi.Entities.OrderPayment { OrderId = o27.Id, Method = "BKASH", Amount = 780, ReceivedAt = DateTime.UtcNow.AddDays(-9), UserId = u.Id });
+            await db.SaveChangesAsync();
+
+            // ── ORD-0028: Open, confirmed, no advance, just today ──
+            var o28 = new ResellerApi.Entities.Order {
+                BusinessId = biz.Id, OrderNo = "ORD-0028",
+                Channel = "FACEBOOK", CustomerName = cJahir?.Name ?? "Jahir Rahman",
+                CustomerPhone = cJahir?.Phone ?? "01615000005", CustomerId = cJahir?.Id,
+                CustomerAddress = "Chittagong City, Ward-15",
+                OrderStatus = "OPEN", PaymentStatus = "UNPAID",
+                FulfillmentStatus = "UNFULFILLED",
+                IsDraft = false, DeliveryChargeCustomer = 130,
+                CourierId = courier?.Id, CodRemittanceStatus = "PENDING",
+                CreatedBy = u.Id, ConfirmedAt = DateTime.UtcNow
+            };
+            db.Orders.Add(o28); await db.SaveChangesAsync();
+            if (vT != null) db.OrderItems.Add(new ResellerApi.Entities.OrderItem { OrderId = o28.Id, VariantId = vT.Id, Qty = 4, UnitPrice = 650, UnitCostSnapshot = 280 });
+            await db.SaveChangesAsync();
+
+            // ── ORD-0029: Delivered, due amount remaining (partial COD) ──
+            var o29 = new ResellerApi.Entities.Order {
+                BusinessId = biz.Id, OrderNo = "ORD-0029",
+                Channel = "WHATSAPP", CustomerName = cAnwar?.Name ?? "Anwar Islam",
+                CustomerPhone = cAnwar?.Phone ?? "01817000007", CustomerId = cAnwar?.Id,
+                CustomerAddress = "Narayanganj, Fatullah",
+                OrderStatus = "OPEN", PaymentStatus = "PARTIALLY_PAID",
+                FulfillmentStatus = "DELIVERED",
+                IsDraft = false, DeliveryChargeCustomer = 70,
+                CourierId = courier?.Id, TrackingNo = "SS-20260029",
+                CodRemittanceStatus = "PENDING",
+                Note = "Customer paid 500, will pay rest next week",
+                CreatedBy = u.Id, ConfirmedAt = DateTime.UtcNow.AddDays(-5),
+                HandedOverAt = DateTime.UtcNow.AddDays(-4), DeliveredAt = DateTime.UtcNow.AddDays(-3)
+            };
+            db.Orders.Add(o29); await db.SaveChangesAsync();
+            if (vJ != null) db.OrderItems.Add(new ResellerApi.Entities.OrderItem { OrderId = o29.Id, VariantId = vJ.Id, Qty = 1, UnitPrice = 1800, UnitCostSnapshot = 850 });
+            db.OrderPayments.Add(new ResellerApi.Entities.OrderPayment { OrderId = o29.Id, Method = "CASH", Amount = 500, ReceivedAt = DateTime.UtcNow.AddDays(-3), UserId = u.Id });
+            await db.SaveChangesAsync();
+
+            // ── ORD-0030: Shop counter + bKash, completed ──
+            var o30 = new ResellerApi.Entities.Order {
+                BusinessId = biz.Id, OrderNo = "ORD-0030",
+                Channel = "SHOP", CustomerName = cMitu?.Name ?? "Mitu Akter",
+                CustomerPhone = cMitu?.Phone ?? "01718000008", CustomerId = cMitu?.Id,
+                OrderStatus = "COMPLETED", PaymentStatus = "PAID",
+                FulfillmentStatus = "DELIVERED",
+                IsDraft = false, DeliveryChargeCustomer = 0,
+                CodRemittanceStatus = "NOT_APPLICABLE",
+                CreatedBy = u.Id, ConfirmedAt = DateTime.UtcNow.AddHours(-2),
+                DeliveredAt = DateTime.UtcNow.AddHours(-2)
+            };
+            db.Orders.Add(o30); await db.SaveChangesAsync();
+            if (vT != null) db.OrderItems.Add(new ResellerApi.Entities.OrderItem { OrderId = o30.Id, VariantId = vT.Id, Qty = 2, UnitPrice = 650, UnitCostSnapshot = 280 });
+            if (vC != null) db.OrderItems.Add(new ResellerApi.Entities.OrderItem { OrderId = o30.Id, VariantId = vC.Id, Qty = 1, UnitPrice = 350, UnitCostSnapshot = 120 });
+            db.OrderPayments.Add(new ResellerApi.Entities.OrderPayment { OrderId = o30.Id, Method = "CASH", Amount = 800, ReceivedAt = DateTime.UtcNow.AddHours(-2), UserId = u.Id });
+            db.OrderPayments.Add(new ResellerApi.Entities.OrderPayment { OrderId = o30.Id, Method = "BKASH", Amount = 850, ReceivedAt = DateTime.UtcNow.AddHours(-2), UserId = u.Id });
+            await db.SaveChangesAsync();
+        }
     }
 
     // ── Seed expense categories ───────────────────────────────────────────

@@ -85,6 +85,17 @@ public class ProductService : IProductService
         return variants.Select(v => MapSearchResult(v, inv, v.AvgLandedCost)).ToList();
     }
 
+    public async Task<ProductSearchResultDto?> GetByBarcodeAsync(string barcode)
+    {
+        var variant = await _db.ProductVariants
+            .AsNoTracking()
+            .Include(v => v.Product)
+            .FirstOrDefaultAsync(v => v.Barcode == barcode && v.Product.Status == "ACTIVE");
+        if (variant == null) return null;
+        var inv = await LoadInventoryAsync(new[] { variant.Id });
+        return MapSearchResult(variant, inv, variant.AvgLandedCost);
+    }
+
     public async Task<List<ProductSearchResultDto>> BrowseAsync(Guid? categoryId)
     {
         var q = _db.ProductVariants
@@ -221,6 +232,28 @@ public class ProductService : IProductService
         await _db.SaveChangesAsync();
         await _log.LogAsync(_business.CurrentBusinessId, userId, "UPDATE", "Product", product.Id);
         return (ProductDetailDto)(await GetAsync(product.Id, true));
+    }
+
+    public async Task<List<VariantLabelData>> GetVariantLabelsAsync(Guid productId, Guid? variantId)
+    {
+        var product = await _db.Products
+            .AsNoTracking()
+            .Include(p => p.Variants)
+            .FirstOrDefaultAsync(p => p.Id == productId)
+            ?? throw new KeyNotFoundException("Product not found.");
+
+        var variants = product.Variants
+            .Where(v => v.DeletedAt == null && (variantId == null || v.Id == variantId))
+            .ToList();
+
+        return variants.Select(v =>
+        {
+            var vals = System.Text.Json.JsonSerializer
+                .Deserialize<Dictionary<string, string>>(v.VariantValuesJson ?? "{}") ?? new();
+            var label = string.Join(" / ", vals.Values.Where(x => !string.IsNullOrWhiteSpace(x)));
+            var price = v.PriceOverride ?? product.SellingPrice;
+            return new VariantLabelData(product.Name, label, v.Barcode, v.Sku, price);
+        }).ToList();
     }
 
     public async Task ArchiveAsync(Guid id, Guid userId)
