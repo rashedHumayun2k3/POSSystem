@@ -13,5 +13,8 @@ public class Courier : BusinessScopedEntity
     public decimal CodFeeValue { get; set; } = 0;
     public bool IsDefault { get; set; } = false;
     public string? TrackingUrlTemplate { get; set; }
+    public string? Contact { get; set; }
     public bool IsActive { get; set; } = true;
+
+    public ICollection<DeliveryMan> DeliveryMen { get; set; } = new List<DeliveryMan>();
 }

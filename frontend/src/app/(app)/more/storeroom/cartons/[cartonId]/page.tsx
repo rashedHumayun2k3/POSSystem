@@ -5,9 +5,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { getCarton, openCarton, labelCartonItem, updateCarton } from '@/lib/cartonApi';
-import { getProducts } from '@/lib/catalogApi';
+import type { ProductSearchResult } from '@/types/catalog';
 import type { CartonItem } from '@/types/carton';
 import { useLanguage } from '@/i18n/LanguageContext';
+import ProductPicker from '@/components/purchases/ProductPicker';
 
 type Panel = null | 'open' | 'label' | 'edit';
 
@@ -41,17 +42,11 @@ export default function CartonDetailPage() {
   const [openNotes, setOpenNotes] = useState('');
   const [editLocation, setEditLocation] = useState('');
   const [editNotes, setEditNotes] = useState('');
-  const [productSearch, setProductSearch] = useState('');
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const { data: carton, isLoading } = useQuery({
     queryKey: ['carton', cartonId],
     queryFn: () => getCarton(cartonId),
-  });
-
-  const { data: products = [] } = useQuery({
-    queryKey: ['products'],
-    queryFn: () => getProducts({}),
-    enabled: panel === 'open',
   });
 
   const invalidate = () => {
@@ -105,15 +100,18 @@ export default function CartonDetailPage() {
     setPanel('open');
   }
 
-  function addProductToOpen(variantId: string, productName: string, variantLabel: string, sellingPrice: number) {
-    if (openItems.some(i => i.variantId === variantId)) return;
-    setOpenItems(prev => [...prev, { variantId, productName, variantLabel, qty: '', damaged: '0', price: String(sellingPrice) }]);
-    setProductSearch('');
+  function addProductToOpen(r: ProductSearchResult) {
+    if (openItems.some(i => i.variantId === r.variantId)) return;
+    setOpenItems(prev => [...prev, {
+      variantId: r.variantId,
+      productName: r.productName,
+      variantLabel: parseVariantLabel(r.variantValuesJson),
+      qty: '',
+      damaged: '0',
+      price: String(r.sellingPrice),
+    }]);
+    setPickerOpen(false);
   }
-
-  const filteredProducts = productSearch
-    ? products.filter(p => p.name.toLowerCase().includes(productSearch.toLowerCase()))
-    : [];
 
   if (isLoading) return <div className="p-8 text-center text-sm text-gray-400">{t('common.loading')}...</div>;
   if (!carton) return <div className="p-8 text-center text-sm text-gray-400">Not found</div>;
@@ -225,20 +223,10 @@ export default function CartonDetailPage() {
               {/* Product picker */}
               <div>
                 <p className="text-xs font-semibold text-gray-500 mb-1.5">{t('storeroom.whatsInside')}</p>
-                <div className="relative">
-                  <input placeholder={t('storeroom.searchProduct')} value={productSearch} onChange={e => setProductSearch(e.target.value)}
-                    className="w-full h-10 px-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" />
-                  {filteredProducts.length > 0 && productSearch && (
-                    <div className="absolute z-20 top-11 left-0 right-0 bg-white border border-gray-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
-                      {filteredProducts.slice(0, 6).map(p => (
-                        <button key={p.id} onClick={() => addProductToOpen(p.id, p.name, '', p.sellingPrice)}
-                          className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 border-b border-gray-50 last:border-0">
-                          {p.name} <span className="text-gray-400">৳{p.sellingPrice}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                <button type="button" onClick={() => setPickerOpen(true)}
+                  className="w-full h-10 px-3 rounded-xl border border-dashed border-indigo-300 text-sm text-indigo-600 font-medium text-left">
+                  + {t('storeroom.searchProduct')}
+                </button>
               </div>
 
               {/* Item rows */}
@@ -332,6 +320,12 @@ export default function CartonDetailPage() {
           </div>
         </div>
       )}
+
+      <ProductPicker
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        onSelect={addProductToOpen}
+      />
     </div>
   );
 }

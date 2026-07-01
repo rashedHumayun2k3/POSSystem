@@ -25,6 +25,7 @@
     </PackageReference>
     <PackageReference Include="QuestPDF" Version="2026.6.0" />
     <PackageReference Include="Scalar.AspNetCore" Version="2.16.3" />
+    <PackageReference Include="ZXing.Net.Bindings.SkiaSharp.V2" Version="0.16.17" />
   </ItemGroup>
 
 </Project>

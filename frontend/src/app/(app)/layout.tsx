@@ -31,7 +31,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     "/more/expenses":    t("more.expenses"),
     "/more/deliveries":  t("more.deliveries"),
     "/more/baki":        t("more.baki"),
-    "/more/reports":     t("more.reports"),
+    "/more/reports":              t("more.reports"),
+    "/more/reports/dashboard":   "Dashboard",
+    "/more/reports/sales":       "Sales Reports",
+    "/more/reports/inventory":   "Inventory Reports",
+    "/more/reports/financial":   "Financial Reports",
+    "/more/reports/orders":      "Order Reports",
     "/more/settings":                    t("settings.title"),
     "/more/settings/staff":              t("settings.staff"),
     "/more/settings/couriers":           t("settings.couriers"),
@@ -40,11 +45,20 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     "/notifications":    "🔔",
   };
 
+  const backHrefMap: Record<string, string> = {
+    "/more/reports/dashboard": "/more/reports",
+    "/more/reports/sales":     "/more/reports",
+    "/more/reports/inventory": "/more/reports",
+    "/more/reports/financial": "/more/reports",
+    "/more/reports/orders":    "/more/reports",
+  };
+
   const title = titleMap[pathname] ?? "Reseller Manager";
+  const backHref = backHrefMap[pathname];
 
   return (
     <div className="flex flex-col min-h-screen">
-      <AppHeader title={title} />
+      <AppHeader title={title} backHref={backHref} />
       <main className="flex-1 overflow-y-auto pb-20">
         {children}
       </main>

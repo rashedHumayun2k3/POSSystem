@@ -1,0 +1,97 @@
+namespace ResellerApi.DTOs.Reports;
+
+// ── Common ────────────────────────────────────────────────────────────────────
+
+public record DatePoint(string Label, decimal Value);
+public record NameValue(string Name, decimal Value);
+
+// ── Dashboard ─────────────────────────────────────────────────────────────────
+
+public record DashboardKpiDto(
+    decimal TodaySales,
+    int TodayOrders,
+    decimal TodayProfit,        // owner-only (null for staff)
+    int TodayCustomers,
+    decimal TodayProductsSold,
+    int TodayReturns,
+    int LowStockCount,
+    int OutOfStockCount,
+    List<DatePoint> SalesTrend, // last 30 days
+    List<NameValue> TopProducts,
+    List<NameValue> PaymentMethods,
+    List<DatePoint> HourlySales, // today 0-23h
+    List<NameValue> SalesByCategory
+);
+
+// ── Sales ─────────────────────────────────────────────────────────────────────
+
+public record SalesSummaryDto(
+    decimal TotalRevenue,
+    int TotalOrders,
+    decimal TotalDiscount,
+    decimal AverageOrderValue,
+    List<DatePoint> RevenueByPeriod,
+    List<NameValue> TopProducts,
+    List<NameValue> ByCategory,
+    List<NameValue> ByCashier,
+    List<NameValue> ByPaymentMethod,
+    List<DatePoint> HourlySales
+);
+
+// ── Inventory ─────────────────────────────────────────────────────────────────
+
+public record StockStatusItem(
+    string VariantSku,
+    string ProductName,
+    string? VariantLabel,
+    decimal OnHand,
+    decimal Allocated,
+    decimal Available,
+    decimal Damaged,
+    decimal ReorderLevel,
+    bool IsLowStock,
+    bool IsOutOfStock
+);
+
+public record InventoryReportDto(
+    int TotalVariants,
+    int LowStockCount,
+    int OutOfStockCount,
+    decimal TotalInventoryValue, // owner-only
+    List<StockStatusItem> Items,
+    List<DatePoint> MovementTrend,       // net stock movement per day
+    List<NameValue> FastMovingProducts,
+    List<NameValue> SlowMovingProducts
+);
+
+// ── Financial ─────────────────────────────────────────────────────────────────
+
+public record PnlReportDto(
+    decimal Revenue,
+    decimal Cogs,
+    decimal GrossProfit,
+    decimal GrossMarginPct,
+    decimal TotalExpenses,
+    decimal NetProfit,
+    decimal NetMarginPct,
+    decimal TotalDiscount,
+    List<DatePoint> RevenueTrend,
+    List<DatePoint> ProfitTrend,
+    List<DatePoint> ExpenseTrend,
+    List<NameValue> ExpenseByCategory
+);
+
+// ── Orders ────────────────────────────────────────────────────────────────────
+
+public record OrdersReportDto(
+    int TotalOrders,
+    int CompletedOrders,
+    int PendingOrders,
+    int CancelledOrders,
+    int ReturnedOrders,
+    decimal ReturnRate,
+    List<DatePoint> OrdersTrend,
+    List<DatePoint> CancelledTrend,
+    List<NameValue> ReturnReasons,
+    List<NameValue> OrdersByChannel
+);

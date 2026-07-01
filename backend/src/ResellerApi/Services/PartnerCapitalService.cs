@@ -29,6 +29,9 @@ public class PartnerCapitalService : IPartnerCapitalService
 
         var partner = await _db.Partners.FirstOrDefaultAsync(p => p.Id == partnerId)
             ?? throw new KeyNotFoundException("Partner not found.");
+        if (partner.Status != "ACTIVE")
+            throw new InvalidOperationException(
+                "Capital injections can only be recorded for an ACTIVE partner. This partner is still pending managing-partner approval (R15.11).");
 
         var injectedAt = request.InjectedAt ?? DateTime.UtcNow;
         var injection = new CapitalInjection

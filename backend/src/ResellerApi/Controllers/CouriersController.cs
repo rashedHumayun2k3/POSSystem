@@ -28,6 +28,7 @@ public class CouriersController : ControllerBase
     }
 
     [HttpGet]
+    [AllowAnonymous]
     public async Task<IActionResult> GetAll()
     {
         var couriers = await _db.Couriers
@@ -126,6 +127,61 @@ public class CouriersController : ControllerBase
             "DELETE", "Courier", id, new { courier.Name }, null);
         return NoContent();
     }
+
+    // ── Delivery Men ──────────────────────────────────────────────────────────
+
+    [HttpGet("delivery-men")]
+    [AllowAnonymous]
+    public async Task<IActionResult> GetDeliveryMen([FromQuery] bool activeOnly = true)
+    {
+        var query = _db.DeliveryMen.AsNoTracking().Include(d => d.Courier).AsQueryable();
+        if (activeOnly) query = query.Where(d => d.IsActive);
+        var list = await query.OrderBy(d => d.Name)
+            .Select(d => new { d.Id, d.Name, d.Phone, d.CourierId, CourierName = d.Courier != null ? d.Courier.Name : null, d.CostPerDelivery, d.IsActive })
+            .ToListAsync();
+        return Ok(list);
+    }
+
+    [HttpPost("delivery-men")]
+    public async Task<IActionResult> CreateDeliveryMan([FromBody] DeliveryManRequest req)
+    {
+        var dm = new DeliveryMan
+        {
+            BusinessId = _businessContext.CurrentBusinessId,
+            Name = req.Name.Trim(),
+            Phone = req.Phone.Trim(),
+            CourierId = req.CourierId,
+            CostPerDelivery = req.CostPerDelivery,
+            IsActive = true
+        };
+        _db.DeliveryMen.Add(dm);
+        await _db.SaveChangesAsync();
+        await _activityLog.LogAsync(_businessContext.CurrentBusinessId, _currentUser.UserId, "CREATE", "DeliveryMan", dm.Id);
+        return Ok(new { dm.Id, dm.Name, dm.Phone, dm.CourierId, dm.CostPerDelivery, dm.IsActive });
+    }
+
+    [HttpPatch("delivery-men/{id:guid}")]
+    public async Task<IActionResult> UpdateDeliveryMan(Guid id, [FromBody] DeliveryManRequest req)
+    {
+        var dm = await _db.DeliveryMen.FindAsync(id);
+        if (dm is null) return NotFound();
+        dm.Name = req.Name.Trim();
+        dm.Phone = req.Phone.Trim();
+        dm.CourierId = req.CourierId;
+        dm.CostPerDelivery = req.CostPerDelivery;
+        await _db.SaveChangesAsync();
+        return Ok(new { dm.Id, dm.Name, dm.Phone, dm.CourierId, dm.CostPerDelivery, dm.IsActive });
+    }
+
+    [HttpPatch("delivery-men/{id:guid}/toggle-active")]
+    public async Task<IActionResult> ToggleDeliveryManActive(Guid id)
+    {
+        var dm = await _db.DeliveryMen.FindAsync(id);
+        if (dm is null) return NotFound();
+        dm.IsActive = !dm.IsActive;
+        await _db.SaveChangesAsync();
+        return Ok(new { dm.IsActive });
+    }
 }
 
 public record CourierRequest(
@@ -138,3 +194,9 @@ public record CourierRequest(
     decimal CodFeeValue,
     bool IsDefault,
     string? TrackingUrlTemplate);
+
+public record DeliveryManRequest(
+    string Name,
+    string Phone,
+    Guid? CourierId,
+    decimal CostPerDelivery);

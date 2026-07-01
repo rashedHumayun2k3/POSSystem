@@ -7,6 +7,9 @@ import type {
   CapitalInjectionDto,
   CreateCapitalInjectionPayload,
   CapitalLedgerEntryDto,
+  PartnerApprovalStatusDto,
+  CastApprovalVotePayload,
+  CancelPendingPartnerPayload,
 } from '@/types/partner';
 
 export const listPartners = async (params?: { partnerType?: string; status?: string }): Promise<PartnerDto[]> => {
@@ -52,5 +55,28 @@ export const listPartnerLedger = async (
   params?: { from?: string; to?: string }
 ): Promise<CapitalLedgerEntryDto[]> => {
   const { data } = await api.get(`/partners/${partnerId}/ledger`, { params });
+  return data;
+};
+
+// R15.11 — new partner approval workflow.
+
+export const getPartnerApproval = async (partnerId: string): Promise<PartnerApprovalStatusDto> => {
+  const { data } = await api.get(`/partners/${partnerId}/approval`);
+  return data;
+};
+
+export const castApprovalVote = async (
+  partnerId: string,
+  payload: CastApprovalVotePayload
+): Promise<PartnerApprovalStatusDto> => {
+  const { data } = await api.post(`/partners/${partnerId}/votes`, payload);
+  return data;
+};
+
+export const cancelPendingPartner = async (
+  partnerId: string,
+  payload: CancelPendingPartnerPayload
+): Promise<PartnerDto> => {
+  const { data } = await api.post(`/partners/${partnerId}/cancel`, payload);
   return data;
 };

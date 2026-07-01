@@ -81,5 +81,33 @@ public class PartnersController : ControllerBase
         }
         catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
         catch (ArgumentException ex) { return BadRequest(new { message = ex.Message }); }
+        catch (InvalidOperationException ex) { return Conflict(new { message = ex.Message }); }
+    }
+
+    // R15.11 — new partner approval workflow.
+
+    [HttpGet("{id:guid}/approval")]
+    public async Task<IActionResult> GetApproval(Guid id)
+    {
+        try { return Ok(await _partners.GetApprovalStatusAsync(id)); }
+        catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
+    }
+
+    [HttpPost("{id:guid}/votes")]
+    public async Task<IActionResult> CastVote(Guid id, [FromBody] CastApprovalVoteRequest request)
+    {
+        try { return Ok(await _partners.CastVoteAsync(id, request, _user.UserId)); }
+        catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
+        catch (ArgumentException ex) { return BadRequest(new { message = ex.Message }); }
+        catch (InvalidOperationException ex) { return Conflict(new { message = ex.Message }); }
+    }
+
+    [HttpPost("{id:guid}/cancel")]
+    public async Task<IActionResult> CancelPending(Guid id, [FromBody] CancelPendingPartnerRequest request)
+    {
+        try { return Ok(await _partners.CancelPendingAsync(id, request, _user.UserId)); }
+        catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
+        catch (ArgumentException ex) { return BadRequest(new { message = ex.Message }); }
+        catch (InvalidOperationException ex) { return Conflict(new { message = ex.Message }); }
     }
 }

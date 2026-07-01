@@ -2,7 +2,7 @@
 // All amount fields are paisa (integer, ÷100 for display) per R15.2.
 
 export type PartnerType = "MANAGING" | "SLEEPING";
-export type PartnerStatus = "ACTIVE" | "EXITED";
+export type PartnerStatus = "PENDING_APPROVAL" | "ACTIVE" | "REJECTED" | "EXITED";
 
 export interface PartnerDto {
   id: string;
@@ -15,9 +15,30 @@ export interface PartnerDto {
   note: string | null;
   capitalBalancePaisa: number;
   profitBalancePaisa: number;
+  nidNumber: string | null;
+  address: string | null;
+  email: string | null;
+  bankAccountNumber: string | null;
+  bankName: string | null;
+  agreedProfitSharePct: number | null;
+  emergencyContactName: string | null;
+  emergencyContactPhone: string | null;
+  emergencyContactRelation: string | null;
 }
 
-export interface CreatePartnerPayload {
+interface PartnerProfileFields {
+  nidNumber: string;
+  address: string;
+  email?: string;
+  bankAccountNumber?: string;
+  bankName?: string;
+  agreedProfitSharePct?: number;
+  emergencyContactName?: string;
+  emergencyContactPhone?: string;
+  emergencyContactRelation?: string;
+}
+
+export interface CreatePartnerPayload extends PartnerProfileFields {
   name: string;
   phone?: string;
   partnerType: PartnerType;
@@ -25,12 +46,46 @@ export interface CreatePartnerPayload {
   note?: string;
 }
 
-export interface UpdatePartnerPayload {
+export interface UpdatePartnerPayload extends PartnerProfileFields {
   name: string;
   phone?: string;
   partnerType: PartnerType;
   joinDate?: string;
   note?: string;
+}
+
+// R15.11 — new partner approval workflow.
+
+export type ApprovalDecision = "APPROVE" | "REJECT";
+
+export interface PartnerApprovalVoteDto {
+  id: string;
+  partnerId: string;
+  votedByPartnerId: string;
+  votedByPartnerName: string;
+  decision: ApprovalDecision;
+  note: string | null;
+  votedAt: string;
+}
+
+export interface PartnerApprovalStatusDto {
+  partnerId: string;
+  status: PartnerStatus;
+  approveCount: number;
+  rejectCount: number;
+  requiredVotes: number;
+  activeManagingPartnerCount: number;
+  votes: PartnerApprovalVoteDto[];
+}
+
+export interface CastApprovalVotePayload {
+  votedByPartnerId: string;
+  decision: ApprovalDecision;
+  note?: string;
+}
+
+export interface CancelPendingPartnerPayload {
+  reason: string;
 }
 
 export interface PartnerBalanceDto {

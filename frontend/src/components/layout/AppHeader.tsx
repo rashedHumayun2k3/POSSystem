@@ -8,9 +8,10 @@ import { useLanguage, type Lang } from "@/i18n/LanguageContext";
 interface Props {
   title: string;
   backHref?: string;
+  right?: React.ReactNode;
 }
 
-export default function AppHeader({ title, backHref }: Props) {
+export default function AppHeader({ title, backHref, right }: Props) {
   const { user, businesses, currentBusinessId, switchBusiness, isOwner } = useAuthStore();
   const { lang, setLang } = useLanguage();
 
@@ -42,7 +43,9 @@ export default function AppHeader({ title, backHref }: Props) {
       )}
 
       <div className="ml-auto flex items-center gap-3">
-        {!backHref && (
+        {backHref ? (
+          right ?? null
+        ) : (
           <>
             <button
               onClick={toggleLang}
