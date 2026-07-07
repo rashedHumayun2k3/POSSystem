@@ -30,6 +30,9 @@ A mobile-first business management system for a Bangladesh reselling business (l
 - Keep commits small and working; suggest a commit message after each completed unit of work.
 - When something in the docs is ambiguous, ASK before inventing behavior.
 
+## ClientPage module (public storefront)
+A separate, additive module — public unauthenticated storefront (hybrid marketplace + per-shop subdomain sites). Built ahead of/outside this doc's scope by Owner decision (§1.1 lists "customer-facing storefront" as out of scope — documented override, same pattern as Subscriptions/Catalog Templates/self-service signup). Source of truth: `docs/clientpage-storefront-requirements.md`. Lives in `/backend` (new `ClientPage*` controllers, `Cp*` entities/`cp_*` tables — purely additive, nothing existing modified) and a brand-new separate frontend app at `/clientPage` (independent from `/frontend`, the internal staff/POS app).
+
 ## Current status
 Phase 1 (tenancy/auth/activity log) ✅
 Phase 2 (catalog: categories, products, variants, barcodes, price history) ✅

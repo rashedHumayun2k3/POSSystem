@@ -2,10 +2,15 @@ using ResellerApi.Entities.Base;
 
 namespace ResellerApi.Entities;
 
-public class Order : BusinessScopedEntity
+public class Order : BusinessScopedEntity, IBranchScoped
 {
+    public Guid? BranchId { get; set; }
+    public Branch? Branch { get; set; }
     public string OrderNo { get; set; } = null!;
-    public string Channel { get; set; } = null!; // FACEBOOK|WHATSAPP|INSTAGRAM|PHONE|SHOP|OTHER
+    public string Channel { get; set; } = null!; // FACEBOOK|WHATSAPP|INSTAGRAM|PHONE|SHOP|HAWKER|OTHER
+
+    // The day the sale actually happened (may be backdated, e.g. hawker night-entry). Reports group by this, not CreatedAt.
+    public DateOnly BusinessDate { get; set; }
 
     public Guid? CustomerId { get; set; }
     public Customer? Customer { get; set; }

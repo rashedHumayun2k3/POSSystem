@@ -2,8 +2,10 @@ using ResellerApi.Entities.Base;
 
 namespace ResellerApi.Entities;
 
-public class PurchaseTrip : BusinessScopedEntity
+public class PurchaseTrip : BusinessScopedEntity, IBranchScoped
 {
+    public Guid? BranchId { get; set; }
+    public Branch? Branch { get; set; }
     public string TripNo { get; set; } = null!;
     public string SourceType { get; set; } = null!; // CHINA_TRIP | ALIBABA | LOCAL_WHOLESALE | AGENT
     public string Status { get; set; } = "DRAFT";   // DRAFT | PENDING_APPROVAL | RECEIVING | COMPLETED | CANCELLED

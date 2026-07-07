@@ -41,7 +41,10 @@ public class PettyCashService : IPettyCashService
 
     public async Task<PettyCashBoxDto> GetOrCreateBoxForStaffAsync(Guid staffId, Guid userId)
     {
-        var box = await _db.PettyCashBoxes.FirstOrDefaultAsync(b => b.StaffId == staffId);
+        var branchId = _business.CurrentBranchId
+            ?? throw new InvalidOperationException("A branch must be selected to access a petty cash box.");
+
+        var box = await _db.PettyCashBoxes.FirstOrDefaultAsync(b => b.StaffId == staffId && b.BranchId == branchId);
         if (box != null)
         {
             await _db.Entry(box).Reference(b => b.Staff).LoadAsync();
@@ -51,6 +54,7 @@ public class PettyCashService : IPettyCashService
         box = new PettyCashBox
         {
             BusinessId = _business.CurrentBusinessId,
+            BranchId   = branchId,
             StaffId    = staffId,
             Balance    = 0,
         };

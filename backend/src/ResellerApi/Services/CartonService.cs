@@ -84,6 +84,7 @@ public class CartonService : ICartonService
         var cartons = cartonNos.Select(no => new Carton
         {
             BusinessId = _biz.CurrentBusinessId,
+            BranchId   = trip.BranchId,
             TripId     = request.TripId,
             CartonNo   = no,
             Status     = "SEALED",

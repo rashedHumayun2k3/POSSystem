@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useLogin } from "@/hooks/useAuth";
 import { useLanguage } from "@/i18n/LanguageContext";
 
@@ -84,6 +85,13 @@ export default function LoginPage() {
         </button>
 
         <p className="text-center text-xs text-gray-400">{t("auth.forgotPasswordHint")}</p>
+
+        <p className="text-center text-xs text-gray-500">
+          {t("auth.signup.noAccount")}{" "}
+          <Link href="/signup" className="text-indigo-600 font-medium">
+            {t("auth.signup.createAccount")}
+          </Link>
+        </p>
 
         {/* Language toggle on login page */}
         <button

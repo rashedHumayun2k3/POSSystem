@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { getSalesSummary } from "@/lib/reportsApi";
 import DateRangeBar, { periodToDates } from "@/components/reports/DateRangeBar";
 import type { ReportPeriod, GroupBy } from "@/types/reports";
+import { useAuthStore } from "@/store/authStore";
 import { useMounted } from "@/hooks/useMounted";
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
@@ -29,12 +30,13 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 export default function SalesReportPage() {
   const [period, setPeriod] = useState<ReportPeriod>("30d");
   const [groupBy, setGroupBy] = useState<GroupBy>("day");
+  const currentBranchId = useAuthStore((s) => s.currentBranchId);
   const mounted = useMounted();
 
   const { from, to } = periodToDates(period);
 
   const { data, isLoading } = useQuery({
-    queryKey: ["report-sales", from, to, groupBy],
+    queryKey: ["report-sales", from, to, groupBy, currentBranchId],
     queryFn: () => getSalesSummary({ from, to, groupBy }),
     staleTime: 60_000,
     enabled: mounted,

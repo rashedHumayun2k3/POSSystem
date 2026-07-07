@@ -16,6 +16,7 @@ public class AppDbContext : DbContext
     }
 
     public Guid CurrentBusinessId => _businessContext.CurrentBusinessId;
+    public Guid? CurrentBranchId => _businessContext.CurrentBranchId;
 
     // ── Phase 1 ───────────────────────────────────────────────────────────
     public DbSet<Company> Companies => Set<Company>();
@@ -25,6 +26,7 @@ public class AppDbContext : DbContext
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<ActivityLog> ActivityLogs => Set<ActivityLog>();
     public DbSet<AppSetting> AppSettings => Set<AppSetting>();
+    public DbSet<EmailVerification> EmailVerifications => Set<EmailVerification>();
 
     // ── Phase 2 ───────────────────────────────────────────────────────────
     public DbSet<Unit> Units => Set<Unit>();
@@ -58,6 +60,12 @@ public class AppDbContext : DbContext
     public DbSet<PurchaseReceiveSession> PurchaseReceiveSessions => Set<PurchaseReceiveSession>();
     public DbSet<PurchaseReceiveItem> PurchaseReceiveItems => Set<PurchaseReceiveItem>();
 
+    // ── Branch/Location support ───────────────────────────────────────────
+    public DbSet<Branch> Branches => Set<Branch>();
+    public DbSet<UserBranch> UserBranches => Set<UserBranch>();
+    public DbSet<BranchVariantInventory> BranchVariantInventories => Set<BranchVariantInventory>();
+    public DbSet<StorageLocation> StorageLocations => Set<StorageLocation>();
+
     // ── Carton module ─────────────────────────────────────────────────────
     public DbSet<Carton> Cartons => Set<Carton>();
     public DbSet<CartonItem> CartonItems => Set<CartonItem>();
@@ -76,6 +84,20 @@ public class AppDbContext : DbContext
     public DbSet<CapitalInjection> CapitalInjections => Set<CapitalInjection>();
     public DbSet<CapitalLedgerEntry> CapitalLedgerEntries => Set<CapitalLedgerEntry>();
     public DbSet<PartnerApprovalVote> PartnerApprovalVotes => Set<PartnerApprovalVote>();
+
+    // ── Subscriptions & Billing ────────────────────────────────────────────
+    public DbSet<SubscriptionPlan> SubscriptionPlans => Set<SubscriptionPlan>();
+    public DbSet<Subscription> Subscriptions => Set<Subscription>();
+    public DbSet<SubscriptionPayment> SubscriptionPayments => Set<SubscriptionPayment>();
+
+    // ── Catalog Templates (suggested categories/products) ──────────────────
+    public DbSet<SuggestedCategory> SuggestedCategories => Set<SuggestedCategory>();
+    public DbSet<SuggestedCategoryField> SuggestedCategoryFields => Set<SuggestedCategoryField>();
+    public DbSet<SuggestedProduct> SuggestedProducts => Set<SuggestedProduct>();
+
+    // ── ClientPage (public storefront) ──────────────────────────────────────
+    public DbSet<CpCheckoutGroup> CpCheckoutGroups => Set<CpCheckoutGroup>();
+    public DbSet<CpCheckoutGroupOrder> CpCheckoutGroupOrders => Set<CpCheckoutGroupOrder>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -110,6 +132,25 @@ public class AppDbContext : DbContext
                     System.Linq.Expressions.Expression.Equal(businessId, currentBusinessId));
             }
 
+            if (typeof(IBranchScoped).IsAssignableFrom(entity.ClrType))
+            {
+                var branchId = System.Linq.Expressions.Expression.Property(param, nameof(IBranchScoped.BranchId));
+                var currentBranchId = System.Linq.Expressions.Expression.Property(
+                    System.Linq.Expressions.Expression.Constant(this),
+                    nameof(CurrentBranchId));
+
+                // CurrentBranchId == null → OWNER/MANAGER "all branches" mode, bypass entirely.
+                // Otherwise: standard nullable-equality semantics already give the right answer —
+                // a NULL entity.BranchId (business-wide Expense) never matches a specific branch.
+                var contextIsNull = System.Linq.Expressions.Expression.Equal(
+                    currentBranchId, System.Linq.Expressions.Expression.Constant(null, typeof(Guid?)));
+                var columnMatches = System.Linq.Expressions.Expression.Equal(branchId, currentBranchId);
+
+                body = System.Linq.Expressions.Expression.AndAlso(
+                    body,
+                    System.Linq.Expressions.Expression.OrElse(contextIsNull, columnMatches));
+            }
+
             var filter = System.Linq.Expressions.Expression.Lambda(body, param);
             modelBuilder.Entity(entity.ClrType).HasQueryFilter(filter);
         }
@@ -132,6 +173,13 @@ public class AppDbContext : DbContext
             e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
             e.Property(x => x.Name).HasMaxLength(200).IsRequired();
             e.Property(x => x.Currency).HasMaxLength(10).IsRequired();
+            e.Property(x => x.Country).HasMaxLength(100);
+            e.Property(x => x.BusinessTypesJson).HasMaxLength(500);
+            e.Property(x => x.SalesChannelsJson).HasMaxLength(200);
+            e.Property(x => x.Subdomain).HasMaxLength(63);
+            e.Property(x => x.LogoUrl).HasMaxLength(500);
+            e.Property(x => x.BannerUrl).HasMaxLength(500);
+            e.HasIndex(x => x.Subdomain).IsUnique().HasFilter("[Subdomain] IS NOT NULL");
             e.HasOne(x => x.Company).WithMany(c => c.Businesses)
                 .HasForeignKey(x => x.CompanyId).OnDelete(DeleteBehavior.Restrict);
         });
@@ -145,6 +193,9 @@ public class AppDbContext : DbContext
             e.Property(x => x.Name).HasMaxLength(200).IsRequired();
             e.Property(x => x.Phone).HasMaxLength(20).IsRequired();
             e.HasIndex(x => x.Phone).IsUnique();
+            e.Property(x => x.Email).HasMaxLength(255);
+            e.HasIndex(x => x.Email).IsUnique().HasFilter("[Email] IS NOT NULL");
+            e.Property(x => x.PhotoUrl).HasMaxLength(500);
             e.Property(x => x.PasswordHash).HasMaxLength(500).IsRequired();
             e.Property(x => x.Role).HasMaxLength(20).IsRequired();
             e.Property(x => x.MonthlySalary).HasColumnType("DECIMAL(14,2)");
@@ -198,6 +249,17 @@ public class AppDbContext : DbContext
             e.HasIndex(x => new { x.BusinessId, x.Key }).IsUnique();
         });
 
+        // ── EmailVerification (signup, pre-tenant) ──────────────────────────
+        modelBuilder.Entity<EmailVerification>(e =>
+        {
+            e.ToTable("email_verifications");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
+            e.Property(x => x.Email).HasMaxLength(255).IsRequired();
+            e.Property(x => x.CodeHash).HasMaxLength(128).IsRequired();
+            e.HasIndex(x => x.Email);
+        });
+
         // ── Unit (global lookup, no business_id) ───────────────────────────
         modelBuilder.Entity<Unit>(e =>
         {
@@ -215,6 +277,8 @@ public class AppDbContext : DbContext
             e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
             e.Property(x => x.Name).HasMaxLength(100).IsRequired();
             e.Property(x => x.DefaultUnit).HasMaxLength(20);
+            e.HasOne<SuggestedCategory>().WithMany()
+                .HasForeignKey(x => x.SuggestedCategoryId).OnDelete(DeleteBehavior.SetNull);
         });
 
         // ── CategoryField ──────────────────────────────────────────────────
@@ -237,7 +301,7 @@ public class AppDbContext : DbContext
             e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
             e.Property(x => x.Name).HasMaxLength(300).IsRequired();
             e.Property(x => x.Sku).HasMaxLength(50).IsRequired();
-            e.HasIndex(x => x.Sku).IsUnique();
+            e.HasIndex(x => new { x.BusinessId, x.Sku }).IsUnique();
             e.Property(x => x.ImageUrl).HasMaxLength(500);
             e.Property(x => x.UnitCode).HasMaxLength(20);
             e.Property(x => x.Status).HasMaxLength(20);
@@ -255,13 +319,17 @@ public class AppDbContext : DbContext
             e.HasKey(x => x.Id);
             e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
             e.Property(x => x.Sku).HasMaxLength(60).IsRequired();
-            e.HasIndex(x => x.Sku).IsUnique();
+            // Sku uniqueness is per-business (two tenants can both have "P-0001-01"); Barcode
+            // stays globally unique below (intentional — see GenerateBarcodeAsync).
+            e.HasIndex(x => new { x.BusinessId, x.Sku }).IsUnique();
             e.Property(x => x.Barcode).HasMaxLength(100).IsRequired();
             e.HasIndex(x => x.Barcode).IsUnique();
             e.Property(x => x.PriceOverride).HasColumnType("DECIMAL(14,2)");
             e.Property(x => x.AvgLandedCost).HasColumnType("DECIMAL(14,2)");
             e.HasOne(x => x.Product).WithMany(p => p.Variants)
                 .HasForeignKey(x => x.ProductId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.Business).WithMany()
+                .HasForeignKey(x => x.BusinessId).OnDelete(DeleteBehavior.Restrict);
         });
 
         // ── PriceHistory ───────────────────────────────────────────────────
@@ -328,8 +396,11 @@ public class AppDbContext : DbContext
             e.Property(x => x.Status).HasMaxLength(20).IsRequired();
             e.Property(x => x.Note).HasMaxLength(500);
             e.Property(x => x.ForceCompleteReason).HasMaxLength(500);
+            e.Property(x => x.BranchId).IsRequired();
             e.HasOne(x => x.CreatedByUser).WithMany()
                 .HasForeignKey(x => x.CreatedBy).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.Branch).WithMany()
+                .HasForeignKey(x => x.BranchId).OnDelete(DeleteBehavior.NoAction);
         });
 
         // ── PurchaseItem ────────────────────────────────────────────────────
@@ -368,12 +439,15 @@ public class AppDbContext : DbContext
             e.Property(x => x.Note).HasMaxLength(500);
             e.Property(x => x.Status).HasMaxLength(20).IsRequired();
             e.Property(x => x.RejectionReason).HasMaxLength(500);
+            e.Property(x => x.BranchId).IsRequired();
             e.HasOne(x => x.Trip).WithMany(t => t.Sessions)
                 .HasForeignKey(x => x.TripId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne(x => x.ReceivedByUser).WithMany()
                 .HasForeignKey(x => x.ReceivedBy).OnDelete(DeleteBehavior.Restrict);
             e.HasOne(x => x.ApprovedByUser).WithMany()
                 .HasForeignKey(x => x.ApprovedBy).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.Branch).WithMany()
+                .HasForeignKey(x => x.BranchId).OnDelete(DeleteBehavior.NoAction);
         });
 
         // ── PurchaseReceiveItem ─────────────────────────────────────────────
@@ -429,10 +503,14 @@ public class AppDbContext : DbContext
             e.Property(x => x.LandedUnitCost).HasColumnType("DECIMAL(14,2)");
             e.Property(x => x.RemainingQty).HasColumnType("DECIMAL(12,3)");
             e.Property(x => x.PerLotValuesJson).HasMaxLength(2000);
+            e.Property(x => x.DisplayCode).HasMaxLength(10);
+            e.Property(x => x.BranchId).IsRequired();
             e.HasOne(x => x.Variant).WithMany()
                 .HasForeignKey(x => x.VariantId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne(x => x.PurchaseItem).WithMany()
                 .HasForeignKey(x => x.PurchaseItemId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.Branch).WithMany()
+                .HasForeignKey(x => x.BranchId).OnDelete(DeleteBehavior.NoAction);
         });
 
         // ── StockMovement ───────────────────────────────────────────────────
@@ -445,12 +523,15 @@ public class AppDbContext : DbContext
             e.Property(x => x.Qty).HasColumnType("DECIMAL(12,3)");
             e.Property(x => x.ReferenceType).HasMaxLength(50);
             e.Property(x => x.Note).HasMaxLength(500);
+            e.Property(x => x.BranchId).IsRequired();
             e.HasOne(x => x.Variant).WithMany()
                 .HasForeignKey(x => x.VariantId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne(x => x.Lot).WithMany()
                 .HasForeignKey(x => x.LotId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne(x => x.User).WithMany()
                 .HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.Branch).WithMany()
+                .HasForeignKey(x => x.BranchId).OnDelete(DeleteBehavior.NoAction);
         });
 
         // ── VariantInventory ────────────────────────────────────────────────
@@ -464,6 +545,63 @@ public class AppDbContext : DbContext
             e.Ignore(x => x.Available);
             e.HasOne(x => x.Variant).WithOne()
                 .HasForeignKey<VariantInventory>(x => x.VariantId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // ── Branch ────────────────────────────────────────────────────────────
+        modelBuilder.Entity<Branch>(e =>
+        {
+            e.ToTable("branches");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
+            e.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            e.Property(x => x.Code).HasMaxLength(20).IsRequired();
+            e.Property(x => x.Address).HasMaxLength(500);
+            e.Property(x => x.Phone).HasMaxLength(30);
+            e.HasIndex(x => new { x.BusinessId, x.Code }).IsUnique();
+            // Exactly one IsDefault=1, non-deleted branch per business, enforced at the DB level.
+            e.HasIndex(x => x.BusinessId)
+                .IsUnique()
+                .HasFilter("[IsDefault] = 1 AND [DeletedAt] IS NULL")
+                .HasDatabaseName("IX_branches_OneDefaultPerBusiness");
+        });
+
+        // ── UserBranch ────────────────────────────────────────────────────────
+        modelBuilder.Entity<UserBranch>(e =>
+        {
+            e.ToTable("user_branches");
+            e.HasKey(x => new { x.UserId, x.BranchId });
+            e.HasOne(x => x.User).WithMany(u => u.UserBranches)
+                .HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.Branch).WithMany(b => b.UserBranches)
+                .HasForeignKey(x => x.BranchId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // ── BranchVariantInventory ──────────────────────────────────────────
+        modelBuilder.Entity<BranchVariantInventory>(e =>
+        {
+            e.ToTable("branch_variant_inventories");
+            e.HasKey(x => new { x.BranchId, x.VariantId });
+            e.Property(x => x.OnHand).HasColumnType("DECIMAL(12,3)");
+            e.Property(x => x.Committed).HasColumnType("DECIMAL(12,3)");
+            e.Property(x => x.Damaged).HasColumnType("DECIMAL(12,3)");
+            e.Ignore(x => x.Available);
+            e.HasOne(x => x.Branch).WithMany()
+                .HasForeignKey(x => x.BranchId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.Variant).WithMany()
+                .HasForeignKey(x => x.VariantId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // ── StorageLocation ─────────────────────────────────────────────────
+        modelBuilder.Entity<StorageLocation>(e =>
+        {
+            e.ToTable("storage_locations");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
+            e.Property(x => x.Name).HasMaxLength(100).IsRequired();
+            e.Property(x => x.LocationType).HasMaxLength(20).IsRequired();
+            e.Property(x => x.BranchId).IsRequired();
+            e.HasOne(x => x.Branch).WithMany()
+                .HasForeignKey(x => x.BranchId).OnDelete(DeleteBehavior.Restrict);
         });
 
         // ── Courier ─────────────────────────────────────────────────────────
@@ -493,6 +631,7 @@ public class AppDbContext : DbContext
             e.Property(x => x.Phone).HasMaxLength(30).IsRequired();
             e.HasIndex(x => new { x.BusinessId, x.Phone }).IsUnique();
             e.Property(x => x.Address).HasMaxLength(500);
+            e.Property(x => x.PhotoUrl).HasMaxLength(500);
             e.Property(x => x.CreditLimit).HasColumnType("DECIMAL(14,2)");
             e.Property(x => x.StoreCreditBalance).HasColumnType("DECIMAL(14,2)");
             e.Property(x => x.Note).HasMaxLength(1000);
@@ -521,7 +660,11 @@ public class AppDbContext : DbContext
             e.HasIndex(x => new { x.BusinessId, x.OrderNo }).IsUnique();
             e.HasIndex(x => new { x.BusinessId, x.FulfillmentStatus });
             e.HasIndex(x => new { x.BusinessId, x.CustomerPhone });
+            e.HasIndex(x => new { x.BusinessId, x.BranchId, x.FulfillmentStatus });
+            e.Property(x => x.BranchId).IsRequired();
             e.Property(x => x.Channel).HasMaxLength(20).IsRequired();
+            e.Property(x => x.BusinessDate).IsRequired();
+            e.HasIndex(x => new { x.BusinessId, x.BusinessDate });
             e.Property(x => x.CustomerName).HasMaxLength(200).IsRequired();
             e.Property(x => x.CustomerPhone).HasMaxLength(30).IsRequired();
             e.Property(x => x.CustomerAddress).HasMaxLength(500);
@@ -551,6 +694,8 @@ public class AppDbContext : DbContext
                 .HasForeignKey(x => x.CreatedBy).OnDelete(DeleteBehavior.Restrict);
             e.HasOne(x => x.Remittance).WithMany(r => r.Orders)
                 .HasForeignKey(x => x.RemittanceId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.Branch).WithMany()
+                .HasForeignKey(x => x.BranchId).OnDelete(DeleteBehavior.NoAction);
         });
 
         // ── OrderItem ─────────────────────────────────────────────────────────
@@ -653,6 +798,8 @@ public class AppDbContext : DbContext
                 .HasForeignKey(x => x.CreatedBy).OnDelete(DeleteBehavior.Restrict);
             e.HasOne(x => x.ApprovedByUser).WithMany()
                 .HasForeignKey(x => x.ApprovedBy).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.Branch).WithMany()
+                .HasForeignKey(x => x.BranchId).OnDelete(DeleteBehavior.NoAction);
             e.HasIndex(x => new { x.BusinessId, x.ExpenseDate });
             e.HasIndex(x => new { x.BusinessId, x.Status });
         });
@@ -664,9 +811,12 @@ public class AppDbContext : DbContext
             e.HasKey(x => x.Id);
             e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
             e.Property(x => x.Balance).HasColumnType("DECIMAL(14,2)");
+            e.Property(x => x.BranchId).IsRequired();
             e.HasOne(x => x.Staff).WithMany()
                 .HasForeignKey(x => x.StaffId).OnDelete(DeleteBehavior.Restrict);
-            e.HasIndex(x => new { x.BusinessId, x.StaffId }).IsUnique();
+            e.HasOne(x => x.Branch).WithMany()
+                .HasForeignKey(x => x.BranchId).OnDelete(DeleteBehavior.NoAction);
+            e.HasIndex(x => new { x.BusinessId, x.BranchId, x.StaffId }).IsUnique();
         });
 
         // ── PettyCashTxn ─────────────────────────────────────────────────────
@@ -723,10 +873,15 @@ public class AppDbContext : DbContext
             e.Property(x => x.Status).HasMaxLength(20).IsRequired();
             e.Property(x => x.Location).HasMaxLength(100);
             e.Property(x => x.Notes).HasMaxLength(500);
+            e.Property(x => x.BranchId).IsRequired();
             e.HasOne(x => x.Trip).WithMany()
                 .HasForeignKey(x => x.TripId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne(x => x.CreatedByUser).WithMany()
                 .HasForeignKey(x => x.CreatedBy).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.Branch).WithMany()
+                .HasForeignKey(x => x.BranchId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne(x => x.StorageLocation).WithMany()
+                .HasForeignKey(x => x.StorageLocationId).OnDelete(DeleteBehavior.SetNull);
         });
 
         // ── CartonItem ──────────────────────────────────────────────────────
@@ -815,6 +970,109 @@ public class AppDbContext : DbContext
             e.HasOne(x => x.CreatedByUser).WithMany()
                 .HasForeignKey(x => x.CreatedBy).OnDelete(DeleteBehavior.Restrict);
             e.HasIndex(x => new { x.PartnerId, x.Bucket, x.CreatedAt });
+        });
+
+        // ── SubscriptionPlan (lookup table, not business/company-scoped) ────
+        modelBuilder.Entity<SubscriptionPlan>(e =>
+        {
+            e.ToTable("subscription_plans");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
+            e.Property(x => x.Code).HasMaxLength(30).IsRequired();
+            e.Property(x => x.Name).HasMaxLength(100).IsRequired();
+            e.Property(x => x.PriceMonthly).HasColumnType("DECIMAL(14,2)");
+            e.Property(x => x.PriceYearly).HasColumnType("DECIMAL(14,2)");
+            e.HasIndex(x => x.Code).IsUnique();
+        });
+
+        // ── Subscription (one per Company) ─────────────────────────────────
+        modelBuilder.Entity<Subscription>(e =>
+        {
+            e.ToTable("subscriptions");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
+            e.Property(x => x.Status).HasMaxLength(20).IsRequired();
+            e.Property(x => x.BillingCycle).HasMaxLength(10).IsRequired();
+            e.HasOne(x => x.Company).WithMany()
+                .HasForeignKey(x => x.CompanyId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.Plan).WithMany(p => p.Subscriptions)
+                .HasForeignKey(x => x.PlanId).OnDelete(DeleteBehavior.Restrict);
+            e.HasIndex(x => x.CompanyId).IsUnique();
+        });
+
+        // ── SubscriptionPayment (append-only payment history, GTR-7) ────────
+        modelBuilder.Entity<SubscriptionPayment>(e =>
+        {
+            e.ToTable("subscription_payments");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
+            e.Property(x => x.Amount).HasColumnType("DECIMAL(14,2)");
+            e.Property(x => x.Method).HasMaxLength(20).IsRequired();
+            e.Property(x => x.Status).HasMaxLength(20).IsRequired();
+            e.Property(x => x.GatewayPaymentId).HasMaxLength(100).IsRequired();
+            e.Property(x => x.GatewayTrxId).HasMaxLength(100);
+            e.HasOne(x => x.Subscription).WithMany(s => s.Payments)
+                .HasForeignKey(x => x.SubscriptionId).OnDelete(DeleteBehavior.Restrict);
+            e.HasIndex(x => x.GatewayPaymentId).IsUnique();
+        });
+
+        // ── SuggestedCategory (global template catalog, not business-scoped) ─
+        modelBuilder.Entity<SuggestedCategory>(e =>
+        {
+            e.ToTable("suggested_categories");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
+            e.Property(x => x.BusinessTypeCode).HasMaxLength(50).IsRequired();
+            e.Property(x => x.Name).HasMaxLength(100).IsRequired();
+            e.Property(x => x.DefaultUnit).HasMaxLength(20).IsRequired();
+            e.HasIndex(x => x.BusinessTypeCode);
+        });
+
+        // ── SuggestedCategoryField ───────────────────────────────────────────
+        modelBuilder.Entity<SuggestedCategoryField>(e =>
+        {
+            e.ToTable("suggested_category_fields");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
+            e.Property(x => x.Name).HasMaxLength(100).IsRequired();
+            e.Property(x => x.FieldType).HasMaxLength(20).IsRequired();
+            e.HasOne(x => x.SuggestedCategory).WithMany(c => c.Fields)
+                .HasForeignKey(x => x.SuggestedCategoryId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // ── SuggestedProduct (global template catalog, keyed by category) ───
+        modelBuilder.Entity<SuggestedProduct>(e =>
+        {
+            e.ToTable("suggested_products");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
+            e.Property(x => x.Name).HasMaxLength(150).IsRequired();
+            e.HasOne(x => x.SuggestedCategory).WithMany(c => c.Products)
+                .HasForeignKey(x => x.SuggestedCategoryId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(x => x.SuggestedCategoryId);
+        });
+
+        // ── ClientPage: CpCheckoutGroup (not business-scoped — spans shops) ─
+        modelBuilder.Entity<CpCheckoutGroup>(e =>
+        {
+            e.ToTable("cp_checkout_groups");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
+            e.Property(x => x.CustomerName).HasMaxLength(200).IsRequired();
+            e.Property(x => x.CustomerPhone).HasMaxLength(20).IsRequired();
+        });
+
+        // ── ClientPage: CpCheckoutGroupOrder ─────────────────────────────────
+        modelBuilder.Entity<CpCheckoutGroupOrder>(e =>
+        {
+            e.ToTable("cp_checkout_group_orders");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
+            e.HasOne(x => x.CheckoutGroup).WithMany(g => g.Orders)
+                .HasForeignKey(x => x.CheckoutGroupId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.Order).WithMany()
+                .HasForeignKey(x => x.OrderId).OnDelete(DeleteBehavior.Restrict);
+            e.HasIndex(x => x.CheckoutGroupId);
         });
     }
 

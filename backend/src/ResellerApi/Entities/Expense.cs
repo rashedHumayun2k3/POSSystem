@@ -2,8 +2,11 @@ using ResellerApi.Entities.Base;
 
 namespace ResellerApi.Entities;
 
-public class Expense : BusinessScopedEntity
+public class Expense : BusinessScopedEntity, IBranchScoped
 {
+    // NULL = business-wide expense (e.g. marketing, salary), not attributed to one branch's P&L.
+    public Guid? BranchId { get; set; }
+    public Branch? Branch { get; set; }
     public Guid CategoryId { get; set; }
     public ExpenseCategory Category { get; set; } = null!;
 

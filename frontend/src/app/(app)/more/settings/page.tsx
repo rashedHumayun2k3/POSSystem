@@ -11,6 +11,8 @@ import {
   Cog6ToothIcon,
   ChevronRightIcon,
   BanknotesIcon,
+  BuildingStorefrontIcon,
+  CreditCardIcon,
 } from "@heroicons/react/24/outline";
 
 export default function SettingsPage() {
@@ -47,6 +49,18 @@ export default function SettingsPage() {
       title: t("settings.businessConfig"),
       desc: t("settings.businessConfigDesc"),
     },
+    // Owner-only: branch create/edit/toggle-active are OWNER-only actions server-side
+    ...(isOwner
+      ? [
+          {
+            href: "/more/settings/branches",
+            icon: BuildingStorefrontIcon,
+            color: "bg-teal-100 text-teal-600",
+            title: t("settings.branches"),
+            desc: t("settings.branchesDesc"),
+          },
+        ]
+      : []),
     // Module 15 — Owner-only (GTR-10 / R15.10: STAFF never sees capital/profit data, not even in nav)
     ...(isOwner
       ? [
@@ -56,6 +70,18 @@ export default function SettingsPage() {
             color: "bg-rose-100 text-rose-600",
             title: t("settings.partners"),
             desc: t("settings.partnersDesc"),
+          },
+        ]
+      : []),
+    // Billing is business-wide, owner-only (same rationale as Branches/Partners)
+    ...(isOwner
+      ? [
+          {
+            href: "/more/settings/subscription",
+            icon: CreditCardIcon,
+            color: "bg-violet-100 text-violet-600",
+            title: t("settings.subscription"),
+            desc: t("settings.subscriptionDesc"),
           },
         ]
       : []),

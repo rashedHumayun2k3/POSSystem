@@ -80,6 +80,7 @@ public class ExpenseService : IExpenseService
         var expense = new Expense
         {
             BusinessId       = _business.CurrentBusinessId,
+            BranchId         = req.BranchId ?? _business.CurrentBranchId,
             CategoryId       = req.CategoryId,
             SubType          = req.SubType.Trim(),
             Amount           = req.Amount,

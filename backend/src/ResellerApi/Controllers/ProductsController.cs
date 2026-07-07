@@ -47,10 +47,10 @@ public class ProductsController : ControllerBase
     }
 
     [HttpGet("search")]
-    public async Task<IActionResult> Search([FromQuery] string? q)
+    public async Task<IActionResult> Search([FromQuery] string? q, [FromQuery] bool onlyInStock = false)
     {
         if (string.IsNullOrWhiteSpace(q)) return Ok(Array.Empty<object>());
-        return Ok(await _svc.SearchAsync(q));
+        return Ok(await _svc.SearchAsync(q, onlyInStock));
     }
 
     [HttpGet("barcode/{barcode}")]
@@ -62,8 +62,8 @@ public class ProductsController : ControllerBase
     }
 
     [HttpGet("browse")]
-    public async Task<IActionResult> Browse([FromQuery] Guid? categoryId)
-        => Ok(await _svc.BrowseAsync(categoryId));
+    public async Task<IActionResult> Browse([FromQuery] Guid? categoryId, [FromQuery] bool onlyInStock = false)
+        => Ok(await _svc.BrowseAsync(categoryId, onlyInStock));
 
     [HttpGet("recently-purchased")]
     public async Task<IActionResult> RecentlyPurchased([FromQuery] int limit = 5)
@@ -166,5 +166,5 @@ public class ProductsController : ControllerBase
 
     [HttpGet("{id:guid}/orders")]
     public async Task<IActionResult> OrdersByProduct(Guid id)
-        => Ok(await _orderSvc.ListByProductAsync(id));
+        => Ok(await _orderSvc.ListByProductAsync(id, _user.CanSeeCosts));
 }

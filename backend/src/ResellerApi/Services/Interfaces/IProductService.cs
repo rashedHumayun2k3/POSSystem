@@ -7,9 +7,9 @@ public interface IProductService
 {
     Task<List<ProductSummaryDto>> ListAsync(string? status, Guid? categoryId, string? q);
     Task<object> GetAsync(Guid id, bool isOwner);
-    Task<List<ProductSearchResultDto>> SearchAsync(string q);
+    Task<List<ProductSearchResultDto>> SearchAsync(string q, bool onlyInStock = false);
     Task<ProductSearchResultDto?> GetByBarcodeAsync(string barcode);
-    Task<List<ProductSearchResultDto>> BrowseAsync(Guid? categoryId);
+    Task<List<ProductSearchResultDto>> BrowseAsync(Guid? categoryId, bool onlyInStock = false);
     Task<List<ProductSearchResultDto>> RecentlyPurchasedAsync(int limit);
     Task<List<ActiveCategoryDto>> ActiveCategoriesAsync();
     Task<ProductDetailDto> CreateAsync(CreateProductRequest request, Guid userId);

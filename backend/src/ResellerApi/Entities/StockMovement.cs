@@ -2,8 +2,10 @@ using ResellerApi.Entities.Base;
 
 namespace ResellerApi.Entities;
 
-public class StockMovement : BusinessScopedEntity
+public class StockMovement : BusinessScopedEntity, IBranchScoped
 {
+    public Guid? BranchId { get; set; }
+    public Branch? Branch { get; set; }
     public Guid VariantId { get; set; }
     public string MovementType { get; set; } = null!; // PURCHASE_IN | SALE_OUT | RETURN_IN | DAMAGE_IN | DAMAGE_OUT | REPAIR_IN | WRITE_OFF | ADJUSTMENT | COMMIT | RELEASE
     public decimal Qty { get; set; }                  // signed

@@ -11,6 +11,7 @@ import type { Variant, PriceSlot, PriceActivationLog } from '@/types/catalog';
 import type { OrderListItem } from '@/types/orders';
 import { useLanguage } from '@/i18n/LanguageContext';
 import StatusBadge from '@/components/ui/StatusBadge';
+import { resolveMediaUrl } from '@/lib/media';
 
 type TabKey = 'info' | 'variants' | 'prices' | 'orders';
 
@@ -24,6 +25,7 @@ export default function ProductDetailPage() {
 
   const [activeTab, setActiveTab] = useState<TabKey>('info');
   const [selectedVariant, setSelectedVariant] = useState<Variant | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const { data: product, isLoading } = useQuery({
     queryKey: ['product', id],
@@ -72,12 +74,20 @@ export default function ProductDetailPage() {
             <h1 className="text-base font-semibold text-gray-900 truncate">{product.name}</h1>
             <p className="text-xs text-gray-400">{product.sku} · {product.categoryName}</p>
           </div>
+          {isOwner && (
+            <Link
+              href={`/products/${id}/edit`}
+              className="text-xs text-indigo-600 font-medium border border-indigo-200 px-2 py-1 rounded-lg"
+            >
+              {t('products.edit')}
+            </Link>
+          )}
           {isOwner && product.status === 'ACTIVE' && (
             <button
-              onClick={() => archiveMutation.mutate()}
+              onClick={() => setShowDeleteConfirm(true)}
               className="text-xs text-red-500 font-medium border border-red-200 px-2 py-1 rounded-lg"
             >
-              {t('products.archive')}
+              {t('products.delete')}
             </button>
           )}
         </div>
@@ -129,6 +139,36 @@ export default function ProductDetailPage() {
           <OrdersTab productId={id} />
         )}
       </div>
+
+      {/* Delete confirmation — this calls the same archive endpoint as before (soft, reversible
+          via the database — products with order/purchase history can never be truly deleted
+          without breaking historical records), just presented as "Delete" since that's the
+          action a shop owner expects. */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-50 flex flex-col justify-end">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setShowDeleteConfirm(false)} />
+          <div className="relative bg-white rounded-t-2xl px-4 pt-4 pb-8 space-y-4 w-full max-w-[768px] mx-auto">
+            <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto" />
+            <p className="text-base font-semibold text-red-600">{t('products.deleteTitle')}</p>
+            <p className="text-sm text-gray-500">{t('products.deleteWarning')}</p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                className="flex-1 py-2.5 rounded-xl border border-gray-200 text-gray-600 text-sm"
+              >
+                {t('common.close')}
+              </button>
+              <button
+                onClick={() => archiveMutation.mutate()}
+                disabled={archiveMutation.isPending}
+                className="flex-1 py-2.5 rounded-xl bg-red-500 text-white text-sm font-medium disabled:opacity-50"
+              >
+                {archiveMutation.isPending ? t('products.deleting') : t('products.confirmDelete')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -147,6 +187,17 @@ function InfoTab({
 }) {
   return (
     <div className="space-y-4">
+      {/* Photo */}
+      {product.imageUrl && (
+        <div className="w-full h-48 rounded-xl bg-gray-100 overflow-hidden">
+          <img
+            src={resolveMediaUrl(product.imageUrl) ?? ''}
+            alt={product.name}
+            className="w-full h-full object-cover"
+          />
+        </div>
+      )}
+
       {/* Price block */}
       <div className="bg-indigo-50 rounded-xl p-4 flex justify-between items-center">
         <div>

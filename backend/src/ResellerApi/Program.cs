@@ -1,9 +1,11 @@
 using System.Text;
+using System.Threading.RateLimiting;
 using FluentValidation;
 using Hangfire;
 using Hangfire.SqlServer;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.FileProviders;
 using Microsoft.IdentityModel.Tokens;
 using ResellerApi.Data;
 using ResellerApi.DTOs.Auth;
@@ -20,6 +22,7 @@ var config = builder.Configuration;
 // ── EF Core ───────────────────────────────────────────────────────────────
 builder.Services.AddScoped<BusinessContext>();
 builder.Services.AddScoped<IBusinessContext>(sp => sp.GetRequiredService<BusinessContext>());
+builder.Services.AddScoped<ClientPageShopContext>();
 builder.Services.AddDbContext<AppDbContext>((sp, options) =>
 {
     options.UseSqlServer(config.GetConnectionString("Default"),
@@ -63,6 +66,8 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IActivityLogService, ActivityLogService>();
+builder.Services.AddScoped<IEmailSender, EmailSender>();
+builder.Services.AddScoped<ICategoryPresetService, CategoryPresetService>();
 // Phase 2 — Catalog
 builder.Services.AddScoped<ICategoryService, CategoryService>();
 builder.Services.AddScoped<IProductService, ProductService>();
@@ -85,6 +90,16 @@ builder.Services.AddScoped<IExpenseService, ExpenseService>();
 builder.Services.AddScoped<IPettyCashService, PettyCashService>();
 // Phase 10 — Reports
 builder.Services.AddScoped<IReportService, ReportService>();
+// Media (product images, receipts, etc.)
+builder.Services.AddScoped<IMediaService, MediaService>();
+// Subscriptions & billing
+builder.Services.AddHttpClient<IBkashPaymentService, BkashPaymentService>();
+builder.Services.AddScoped<ISubscriptionService, SubscriptionService>();
+// Catalog Templates (suggested categories/products)
+builder.Services.AddScoped<ISuggestedCatalogService, SuggestedCatalogService>();
+
+builder.Services.AddScoped<IClientPageCatalogService, ClientPageCatalogService>();
+builder.Services.AddScoped<IClientPageCheckoutService, ClientPageCheckoutService>();
 
 // ── FluentValidation ──────────────────────────────────────────────────────
 builder.Services.AddValidatorsFromAssemblyContaining<LoginRequestValidator>();
@@ -127,8 +142,50 @@ builder.Services.AddControllers()
     });
 builder.Services.AddOpenApi();
 
+// ── Rate limiting (signup endpoints) ────────────────────────────────────────
+builder.Services.AddRateLimiter(options =>
+{
+    options.AddPolicy("signup", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 5,
+                Window = TimeSpan.FromMinutes(15),
+                QueueLimit = 0
+            }));
+    options.AddPolicy("clientpage-checkout", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 5,
+                Window = TimeSpan.FromMinutes(15),
+                QueueLimit = 0
+            }));
+    options.OnRejected = async (context, token) =>
+    {
+        context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+        await context.HttpContext.Response.WriteAsJsonAsync(
+            new { code = "RATE_LIMITED", message = "Too many requests. Please try again later." }, token);
+    };
+});
+
 // ─────────────────────────────────────────────────────────────────────────
 var app = builder.Build();
+
+// First in the pipeline so it wraps every downstream request/middleware.
+app.UseMiddleware<ConcurrencyExceptionMiddleware>();
+
+// Served explicitly (not via env.WebRootFileProvider) so it works regardless of
+// whether wwwroot existed at host-build time.
+var uploadsPath = Path.Combine(app.Environment.ContentRootPath, "wwwroot", "uploads");
+Directory.CreateDirectory(uploadsPath);
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new PhysicalFileProvider(uploadsPath),
+    RequestPath = "/uploads"
+});
 
 // OpenAPI spec + Scalar UI (available in all environments for now)
 app.MapOpenApi();
@@ -142,7 +199,10 @@ app.MapScalarApiReference(options =>
 app.UseCors("FrontendPolicy");
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseRateLimiter();
 app.UseMiddleware<BusinessContextMiddleware>();
+app.UseMiddleware<SubscriptionGateMiddleware>();
+app.UseMiddleware<ClientPageShopContextMiddleware>();
 
 app.UseHangfireDashboard("/hangfire", new DashboardOptions
 {
@@ -154,6 +214,11 @@ RecurringJob.AddOrUpdate<IPriceHistoryService>(
     "apply-scheduled-prices",
     svc => svc.ApplyScheduledPriceChangesAsync(),
     "*/5 * * * *"); // every 5 minutes
+
+RecurringJob.AddOrUpdate<ISubscriptionService>(
+    "expire-subscriptions",
+    svc => svc.ExpireDueSubscriptionsAsync(),
+    "0 * * * *"); // hourly
 
 app.MapControllers();
 app.MapHub<LiveHub>("/hubs/live");
@@ -202,6 +267,15 @@ static async Task SeedAsync(AppDbContext db)
             UserId = owner.Id
         });
 
+        db.Branches.Add(new ResellerApi.Entities.Branch
+        {
+            BusinessId = business.Id,
+            Name = "Main Branch",
+            Code = "MAIN",
+            IsActive = true,
+            IsDefault = true
+        });
+
         foreach (var (key, val) in new[]
         {
             ("low_stock_threshold", "5"),
@@ -242,6 +316,7 @@ static async Task SeedAsync(AppDbContext db)
 
     // ── Starter categories (Phase 2) ──────────────────────────────────────
     var biz = await db.Businesses.FirstOrDefaultAsync();
+    var seedMainBranch = biz == null ? null : await db.Branches.IgnoreQueryFilters().FirstOrDefaultAsync(b => b.BusinessId == biz.Id);
     if (biz != null && !await db.Categories.IgnoreQueryFilters().AnyAsync(c => c.BusinessId == biz.Id))
     {
         await AddCategoryAsync(db, biz.Id, "Toys", "pcs", new List<ResellerApi.Entities.CategoryField>
@@ -459,7 +534,7 @@ static async Task SeedAsync(AppDbContext db)
             // ── Order 1: Confirmed, Packed, In-transit ───────────────────
             var o1 = new ResellerApi.Entities.Order
             {
-                BusinessId = biz.Id, OrderNo = NextOrderNo(), Channel = "FACEBOOK",
+                BusinessId = biz.Id, BranchId = seedMainBranch!.Id, OrderNo = NextOrderNo(), Channel = "FACEBOOK",
                 CustomerId = cRahim?.Id, CustomerName = "Rahim Uddin", CustomerPhone = "01711000001",
                 CustomerAddress = "House 12, Road 5, Mirpur-10, Dhaka",
                 OrderStatus = "OPEN", PaymentStatus = "UNPAID", FulfillmentStatus = "IN_TRANSIT",
@@ -478,7 +553,7 @@ static async Task SeedAsync(AppDbContext db)
             // ── Order 2: Draft ───────────────────────────────────────────
             var o2 = new ResellerApi.Entities.Order
             {
-                BusinessId = biz.Id, OrderNo = NextOrderNo(), Channel = "WHATSAPP",
+                BusinessId = biz.Id, BranchId = seedMainBranch!.Id, OrderNo = NextOrderNo(), Channel = "WHATSAPP",
                 CustomerId = cKarim?.Id, CustomerName = "Karim Hossain", CustomerPhone = "01712000002",
                 CustomerAddress = "Flat 3B, Jigatala, Dhaka-1209",
                 OrderStatus = "OPEN", PaymentStatus = "UNPAID", FulfillmentStatus = "UNFULFILLED",
@@ -493,7 +568,7 @@ static async Task SeedAsync(AppDbContext db)
             // ── Order 3: Confirmed, Partially Paid ──────────────────────
             var o3 = new ResellerApi.Entities.Order
             {
-                BusinessId = biz.Id, OrderNo = NextOrderNo(), Channel = "FACEBOOK",
+                BusinessId = biz.Id, BranchId = seedMainBranch!.Id, OrderNo = NextOrderNo(), Channel = "FACEBOOK",
                 CustomerId = cSumaiya?.Id, CustomerName = "Sumaiya Begum", CustomerPhone = "01813000003",
                 CustomerAddress = "Village: Gopalpur, Thana: Savar, Dhaka",
                 OrderStatus = "OPEN", PaymentStatus = "PARTIALLY_PAID", FulfillmentStatus = "PACKED",
@@ -509,7 +584,7 @@ static async Task SeedAsync(AppDbContext db)
             // ── Order 4: Delivered, COD pending remittance (courier holds cash) ──
             var o4 = new ResellerApi.Entities.Order
             {
-                BusinessId = biz.Id, OrderNo = NextOrderNo(), Channel = "PHONE",
+                BusinessId = biz.Id, BranchId = seedMainBranch!.Id, OrderNo = NextOrderNo(), Channel = "PHONE",
                 CustomerId = cNasrin?.Id, CustomerName = "Nasrin Akter", CustomerPhone = "01914000004",
                 CustomerAddress = "Mohammadpur, Dhaka",
                 OrderStatus = "COMPLETED", PaymentStatus = "UNPAID", FulfillmentStatus = "DELIVERED",
@@ -530,7 +605,7 @@ static async Task SeedAsync(AppDbContext db)
             // ── Order 5: Cancelled ───────────────────────────────────────
             var o5 = new ResellerApi.Entities.Order
             {
-                BusinessId = biz.Id, OrderNo = NextOrderNo(), Channel = "INSTAGRAM",
+                BusinessId = biz.Id, BranchId = seedMainBranch!.Id, OrderNo = NextOrderNo(), Channel = "INSTAGRAM",
                 CustomerId = cJahir?.Id, CustomerName = "Jahir Rahman", CustomerPhone = "01615000005",
                 CustomerAddress = "Chittagong City, Ward-15",
                 OrderStatus = "CANCELLED", PaymentStatus = "UNPAID", FulfillmentStatus = "UNFULFILLED",
@@ -547,7 +622,7 @@ static async Task SeedAsync(AppDbContext db)
             // ── Order 6: Open, Unpaid (brand new) ───────────────────────
             var o6 = new ResellerApi.Entities.Order
             {
-                BusinessId = biz.Id, OrderNo = NextOrderNo(), Channel = "FACEBOOK",
+                BusinessId = biz.Id, BranchId = seedMainBranch!.Id, OrderNo = NextOrderNo(), Channel = "FACEBOOK",
                 CustomerName = "Walk-in Customer", CustomerPhone = "01700000099",
                 CustomerAddress = "Dhaka",
                 OrderStatus = "OPEN", PaymentStatus = "UNPAID", FulfillmentStatus = "UNFULFILLED",
@@ -579,7 +654,7 @@ static async Task SeedAsync(AppDbContext db)
             // ── Order 7: Delivered & Fully Paid (Completed) ─────────────
             var o7 = new ResellerApi.Entities.Order
             {
-                BusinessId = biz.Id, OrderNo = NextNo(), Channel = "FACEBOOK",
+                BusinessId = biz.Id, BranchId = seedMainBranch!.Id, OrderNo = NextNo(), Channel = "FACEBOOK",
                 CustomerName = "Rafiqul Islam", CustomerPhone = "01811111111",
                 CustomerAddress = "Uttara, Sector 11, Dhaka",
                 OrderStatus = "COMPLETED", PaymentStatus = "PAID", FulfillmentStatus = "DELIVERED",
@@ -600,7 +675,7 @@ static async Task SeedAsync(AppDbContext db)
             // ── Order 8: Returned ────────────────────────────────────────
             var o8 = new ResellerApi.Entities.Order
             {
-                BusinessId = biz.Id, OrderNo = NextNo(), Channel = "WHATSAPP",
+                BusinessId = biz.Id, BranchId = seedMainBranch!.Id, OrderNo = NextNo(), Channel = "WHATSAPP",
                 CustomerName = "Shirin Akter", CustomerPhone = "01922222222",
                 CustomerAddress = "Comilla Sadar, Comilla",
                 OrderStatus = "COMPLETED", PaymentStatus = "UNPAID", FulfillmentStatus = "RETURNED",
@@ -620,7 +695,7 @@ static async Task SeedAsync(AppDbContext db)
             // ── Order 9: COD pending (another Steadfast delivered order) ─
             var o9 = new ResellerApi.Entities.Order
             {
-                BusinessId = biz.Id, OrderNo = NextNo(), Channel = "INSTAGRAM",
+                BusinessId = biz.Id, BranchId = seedMainBranch!.Id, OrderNo = NextNo(), Channel = "INSTAGRAM",
                 CustomerName = "Tania Sultana", CustomerPhone = "01633333333",
                 CustomerAddress = "Gazipur Sadar, Gazipur",
                 OrderStatus = "COMPLETED", PaymentStatus = "UNPAID", FulfillmentStatus = "DELIVERED",
@@ -640,7 +715,7 @@ static async Task SeedAsync(AppDbContext db)
             // ── Order 10: Shop counter sale, Paid ────────────────────────
             var o10 = new ResellerApi.Entities.Order
             {
-                BusinessId = biz.Id, OrderNo = NextNo(), Channel = "SHOP",
+                BusinessId = biz.Id, BranchId = seedMainBranch!.Id, OrderNo = NextNo(), Channel = "SHOP",
                 CustomerName = "Counter Customer", CustomerPhone = "01744444444",
                 OrderStatus = "COMPLETED", PaymentStatus = "PAID", FulfillmentStatus = "DELIVERED",
                 IsDraft = false, DeliveryChargeCustomer = 0,
@@ -658,7 +733,7 @@ static async Task SeedAsync(AppDbContext db)
             // ── Order 11: Draft, two items ───────────────────────────────
             var o11 = new ResellerApi.Entities.Order
             {
-                BusinessId = biz.Id, OrderNo = NextNo(), Channel = "FACEBOOK",
+                BusinessId = biz.Id, BranchId = seedMainBranch!.Id, OrderNo = NextNo(), Channel = "FACEBOOK",
                 CustomerName = "Farhana Khanom", CustomerPhone = "01755555555",
                 OrderStatus = "OPEN", PaymentStatus = "UNPAID", FulfillmentStatus = "UNFULFILLED",
                 IsDraft = true, DeliveryChargeCustomer = 130,
@@ -673,7 +748,7 @@ static async Task SeedAsync(AppDbContext db)
             // ── Order 12: Confirmed with 10% discount, Partially paid ────
             var o12 = new ResellerApi.Entities.Order
             {
-                BusinessId = biz.Id, OrderNo = NextNo(), Channel = "PHONE",
+                BusinessId = biz.Id, BranchId = seedMainBranch!.Id, OrderNo = NextNo(), Channel = "PHONE",
                 CustomerName = "Belal Hossain", CustomerPhone = "01666666666",
                 CustomerAddress = "Sylhet Sadar, Sylhet",
                 OrderStatus = "OPEN", PaymentStatus = "PARTIALLY_PAID", FulfillmentStatus = "UNFULFILLED",
@@ -712,7 +787,7 @@ static async Task SeedAsync(AppDbContext db)
         {
             // ── ORD-0013: COURIER RETURN — parcel bounced back (Farida, serial rejecter) ──
             var o13 = new ResellerApi.Entities.Order {
-                BusinessId = biz.Id, OrderNo = "ORD-0013",
+                BusinessId = biz.Id, BranchId = seedMainBranch!.Id, OrderNo = "ORD-0013",
                 Channel = "FACEBOOK", CustomerName = cFarida?.Name ?? "Farida Khanam",
                 CustomerPhone = cFarida?.Phone ?? "01516000006", CustomerId = cFarida?.Id,
                 CustomerAddress = "Sylhet Sadar, Sylhet",
@@ -733,7 +808,7 @@ static async Task SeedAsync(AppDbContext db)
 
             // ── ORD-0014: REFUND — customer returned wrong size, full cash refund ──
             var o14 = new ResellerApi.Entities.Order {
-                BusinessId = biz.Id, OrderNo = "ORD-0014",
+                BusinessId = biz.Id, BranchId = seedMainBranch!.Id, OrderNo = "ORD-0014",
                 Channel = "WHATSAPP", CustomerName = cMitu?.Name ?? "Mitu Akter",
                 CustomerPhone = cMitu?.Phone ?? "01718000008", CustomerId = cMitu?.Id,
                 CustomerAddress = "Uttara, Sector-7, Dhaka",
@@ -756,7 +831,7 @@ static async Task SeedAsync(AppDbContext db)
 
             // ── ORD-0015: STORE CREDIT — damaged item, customer wants credit instead of cash ──
             var o15 = new ResellerApi.Entities.Order {
-                BusinessId = biz.Id, OrderNo = "ORD-0015",
+                BusinessId = biz.Id, BranchId = seedMainBranch!.Id, OrderNo = "ORD-0015",
                 Channel = "INSTAGRAM", CustomerName = cAnwar?.Name ?? "Anwar Islam",
                 CustomerPhone = cAnwar?.Phone ?? "01817000007", CustomerId = cAnwar?.Id,
                 CustomerAddress = "Narayanganj, Fatullah",
@@ -779,7 +854,7 @@ static async Task SeedAsync(AppDbContext db)
 
             // ── ORD-0016: EXCHANGE — wrong product, waiting for replacement ──
             var o16 = new ResellerApi.Entities.Order {
-                BusinessId = biz.Id, OrderNo = "ORD-0016",
+                BusinessId = biz.Id, BranchId = seedMainBranch!.Id, OrderNo = "ORD-0016",
                 Channel = "PHONE", CustomerName = cJahir?.Name ?? "Jahir Rahman",
                 CustomerPhone = cJahir?.Phone ?? "01615000005", CustomerId = cJahir?.Id,
                 CustomerAddress = "Chittagong City, Ward-15",
@@ -801,7 +876,7 @@ static async Task SeedAsync(AppDbContext db)
 
             // ── ORD-0017: Replacement for ORD-0016, now IN_TRANSIT ──
             var o17 = new ResellerApi.Entities.Order {
-                BusinessId = biz.Id, OrderNo = "ORD-0017",
+                BusinessId = biz.Id, BranchId = seedMainBranch!.Id, OrderNo = "ORD-0017",
                 Channel = "PHONE", CustomerName = cJahir?.Name ?? "Jahir Rahman",
                 CustomerPhone = cJahir?.Phone ?? "01615000005", CustomerId = cJahir?.Id,
                 CustomerAddress = "Chittagong City, Ward-15",
@@ -821,7 +896,7 @@ static async Task SeedAsync(AppDbContext db)
 
             // ── ORD-0018: Open, packed, waiting handover ──
             var o18 = new ResellerApi.Entities.Order {
-                BusinessId = biz.Id, OrderNo = "ORD-0018",
+                BusinessId = biz.Id, BranchId = seedMainBranch!.Id, OrderNo = "ORD-0018",
                 Channel = "FACEBOOK", CustomerName = cRahim?.Name ?? "Rahim Uddin",
                 CustomerPhone = cRahim?.Phone ?? "01711000001", CustomerId = cRahim?.Id,
                 CustomerAddress = "House 12, Road 5, Mirpur-10, Dhaka",
@@ -837,7 +912,7 @@ static async Task SeedAsync(AppDbContext db)
 
             // ── ORD-0019: Open, confirmed, partial advance ──
             var o19 = new ResellerApi.Entities.Order {
-                BusinessId = biz.Id, OrderNo = "ORD-0019",
+                BusinessId = biz.Id, BranchId = seedMainBranch!.Id, OrderNo = "ORD-0019",
                 Channel = "WHATSAPP", CustomerName = cKarim?.Name ?? "Karim Hossain",
                 CustomerPhone = cKarim?.Phone ?? "01712000002", CustomerId = cKarim?.Id,
                 CustomerAddress = "Flat 3B, Jigatala, Dhaka-1209",
@@ -854,7 +929,7 @@ static async Task SeedAsync(AppDbContext db)
 
             // ── ORD-0020: Shop sale (counter, full cash, delivered) ──
             var o20 = new ResellerApi.Entities.Order {
-                BusinessId = biz.Id, OrderNo = "ORD-0020",
+                BusinessId = biz.Id, BranchId = seedMainBranch!.Id, OrderNo = "ORD-0020",
                 Channel = "SHOP", CustomerName = cNasrin?.Name ?? "Nasrin Akter",
                 CustomerPhone = cNasrin?.Phone ?? "01914000004", CustomerId = cNasrin?.Id,
                 OrderStatus = "COMPLETED", PaymentStatus = "PAID",
@@ -871,7 +946,7 @@ static async Task SeedAsync(AppDbContext db)
 
             // ── ORD-0021: Delivered, COD collected, fully paid ──
             var o21 = new ResellerApi.Entities.Order {
-                BusinessId = biz.Id, OrderNo = "ORD-0021",
+                BusinessId = biz.Id, BranchId = seedMainBranch!.Id, OrderNo = "ORD-0021",
                 Channel = "FACEBOOK", CustomerName = cSumaiya?.Name ?? "Sumaiya Begum",
                 CustomerPhone = cSumaiya?.Phone ?? "01813000003", CustomerId = cSumaiya?.Id,
                 CustomerAddress = "Village: Gopalpur, Thana: Savar, Dhaka",
@@ -890,7 +965,7 @@ static async Task SeedAsync(AppDbContext db)
 
             // ── ORD-0022: Instagram, in-transit right now ──
             var o22 = new ResellerApi.Entities.Order {
-                BusinessId = biz.Id, OrderNo = "ORD-0022",
+                BusinessId = biz.Id, BranchId = seedMainBranch!.Id, OrderNo = "ORD-0022",
                 Channel = "INSTAGRAM", CustomerName = cAnwar?.Name ?? "Anwar Islam",
                 CustomerPhone = cAnwar?.Phone ?? "01817000007", CustomerId = cAnwar?.Id,
                 CustomerAddress = "Narayanganj, Fatullah",
@@ -908,7 +983,7 @@ static async Task SeedAsync(AppDbContext db)
 
             // ── ORD-0023: Draft (customer said "will confirm tomorrow") ──
             var o23 = new ResellerApi.Entities.Order {
-                BusinessId = biz.Id, OrderNo = "ORD-0023",
+                BusinessId = biz.Id, BranchId = seedMainBranch!.Id, OrderNo = "ORD-0023",
                 Channel = "WHATSAPP", CustomerName = cMitu?.Name ?? "Mitu Akter",
                 CustomerPhone = cMitu?.Phone ?? "01718000008", CustomerId = cMitu?.Id,
                 OrderStatus = "OPEN", PaymentStatus = "UNPAID",
@@ -922,7 +997,7 @@ static async Task SeedAsync(AppDbContext db)
 
             // ── ORD-0024: Cancelled — customer ordered by mistake ──
             var o24 = new ResellerApi.Entities.Order {
-                BusinessId = biz.Id, OrderNo = "ORD-0024",
+                BusinessId = biz.Id, BranchId = seedMainBranch!.Id, OrderNo = "ORD-0024",
                 Channel = "PHONE", CustomerName = cKarim?.Name ?? "Karim Hossain",
                 CustomerPhone = cKarim?.Phone ?? "01712000002", CustomerId = cKarim?.Id,
                 OrderStatus = "CANCELLED", PaymentStatus = "UNPAID",
@@ -937,7 +1012,7 @@ static async Task SeedAsync(AppDbContext db)
 
             // ── ORD-0025: Partially paid, packed, about to handover ──
             var o25 = new ResellerApi.Entities.Order {
-                BusinessId = biz.Id, OrderNo = "ORD-0025",
+                BusinessId = biz.Id, BranchId = seedMainBranch!.Id, OrderNo = "ORD-0025",
                 Channel = "FACEBOOK", CustomerName = cRahim?.Name ?? "Rahim Uddin",
                 CustomerPhone = cRahim?.Phone ?? "01711000001", CustomerId = cRahim?.Id,
                 CustomerAddress = "House 12, Road 5, Mirpur-10, Dhaka",
@@ -955,7 +1030,7 @@ static async Task SeedAsync(AppDbContext db)
 
             // ── ORD-0026: Full refund after delivery — product broken ──
             var o26 = new ResellerApi.Entities.Order {
-                BusinessId = biz.Id, OrderNo = "ORD-0026",
+                BusinessId = biz.Id, BranchId = seedMainBranch!.Id, OrderNo = "ORD-0026",
                 Channel = "FACEBOOK", CustomerName = cNasrin?.Name ?? "Nasrin Akter",
                 CustomerPhone = cNasrin?.Phone ?? "01914000004", CustomerId = cNasrin?.Id,
                 CustomerAddress = "Mohammadpur, Dhaka",
@@ -978,7 +1053,7 @@ static async Task SeedAsync(AppDbContext db)
 
             // ── ORD-0027: Replace same — customer wants same item resent ──
             var o27 = new ResellerApi.Entities.Order {
-                BusinessId = biz.Id, OrderNo = "ORD-0027",
+                BusinessId = biz.Id, BranchId = seedMainBranch!.Id, OrderNo = "ORD-0027",
                 Channel = "INSTAGRAM", CustomerName = cSumaiya?.Name ?? "Sumaiya Begum",
                 CustomerPhone = cSumaiya?.Phone ?? "01813000003", CustomerId = cSumaiya?.Id,
                 CustomerAddress = "Village: Gopalpur, Thana: Savar, Dhaka",
@@ -1000,7 +1075,7 @@ static async Task SeedAsync(AppDbContext db)
 
             // ── ORD-0028: Open, confirmed, no advance, just today ──
             var o28 = new ResellerApi.Entities.Order {
-                BusinessId = biz.Id, OrderNo = "ORD-0028",
+                BusinessId = biz.Id, BranchId = seedMainBranch!.Id, OrderNo = "ORD-0028",
                 Channel = "FACEBOOK", CustomerName = cJahir?.Name ?? "Jahir Rahman",
                 CustomerPhone = cJahir?.Phone ?? "01615000005", CustomerId = cJahir?.Id,
                 CustomerAddress = "Chittagong City, Ward-15",
@@ -1016,7 +1091,7 @@ static async Task SeedAsync(AppDbContext db)
 
             // ── ORD-0029: Delivered, due amount remaining (partial COD) ──
             var o29 = new ResellerApi.Entities.Order {
-                BusinessId = biz.Id, OrderNo = "ORD-0029",
+                BusinessId = biz.Id, BranchId = seedMainBranch!.Id, OrderNo = "ORD-0029",
                 Channel = "WHATSAPP", CustomerName = cAnwar?.Name ?? "Anwar Islam",
                 CustomerPhone = cAnwar?.Phone ?? "01817000007", CustomerId = cAnwar?.Id,
                 CustomerAddress = "Narayanganj, Fatullah",
@@ -1036,7 +1111,7 @@ static async Task SeedAsync(AppDbContext db)
 
             // ── ORD-0030: Shop counter + bKash, completed ──
             var o30 = new ResellerApi.Entities.Order {
-                BusinessId = biz.Id, OrderNo = "ORD-0030",
+                BusinessId = biz.Id, BranchId = seedMainBranch!.Id, OrderNo = "ORD-0030",
                 Channel = "SHOP", CustomerName = cMitu?.Name ?? "Mitu Akter",
                 CustomerPhone = cMitu?.Phone ?? "01718000008", CustomerId = cMitu?.Id,
                 OrderStatus = "COMPLETED", PaymentStatus = "PAID",
@@ -1060,26 +1135,26 @@ static async Task SeedAsync(AppDbContext db)
     {
         db.ExpenseCategories.AddRange(
             // ── Order fulfilment ─────────────────────────────────────────
-            new ResellerApi.Entities.ExpenseCategory { BusinessId = biz.Id, Name = "Courier Charge",       IsDefault = false, IsActive = true },
-            new ResellerApi.Entities.ExpenseCategory { BusinessId = biz.Id, Name = "Return Charge",        IsDefault = false, IsActive = true },
-            new ResellerApi.Entities.ExpenseCategory { BusinessId = biz.Id, Name = "Packaging Materials",  IsDefault = false, IsActive = true },
+            new ResellerApi.Entities.ExpenseCategory { BusinessId = biz.Id, Code = "CUSTOM_COURIER_CHARGE",      Name = "Courier Charge",       IsDefault = false, IsActive = true },
+            new ResellerApi.Entities.ExpenseCategory { BusinessId = biz.Id, Code = "CUSTOM_RETURN_CHARGE",       Name = "Return Charge",        IsDefault = false, IsActive = true },
+            new ResellerApi.Entities.ExpenseCategory { BusinessId = biz.Id, Code = "CUSTOM_PACKAGING_MATERIALS", Name = "Packaging Materials",  IsDefault = false, IsActive = true },
             // ── Shop & office ─────────────────────────────────────────────
-            new ResellerApi.Entities.ExpenseCategory { BusinessId = biz.Id, Name = "Shop Rent",            IsDefault = false, IsActive = true },
-            new ResellerApi.Entities.ExpenseCategory { BusinessId = biz.Id, Name = "Electricity Bill",     IsDefault = false, IsActive = true },
-            new ResellerApi.Entities.ExpenseCategory { BusinessId = biz.Id, Name = "Internet & Mobile",    IsDefault = false, IsActive = true },
+            new ResellerApi.Entities.ExpenseCategory { BusinessId = biz.Id, Code = "CUSTOM_SHOP_RENT",           Name = "Shop Rent",            IsDefault = false, IsActive = true },
+            new ResellerApi.Entities.ExpenseCategory { BusinessId = biz.Id, Code = "CUSTOM_ELECTRICITY_BILL",    Name = "Electricity Bill",     IsDefault = false, IsActive = true },
+            new ResellerApi.Entities.ExpenseCategory { BusinessId = biz.Id, Code = "CUSTOM_INTERNET_MOBILE",     Name = "Internet & Mobile",    IsDefault = false, IsActive = true },
             // ── Staff ─────────────────────────────────────────────────────
-            new ResellerApi.Entities.ExpenseCategory { BusinessId = biz.Id, Name = "Staff Salary",         IsDefault = false, IsActive = true },
-            new ResellerApi.Entities.ExpenseCategory { BusinessId = biz.Id, Name = "Staff Food & Tea",     IsDefault = false, IsActive = true },
+            new ResellerApi.Entities.ExpenseCategory { BusinessId = biz.Id, Code = "CUSTOM_STAFF_SALARY",        Name = "Staff Salary",         IsDefault = false, IsActive = true },
+            new ResellerApi.Entities.ExpenseCategory { BusinessId = biz.Id, Code = "CUSTOM_STAFF_FOOD_TEA",      Name = "Staff Food & Tea",     IsDefault = false, IsActive = true },
             // ── Marketing ────────────────────────────────────────────────
-            new ResellerApi.Entities.ExpenseCategory { BusinessId = biz.Id, Name = "Facebook Ads / Boost", IsDefault = false, IsActive = true },
+            new ResellerApi.Entities.ExpenseCategory { BusinessId = biz.Id, Code = "CUSTOM_FACEBOOK_ADS",        Name = "Facebook Ads / Boost", IsDefault = false, IsActive = true },
             // ── Transport ────────────────────────────────────────────────
-            new ResellerApi.Entities.ExpenseCategory { BusinessId = biz.Id, Name = "Transport / Rickshaw", IsDefault = false, IsActive = true },
+            new ResellerApi.Entities.ExpenseCategory { BusinessId = biz.Id, Code = "CUSTOM_TRANSPORT",          Name = "Transport / Rickshaw", IsDefault = false, IsActive = true },
             // ── Finance ──────────────────────────────────────────────────
-            new ResellerApi.Entities.ExpenseCategory { BusinessId = biz.Id, Name = "bKash / Bank Charge",  IsDefault = false, IsActive = true },
+            new ResellerApi.Entities.ExpenseCategory { BusinessId = biz.Id, Code = "CUSTOM_BKASH_BANK_CHARGE",   Name = "bKash / Bank Charge",  IsDefault = false, IsActive = true },
             // ── Losses ───────────────────────────────────────────────────
-            new ResellerApi.Entities.ExpenseCategory { BusinessId = biz.Id, Name = "Product Damage Loss",  IsDefault = false, IsActive = true },
+            new ResellerApi.Entities.ExpenseCategory { BusinessId = biz.Id, Code = "CUSTOM_PRODUCT_DAMAGE_LOSS", Name = "Product Damage Loss",  IsDefault = false, IsActive = true },
             // ── Catch-all ────────────────────────────────────────────────
-            new ResellerApi.Entities.ExpenseCategory { BusinessId = biz.Id, Name = "Miscellaneous",        IsDefault = true,  IsActive = true }
+            new ResellerApi.Entities.ExpenseCategory { BusinessId = biz.Id, Code = "CUSTOM_MISC",                Name = "Miscellaneous",        IsDefault = true,  IsActive = true }
         );
         await db.SaveChangesAsync();
     }
@@ -1108,7 +1183,10 @@ static async Task SeedProductsAsync(AppDbContext db, Guid bizId)
     var toysCat = await db.Categories.IgnoreQueryFilters()
         .FirstOrDefaultAsync(c => c.BusinessId == bizId && c.Name == "Toys");
     var owner = await db.Users.FirstOrDefaultAsync();
-    if (clothCat == null || toysCat == null || owner == null) return;
+    var mainBranch = await db.Branches.IgnoreQueryFilters()
+        .FirstOrDefaultAsync(b => b.BusinessId == bizId && b.IsDefault);
+    if (clothCat == null || toysCat == null || owner == null || mainBranch == null) return;
+    var branchId = mainBranch.Id;
 
     int bseq = 0;
     string NextBarcode()
@@ -1136,12 +1214,12 @@ static async Task SeedProductsAsync(AppDbContext db, Guid bizId)
     db.ProductVariants.AddRange(vTSW, vTMW, vTLW, vTSB, vTMB);
     await db.SaveChangesAsync();
 
-    db.VariantInventories.AddRange(
-        new ResellerApi.Entities.VariantInventory { VariantId = vTSW.Id, OnHand = 15 },
-        new ResellerApi.Entities.VariantInventory { VariantId = vTMW.Id, OnHand = 22 },
-        new ResellerApi.Entities.VariantInventory { VariantId = vTLW.Id, OnHand = 8  },
-        new ResellerApi.Entities.VariantInventory { VariantId = vTSB.Id, OnHand = 10 },
-        new ResellerApi.Entities.VariantInventory { VariantId = vTMB.Id, OnHand = 18 }
+    db.BranchVariantInventories.AddRange(
+        new ResellerApi.Entities.BranchVariantInventory { BranchId = branchId, VariantId = vTSW.Id, OnHand = 15 },
+        new ResellerApi.Entities.BranchVariantInventory { BranchId = branchId, VariantId = vTMW.Id, OnHand = 22 },
+        new ResellerApi.Entities.BranchVariantInventory { BranchId = branchId, VariantId = vTLW.Id, OnHand = 8  },
+        new ResellerApi.Entities.BranchVariantInventory { BranchId = branchId, VariantId = vTSB.Id, OnHand = 10 },
+        new ResellerApi.Entities.BranchVariantInventory { BranchId = branchId, VariantId = vTMB.Id, OnHand = 18 }
     );
     await db.SaveChangesAsync();
 
@@ -1159,9 +1237,9 @@ static async Task SeedProductsAsync(AppDbContext db, Guid bizId)
     db.ProductVariants.AddRange(vJ32, vJ34);
     await db.SaveChangesAsync();
 
-    db.VariantInventories.AddRange(
-        new ResellerApi.Entities.VariantInventory { VariantId = vJ32.Id, OnHand = 5  },
-        new ResellerApi.Entities.VariantInventory { VariantId = vJ34.Id, OnHand = 12 }
+    db.BranchVariantInventories.AddRange(
+        new ResellerApi.Entities.BranchVariantInventory { BranchId = branchId, VariantId = vJ32.Id, OnHand = 5  },
+        new ResellerApi.Entities.BranchVariantInventory { BranchId = branchId, VariantId = vJ34.Id, OnHand = 12 }
     );
     await db.SaveChangesAsync();
 
@@ -1191,7 +1269,7 @@ static async Task SeedProductsAsync(AppDbContext db, Guid bizId)
     db.ProductVariants.Add(vCar);
     await db.SaveChangesAsync();
 
-    db.VariantInventories.Add(new ResellerApi.Entities.VariantInventory { VariantId = vCar.Id, OnHand = 30 });
+    db.BranchVariantInventories.Add(new ResellerApi.Entities.BranchVariantInventory { BranchId = branchId, VariantId = vCar.Id, OnHand = 30 });
     await db.SaveChangesAsync();
 
     // ── Building Blocks Set (new — never purchased) ────────────────────────

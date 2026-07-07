@@ -2,7 +2,7 @@ using ResellerApi.Entities.Base;
 
 namespace ResellerApi.Entities;
 
-public class ProductVariant : BaseEntity
+public class ProductVariant : BusinessScopedEntity
 {
     public Guid ProductId { get; set; }
     public string VariantValuesJson { get; set; } = "{}"; // e.g. {"Size":"M","Color":"Red"}

@@ -31,11 +31,12 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 export default function DashboardPage() {
   const role = useAuthStore((s) => s.user?.role);
   const canSeeCosts = role === "OWNER" || role === "MANAGER";
+  const currentBranchId = useAuthStore((s) => s.currentBranchId);
   const mounted = useMounted();
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ["report-dashboard"],
-    queryFn: getDashboard,
+    queryKey: ["report-dashboard", currentBranchId],
+    queryFn: () => getDashboard(),
     staleTime: 60_000,
     enabled: mounted,
   });

@@ -104,9 +104,9 @@ function mapSearchResult(item: RawSearchResult): ProductSearchResult {
   };
 }
 
-export const browseProducts = async (categoryId?: string): Promise<ProductSearchResult[]> => {
+export const browseProducts = async (categoryId?: string, onlyInStock = false): Promise<ProductSearchResult[]> => {
   const { data } = await api.get<RawSearchResult[]>('/products/browse', {
-    params: categoryId ? { categoryId } : undefined,
+    params: { ...(categoryId ? { categoryId } : {}), ...(onlyInStock ? { onlyInStock } : {}) },
   });
   return data.map(mapSearchResult);
 };
@@ -118,8 +118,10 @@ export const getRecentlyPurchasedProducts = async (limit = 5): Promise<ProductSe
   return data.map(mapSearchResult);
 };
 
-export const searchProducts = async (q: string): Promise<ProductSearchResult[]> => {
-  const { data } = await api.get<RawSearchResult[]>('/products/search', { params: { q } });
+export const searchProducts = async (q: string, onlyInStock = false): Promise<ProductSearchResult[]> => {
+  const { data } = await api.get<RawSearchResult[]>('/products/search', {
+    params: { q, ...(onlyInStock ? { onlyInStock } : {}) },
+  });
   return data.map(mapSearchResult);
 };
 

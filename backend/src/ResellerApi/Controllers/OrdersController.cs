@@ -29,7 +29,7 @@ public class OrdersController : ControllerBase
         [FromQuery] string? q,
         [FromQuery] DateTime? from,
         [FromQuery] DateTime? to)
-        => Ok(await _svc.ListAsync(orderStatus, fulfillmentStatus, channel, q, from, to));
+        => Ok(await _svc.ListAsync(orderStatus, fulfillmentStatus, channel, q, from, to, _user.CanSeeCosts));
 
     [HttpGet("{id:guid}")]
     public async Task<IActionResult> Get(Guid id)
@@ -99,6 +99,13 @@ public class OrdersController : ControllerBase
     {
         var pdf = await _svc.GetChallanPdfAsync(id);
         return File(pdf, "application/pdf", $"challan-{id}.pdf");
+    }
+
+    [HttpGet("{id:guid}/receipt")]
+    public async Task<IActionResult> Receipt(Guid id)
+    {
+        var pdf = await _svc.GetReceiptPdfAsync(id);
+        return File(pdf, "application/pdf", $"receipt-{id}.pdf");
     }
 
     [HttpPost("{id:guid}/claim")]

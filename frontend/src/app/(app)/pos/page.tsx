@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { liveQuery } from 'dexie';
 import { posDb } from '@/lib/posDb';
 import type { PosSession, PosShift } from '@/types/pos';
@@ -10,6 +10,7 @@ import SessionTray from '@/components/pos/SessionTray';
 import CartPanel from '@/components/pos/CartPanel';
 import PaymentModal from '@/components/pos/PaymentModal';
 import ShiftModal from '@/components/pos/ShiftModal';
+import SaleSuccessModal from '@/components/pos/SaleSuccessModal';
 import { Toast } from '@/components/ui/Toast';
 import { browseProducts } from '@/lib/catalogApi';
 import type { PosCartItem } from '@/types/pos';
@@ -45,9 +46,21 @@ function saveShift(shift: PosShift) {
   localStorage.setItem('pos_shift', JSON.stringify(shift));
 }
 
+interface CompletedSale {
+  orderId: string;
+  orderNo: string;
+  total: number;
+  paidAmount: number;
+  method: PayMethod;
+  customerPhone?: string;
+}
+
 export default function PosPage() {
   const user = useAuthStore(s => s.user);
   const cashierName = user?.name ?? user?.phone ?? 'Cashier';
+  const businesses = useAuthStore(s => s.businesses);
+  const currentBusinessId = useAuthStore(s => s.currentBusinessId);
+  const businessName = businesses.find(b => b.id === currentBusinessId)?.name ?? '';
 
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [paymentOpen, setPaymentOpen] = useState(false);
@@ -55,6 +68,7 @@ export default function PosPage() {
   const [shiftModalMode, setShiftModalMode] = useState<'open' | 'close' | null>(null);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
   const [shiftDuration, setShiftDuration] = useState('');
+  const [completedSale, setCompletedSale] = useState<CompletedSale | null>(null);
 
   // Load shift on mount
   useEffect(() => {
@@ -105,18 +119,25 @@ export default function PosPage() {
     setActiveSessionId(id);
   }, []);
 
-  // Auto-create first session once shift is open
+  // Auto-create first session once shift is open. Guarded by a ref (not just the sessions.length
+  // check) because Dexie's liveQuery can report "still empty" more than once in quick succession
+  // while the new session is being written — without the guard, two createSession() calls can
+  // both be in flight at the same empty-sessions moment and both land, leaving two sessions
+  // instead of one (e.g. right after discarding the last remaining session).
+  const autoCreatingRef = useRef(false);
   useEffect(() => {
     if (!shift || shiftModalMode) return;
     if (sessions.length === 0) {
-      createSession();
+      if (autoCreatingRef.current) return;
+      autoCreatingRef.current = true;
+      createSession().finally(() => { autoCreatingRef.current = false; });
     } else if (!activeSessionId || !sessions.find((s: PosSession) => s.id === activeSessionId)) {
       setActiveSessionId(sessions[0].id);
     }
   }, [shift, sessions, activeSessionId, shiftModalMode, createSession]);
 
   const loadDemoSessions = useCallback(async () => {
-    const products = await browseProducts();
+    const products = await browseProducts(undefined, true);
     if (products.length === 0) {
       setToast({ msg: 'No products found — add some products first.', type: 'error' });
       return;
@@ -194,6 +215,17 @@ export default function PosPage() {
     setToast({ msg: `${demoSessions.length} demo session${demoSessions.length !== 1 ? 's' : ''} loaded.`, type: 'success' });
   }, []);
 
+  // Cart sessions cache each item's variantId/name/price at the moment it's added and never
+  // re-check against the server afterward — if products get renamed/re-priced/re-seeded, old
+  // sessions can end up showing stale text next to a variantId that no longer matches. This is
+  // the manual escape hatch for that (was previously only fixable via clearing IndexedDB by hand).
+  const clearAllSessions = useCallback(async () => {
+    if (!window.confirm('Discard ALL open cart sessions on this device? This cannot be undone.')) return;
+    await posDb.sessions.clear();
+    setActiveSessionId(null);
+    setToast({ msg: 'All cart sessions cleared.', type: 'success' });
+  }, []);
+
   const handleDiscard = useCallback(async (id: string) => {
     await posDb.sessions.delete(id);
     // If the discarded session was active, fall back to another or create fresh
@@ -211,9 +243,13 @@ export default function PosPage() {
   const handlePaymentSuccess = async (
     method: PayMethod,
     paidAmount: number,
-    orderTotal: number
+    orderTotal: number,
+    orderId: string,
+    orderNo: string
   ) => {
     setPaymentOpen(false);
+
+    const finishedSession = sessions.find((s: PosSession) => s.id === activeSessionId) ?? null;
 
     // Update shift running totals
     if (shift) {
@@ -233,7 +269,14 @@ export default function PosPage() {
       setActiveSessionId(null);
     }
 
-    setToast({ msg: 'Payment complete! ✓', type: 'success' });
+    setCompletedSale({
+      orderId,
+      orderNo,
+      total: orderTotal,
+      paidAmount,
+      method,
+      customerPhone: finishedSession?.customerPhone || undefined,
+    });
   };
 
   const activeSession = sessions.find((s: PosSession) => s.id === activeSessionId) ?? null;
@@ -244,7 +287,7 @@ export default function PosPage() {
 
       {/* Shift status bar */}
       {shift && (
-        <div className="shrink-0 bg-indigo-700 text-white px-3 py-1.5 flex items-center justify-between text-xs select-none">
+        <div className="print:hidden shrink-0 bg-indigo-700 text-white px-3 py-1.5 flex items-center justify-between text-xs select-none">
           <div className="flex items-center gap-2 min-w-0">
             <svg className="w-3.5 h-3.5 opacity-70 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -265,6 +308,13 @@ export default function PosPage() {
               Load demo
             </button>
             <button
+              onClick={clearAllSessions}
+              className="text-red-300 hover:text-white font-medium border border-red-400 hover:border-red-300 rounded px-2 py-0.5 transition-colors"
+              title="Discard all cart sessions on this device (fixes stale/mismatched cart data)"
+            >
+              Clear sessions
+            </button>
+            <button
               onClick={() => setShiftModalMode('close')}
               className="text-indigo-200 hover:text-white font-medium"
             >
@@ -275,7 +325,7 @@ export default function PosPage() {
       )}
 
       {/* Main body — column on mobile (chips on top), row on tablet (sidebar) */}
-      <div className="flex flex-col md:flex-row flex-1 min-h-0">
+      <div className="print:hidden flex flex-col md:flex-row flex-1 min-h-0">
 
         {/* Session tray: horizontal chips on mobile, sidebar on tablet */}
         {sessions.length > 0 && (
@@ -315,6 +365,20 @@ export default function PosPage() {
           session={activeSession}
           onClose={() => setPaymentOpen(false)}
           onSuccess={handlePaymentSuccess}
+        />
+      )}
+
+      {/* Sale success — print/WhatsApp receipt, then start a new sale */}
+      {completedSale && (
+        <SaleSuccessModal
+          orderId={completedSale.orderId}
+          orderNo={completedSale.orderNo}
+          total={completedSale.total}
+          paidAmount={completedSale.paidAmount}
+          method={completedSale.method}
+          customerPhone={completedSale.customerPhone}
+          businessName={businessName}
+          onNewSale={() => setCompletedSale(null)}
         />
       )}
 
