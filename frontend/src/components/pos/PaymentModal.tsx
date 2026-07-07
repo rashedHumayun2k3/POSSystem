@@ -10,7 +10,7 @@ export type PayMethod = 'CASH' | 'BKASH' | 'CARD';
 interface Props {
   session: PosSession;
   onClose: () => void;
-  onSuccess: (method: PayMethod, paidAmount: number, orderTotal: number) => void;
+  onSuccess: (method: PayMethod, paidAmount: number, orderTotal: number, orderId: string, orderNo: string) => void;
 }
 
 const METHODS: PayMethod[] = ['CASH', 'BKASH', 'CARD'];
@@ -22,6 +22,19 @@ const METHOD_LABEL: Record<PayMethod, string> = {
 
 // Quick-rounding amounts for the cash numpad shortcuts
 const ROUND_TO = [50, 100, 200, 500, 1000];
+
+// Axios errors ARE instanceof Error, so a plain `err.message` gives the generic
+// "Request failed with status code 409" instead of the server's actual explanation. Read the
+// real body — for STOCK_UNAVAILABLE that includes exactly which item(s) are short.
+function extractErrorMessage(err: unknown): string {
+  const response = (err as { response?: { data?: { message?: string; items?: string[] } } })?.response;
+  if (response?.data?.items?.length) {
+    return `${response.data.message ?? 'Insufficient stock'}\n${response.data.items.join('\n')}`;
+  }
+  if (response?.data?.message) return response.data.message;
+  if (err instanceof Error) return err.message;
+  return 'Payment failed. Please try again.';
+}
 
 function sessionSubtotal(session: PosSession): number {
   return session.items.reduce((s, i) => s + i.unitPrice * i.qty, 0);
@@ -102,13 +115,9 @@ export default function PaymentModal({ session, onClose, onSuccess }: Props) {
       const paidAmt = method === 'CASH' ? Math.min(cashReceived, total) : total;
       await addOrderPayment(order.id, { method, amount: paidAmt });
 
-      onSuccess(method, paidAmt, total);
+      onSuccess(method, paidAmt, total, order.id, order.orderNo);
     } catch (err: unknown) {
-      const msg =
-        err instanceof Error
-          ? err.message
-          : 'Payment failed. Please try again.';
-      setError(msg);
+      setError(extractErrorMessage(err));
       setLoading(false);
     }
   };
@@ -243,7 +252,7 @@ export default function PaymentModal({ session, onClose, onSuccess }: Props) {
           )}
 
           {error && (
-            <p className="text-sm text-red-500 text-center">{error}</p>
+            <p className="text-sm text-red-500 text-center whitespace-pre-line">{error}</p>
           )}
 
           {/* Confirm button */}

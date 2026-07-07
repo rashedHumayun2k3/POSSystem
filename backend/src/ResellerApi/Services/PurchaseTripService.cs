@@ -1,3 +1,4 @@
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using ResellerApi.Data;
 using ResellerApi.DTOs.Purchases;
@@ -21,7 +22,7 @@ public class PurchaseTripService : IPurchaseTripService
     }
 
     private static readonly HashSet<string> ValidSourceTypes =
-        new(["CHINA_TRIP", "ALIBABA", "LOCAL_WHOLESALE", "AGENT"], StringComparer.OrdinalIgnoreCase);
+        new(["CHINA_TRIP", "ALIBABA", "LOCAL_WHOLESALE", "AGENT", "OPENING_BALANCE", "HAWKER_MARKET"], StringComparer.OrdinalIgnoreCase);
 
     private static readonly HashSet<string> ValidCostTypes =
         new(["TRANSPORT", "LABOR", "CUSTOMS", "SHIPPING_INTL", "CURRENCY_LOSS", "AGENT_FEE", "PAYMENT_FEE", "OTHER"],
@@ -38,9 +39,12 @@ public class PurchaseTripService : IPurchaseTripService
         if (!ValidSourceTypes.Contains(sourceType))
             throw new ArgumentException($"Invalid source type: {sourceType}");
 
+        var branchId = await ResolveBranchIdAsync(request.BranchId);
+
         var trip = new PurchaseTrip
         {
             BusinessId = _business.CurrentBusinessId,
+            BranchId = branchId,
             TripNo = await GenerateTripNoAsync(),
             SourceType = sourceType,
             Status = "DRAFT",
@@ -306,6 +310,7 @@ public class PurchaseTripService : IPurchaseTripService
         var session = new PurchaseReceiveSession
         {
             BusinessId = trip.BusinessId,
+            BranchId = trip.BranchId,
             TripId = tripId,
             SessionNo = await GenerateSessionNoAsync(tripId),
             ReceivedBy = userId,
@@ -365,7 +370,8 @@ public class PurchaseTripService : IPurchaseTripService
             if (item == null) continue;
 
             var (allocated, landedUnit) = ComputeLandedCost(item.TotalCost, totalItemCost, sharedTotal, si.QtyUsable);
-            var inv = await _db.VariantInventories.AsNoTracking().FirstOrDefaultAsync(vi => vi.VariantId == item.VariantId);
+            var inv = await _db.BranchVariantInventories.AsNoTracking()
+                .FirstOrDefaultAsync(vi => vi.BranchId == trip.BranchId && vi.VariantId == item.VariantId);
             var oldAvg = item.Variant?.AvgLandedCost ?? 0;
             var oldOnHand = inv?.OnHand ?? 0;
 
@@ -408,15 +414,31 @@ public class PurchaseTripService : IPurchaseTripService
                 var item = trip.Items.FirstOrDefault(i => i.Id == si.PurchaseItemId)
                     ?? throw new KeyNotFoundException($"Purchase item {si.PurchaseItemId} not found.");
 
-                var inv = await _db.VariantInventories
-                    .FromSqlRaw("SELECT * FROM variant_inventories WITH (UPDLOCK) WHERE [VariantId] = {0}", item.VariantId)
+                var inv = await _db.BranchVariantInventories
+                    .FromSqlRaw("SELECT * FROM branch_variant_inventories WITH (UPDLOCK) WHERE [BranchId] = {0} AND [VariantId] = {1}", trip.BranchId, item.VariantId)
                     .FirstOrDefaultAsync();
 
                 if (inv == null)
                 {
-                    inv = new VariantInventory { VariantId = item.VariantId, OnHand = 0, Committed = 0, Damaged = 0 };
-                    _db.VariantInventories.Add(inv);
-                    await _db.SaveChangesAsync();
+                    // Pre-existing race (not introduced by branching): the read above found
+                    // nothing, but a concurrent first-time receive for this exact
+                    // (branch, variant) could insert between our read and our write. Try the
+                    // insert; if another request beat us to it, fall back to the normal
+                    // UPDLOCK-read path instead of crashing on the PK violation.
+                    try
+                    {
+                        inv = new BranchVariantInventory { BranchId = trip.BranchId!.Value, VariantId = item.VariantId, OnHand = 0, Committed = 0, Damaged = 0 };
+                        _db.BranchVariantInventories.Add(inv);
+                        await _db.SaveChangesAsync();
+                    }
+                    catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex))
+                    {
+                        _db.Entry(inv!).State = EntityState.Detached;
+                        inv = await _db.BranchVariantInventories
+                            .FromSqlRaw("SELECT * FROM branch_variant_inventories WITH (UPDLOCK) WHERE [BranchId] = {0} AND [VariantId] = {1}", trip.BranchId, item.VariantId)
+                            .FirstOrDefaultAsync()
+                            ?? throw new InvalidOperationException("Inventory row vanished after unique-constraint retry.");
+                    }
                 }
 
                 if (si.QtyUsable > 0)
@@ -430,14 +452,20 @@ public class PurchaseTripService : IPurchaseTripService
                     item.AllocatedSharedCost += allocated;
                     item.LandedUnitCost = newLandedAvg;
 
-                    var oldOnHand = inv.OnHand;
+                    // AvgLandedCost lives on ProductVariant (business-level, not per-branch), so
+                    // the weighted average needs the variant's true on-hand across ALL branches,
+                    // not just the branch this session is receiving into.
+                    var globalOnHand = await _db.BranchVariantInventories.AsNoTracking()
+                        .Where(x => x.VariantId == item.VariantId)
+                        .SumAsync(x => x.OnHand);
                     var variant = await _db.ProductVariants.FirstOrDefaultAsync(v => v.Id == item.VariantId)!;
                     inv.OnHand += si.QtyUsable;
-                    variant!.AvgLandedCost = ComputeNewAvgCost(oldOnHand, variant.AvgLandedCost, si.QtyUsable, landedUnit);
+                    variant!.AvgLandedCost = ComputeNewAvgCost(globalOnHand, variant.AvgLandedCost, si.QtyUsable, landedUnit);
 
                     var lot = new Lot
                     {
                         BusinessId = trip.BusinessId,
+                        BranchId = trip.BranchId,
                         VariantId = item.VariantId,
                         PurchaseItemId = item.Id,
                         QtyIn = si.QtyUsable,
@@ -451,6 +479,7 @@ public class PurchaseTripService : IPurchaseTripService
                     _db.StockMovements.Add(new StockMovement
                     {
                         BusinessId = trip.BusinessId,
+                        BranchId = trip.BranchId,
                         VariantId = item.VariantId,
                         MovementType = "PURCHASE_IN",
                         Qty = si.QtyUsable,
@@ -467,6 +496,7 @@ public class PurchaseTripService : IPurchaseTripService
                     _db.StockMovements.Add(new StockMovement
                     {
                         BusinessId = trip.BusinessId,
+                        BranchId = trip.BranchId,
                         VariantId = item.VariantId,
                         MovementType = "DAMAGE_IN",
                         Qty = si.QtyDamaged,
@@ -587,6 +617,27 @@ public class PurchaseTripService : IPurchaseTripService
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static bool IsUniqueConstraintViolation(DbUpdateException ex) =>
+        ex.InnerException is SqlException sqlEx && (sqlEx.Number == 2627 || sqlEx.Number == 2601);
+
+    private async Task<Guid> ResolveBranchIdAsync(Guid? requestedBranchId)
+    {
+        if (requestedBranchId.HasValue)
+        {
+            var exists = await _db.Branches.AnyAsync(b => b.Id == requestedBranchId.Value && b.IsActive);
+            if (!exists)
+                throw new KeyNotFoundException("Branch not found or inactive.");
+            return requestedBranchId.Value;
+        }
+
+        var activeBranches = await _db.Branches.Where(b => b.IsActive).Select(b => b.Id).ToListAsync();
+        if (activeBranches.Count == 1)
+            return activeBranches[0];
+        if (activeBranches.Count == 0)
+            throw new InvalidOperationException("No active branch exists for this business.");
+        throw new InvalidOperationException("This business has multiple branches; BranchId must be specified.");
+    }
 
     private async Task<PurchaseTrip> RequireDraftTripAsync(Guid tripId)
     {

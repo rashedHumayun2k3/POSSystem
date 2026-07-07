@@ -12,6 +12,7 @@ import {
   ArrowRightOnRectangleIcon,
   TagIcon,
   ArchiveBoxIcon,
+  RectangleStackIcon,
 } from "@heroicons/react/24/outline";
 import { useLogout } from "@/hooks/useAuth";
 import { useLanguage } from "@/i18n/LanguageContext";
@@ -26,6 +27,7 @@ export default function MorePage() {
 
   const ownerLinks = [
     { href: "/more/categories", labelKey: "more.categories", Icon: TagIcon,         descKey: "more.categoriesDesc" },
+    { href: "/more/catalog-templates", labelKey: "more.catalogTemplates", Icon: RectangleStackIcon, descKey: "more.catalogTemplatesDesc" },
     { href: "/more/purchases",  labelKey: "more.purchases",  Icon: TruckIcon,       descKey: "more.purchasesDesc" },
     { href: "/more/storeroom",  labelKey: "more.storeroom",  Icon: ArchiveBoxIcon,  descKey: "more.storeroomDesc" },
     { href: "/more/deliveries", labelKey: "more.deliveries", Icon: TruckIcon,       descKey: "more.deliveriesDesc" },

@@ -17,15 +17,33 @@ import {
   Bars3Icon as MoreSolid,
 } from "@heroicons/react/24/solid";
 import { useLanguage } from "@/i18n/LanguageContext";
+import { useAuthStore } from "@/store/authStore";
 
 export default function BottomTabBar() {
   const pathname = usePathname();
   const { t } = useLanguage();
+  const businesses = useAuthStore((s) => s.businesses);
+  const currentBusinessId = useAuthStore((s) => s.currentBusinessId);
+  const isHawker = businesses
+    .find((b) => b.id === currentBusinessId)
+    ?.salesChannels?.includes("HAWKER") ?? false;
 
-  const tabs = [
+  // Hawker businesses get Night Entry instead of Sell in the center slot — same tab position,
+  // different destination, since the two flows are shaped too differently to share one screen.
+  const sellTab = isHawker
+    ? { href: "/hawker/night-entry", labelKey: "hawker.nightEntryTab", Icon: ShoppingCartIcon, IconActive: PosSolid, center: true }
+    : { href: "/pos", labelKey: "nav.pos", Icon: ShoppingCartIcon, IconActive: PosSolid, center: true };
+
+  const tabs: {
+    href: string;
+    labelKey: string;
+    Icon: typeof HomeIcon;
+    IconActive: typeof HomeIconSolid;
+    center?: boolean;
+  }[] = [
     { href: "/dashboard", labelKey: "nav.home",     Icon: HomeIcon,                   IconActive: HomeIconSolid },
     { href: "/orders",    labelKey: "nav.orders",   Icon: ClipboardDocumentListIcon,   IconActive: OrdersSolid },
-    { href: "/pos",       labelKey: "nav.pos",      Icon: ShoppingCartIcon,            IconActive: PosSolid, center: true },
+    sellTab,
     { href: "/products",  labelKey: "nav.products", Icon: ArchiveBoxIcon,              IconActive: ProductsSolid },
     { href: "/more",      labelKey: "nav.more",     Icon: Bars3Icon,                   IconActive: MoreSolid },
   ];

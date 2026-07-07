@@ -50,8 +50,11 @@ public class OrderService : IOrderService
         var order = new Order
         {
             BusinessId = _db.CurrentBusinessId,
+            BranchId = _db.CurrentBranchId
+                ?? throw new InvalidOperationException("A branch must be selected to create an order."),
             OrderNo = orderNo,
             Channel = request.Channel,
+            BusinessDate = request.BusinessDate ?? DateOnly.FromDateTime(DateTime.UtcNow),
             CustomerId = customer.Id,
             CustomerName = request.CustomerName,
             CustomerPhone = request.CustomerPhone,
@@ -99,7 +102,24 @@ public class OrderService : IOrderService
 
         // Auto-confirm if not a draft
         if (!request.IsDraft)
-            order = await ConfirmInternalAsync(order, userId);
+        {
+            try
+            {
+                order = await ConfirmInternalAsync(order, userId);
+            }
+            catch (StockUnavailableException)
+            {
+                // The order row above was already persisted — ConfirmInternalAsync needs a
+                // real Id for its StockMovement/OrderStatusHistory references, so it can't run
+                // before the initial save. If confirmation then fails, this order was never a
+                // real, actionable one (no stock ever committed) — soft-delete it (GTR-6) rather
+                // than leave a phantom OPEN/UNFULFILLED order visible to staff with nothing
+                // behind it.
+                order.DeletedAt = DateTime.UtcNow;
+                await _db.SaveChangesAsync();
+                throw;
+            }
+        }
 
         await _log.LogAsync(_db.CurrentBusinessId, userId, "CREATE", "Order", order.Id);
         return await GetAsync(order.Id, true);
@@ -107,11 +127,11 @@ public class OrderService : IOrderService
 
     // ── List ──────────────────────────────────────────────────────────────────
 
-    public async Task<List<OrderListDto>> ListAsync(string? orderStatus, string? fulfillmentStatus, string? channel, string? q, DateTime? from, DateTime? to)
+    public async Task<List<OrderListDto>> ListAsync(string? orderStatus, string? fulfillmentStatus, string? channel, string? q, DateTime? from, DateTime? to, bool canSeeCosts)
     {
         var query = _db.Orders
             .AsNoTracking()
-            .Include(o => o.Items)
+            .Include(o => o.Items).ThenInclude(i => i.Variant).ThenInclude(v => v.Product)
             .Include(o => o.Payments)
             .Include(o => o.HandlingUser)
             .AsQueryable();
@@ -128,7 +148,9 @@ public class OrderService : IOrderService
             query = query.Where(o =>
                 o.OrderNo.ToLower().Contains(lower) ||
                 o.CustomerName.ToLower().Contains(lower) ||
-                o.CustomerPhone.Contains(q));
+                o.CustomerPhone.Contains(q) ||
+                o.Items.Any(i => i.DeletedAt == null &&
+                    (i.Variant.Sku.ToLower().Contains(lower) || i.Variant.Product.Sku.ToLower().Contains(lower))));
         }
         if (from.HasValue)
             query = query.Where(o => o.CreatedAt >= from.Value);
@@ -136,28 +158,28 @@ public class OrderService : IOrderService
             query = query.Where(o => o.CreatedAt <= to.Value);
 
         var orders = await query
-            .OrderByDescending(o => o.CreatedAt)
+            .OrderByDescending(o => o.BusinessDate).ThenByDescending(o => o.CreatedAt)
             .Take(200)
             .ToListAsync();
 
-        return orders.Select(o => ToListDto(o)).ToList();
+        return orders.Select(o => ToListDto(o, canSeeCosts)).ToList();
     }
 
     // ── List by product ───────────────────────────────────────────────────────
 
-    public async Task<List<OrderListDto>> ListByProductAsync(Guid productId)
+    public async Task<List<OrderListDto>> ListByProductAsync(Guid productId, bool canSeeCosts)
     {
         var orders = await _db.Orders
             .AsNoTracking()
-            .Include(o => o.Items).ThenInclude(i => i.Variant)
+            .Include(o => o.Items).ThenInclude(i => i.Variant).ThenInclude(v => v.Product)
             .Include(o => o.Payments)
             .Include(o => o.HandlingUser)
             .Where(o => o.Items.Any(i => i.Variant != null && i.Variant.ProductId == productId))
-            .OrderByDescending(o => o.CreatedAt)
+            .OrderByDescending(o => o.BusinessDate).ThenByDescending(o => o.CreatedAt)
             .Take(200)
             .ToListAsync();
 
-        return orders.Select(o => ToListDto(o)).ToList();
+        return orders.Select(o => ToListDto(o, canSeeCosts)).ToList();
     }
 
     // ── Get ───────────────────────────────────────────────────────────────────
@@ -223,8 +245,8 @@ public class OrderService : IOrderService
             {
                 foreach (var item in order.Items.Where(i => i.DeletedAt == null))
                 {
-                    var inv = await _db.VariantInventories
-                        .FromSqlRaw("SELECT * FROM variant_inventories WITH (UPDLOCK) WHERE [VariantId] = {0}", item.VariantId)
+                    var inv = await _db.BranchVariantInventories
+                        .FromSqlRaw("SELECT * FROM branch_variant_inventories WITH (UPDLOCK) WHERE [BranchId] = {0} AND [VariantId] = {1}", order.BranchId, item.VariantId)
                         .FirstOrDefaultAsync();
                     if (inv != null)
                     {
@@ -232,6 +254,7 @@ public class OrderService : IOrderService
                         _db.StockMovements.Add(new StockMovement
                         {
                             BusinessId = _db.CurrentBusinessId,
+                            BranchId = order.BranchId,
                             VariantId = item.VariantId,
                             MovementType = "RELEASE",
                             Qty = item.Qty,
@@ -288,8 +311,9 @@ public class OrderService : IOrderService
 
         var prev = order.FulfillmentStatus;
         order.FulfillmentStatus = "PACKED";
-        order.StatusHistory.Add(new OrderStatusHistory { Track = "FULFILLMENT", FromStatus = prev, ToStatus = "PACKED", UserId = userId });
+        _db.OrderStatusHistories.Add(new OrderStatusHistory { OrderId = order.Id, Track = "FULFILLMENT", FromStatus = prev, ToStatus = "PACKED", UserId = userId });
         await _db.SaveChangesAsync();
+
         await _log.LogAsync(_db.CurrentBusinessId, userId, "UPDATE", "Order", order.Id);
         return await GetAsync(id, true);
     }
@@ -311,8 +335,8 @@ public class OrderService : IOrderService
         {
             foreach (var item in order.Items.Where(i => i.DeletedAt == null))
             {
-                var inv = await _db.VariantInventories
-                    .FromSqlRaw("SELECT * FROM variant_inventories WITH (UPDLOCK) WHERE [VariantId] = {0}", item.VariantId)
+                var inv = await _db.BranchVariantInventories
+                    .FromSqlRaw("SELECT * FROM branch_variant_inventories WITH (UPDLOCK) WHERE [BranchId] = {0} AND [VariantId] = {1}", order.BranchId, item.VariantId)
                     .FirstOrDefaultAsync()
                     ?? throw new InvalidOperationException($"Inventory record not found for variant {item.VariantId}.");
 
@@ -322,6 +346,7 @@ public class OrderService : IOrderService
                 _db.StockMovements.Add(new StockMovement
                 {
                     BusinessId = _db.CurrentBusinessId,
+                    BranchId = order.BranchId,
                     VariantId = item.VariantId,
                     MovementType = "SALE_OUT",
                     Qty = -item.Qty,
@@ -423,8 +448,8 @@ public class OrderService : IOrderService
                 var item = order.Items.FirstOrDefault(i => i.Id == ri.OrderItemId)
                     ?? throw new KeyNotFoundException($"Order item {ri.OrderItemId} not found.");
 
-                var inv = await _db.VariantInventories
-                    .FromSqlRaw("SELECT * FROM variant_inventories WITH (UPDLOCK) WHERE [VariantId] = {0}", item.VariantId)
+                var inv = await _db.BranchVariantInventories
+                    .FromSqlRaw("SELECT * FROM branch_variant_inventories WITH (UPDLOCK) WHERE [BranchId] = {0} AND [VariantId] = {1}", order.BranchId, item.VariantId)
                     .FirstOrDefaultAsync()
                     ?? throw new InvalidOperationException($"Inventory record not found for variant {item.VariantId}.");
 
@@ -444,6 +469,7 @@ public class OrderService : IOrderService
                     _db.StockMovements.Add(new StockMovement
                     {
                         BusinessId = _db.CurrentBusinessId,
+                        BranchId = order.BranchId,
                         VariantId = item.VariantId,
                         MovementType = "RETURN_IN",
                         Qty = ri.Qty,
@@ -459,6 +485,7 @@ public class OrderService : IOrderService
                     _db.StockMovements.Add(new StockMovement
                     {
                         BusinessId = _db.CurrentBusinessId,
+                        BranchId = order.BranchId,
                         VariantId = item.VariantId,
                         MovementType = "DAMAGE_IN",
                         Qty = ri.Qty,
@@ -554,8 +581,8 @@ public class OrderService : IOrderService
             {
                 foreach (var item in order.Items.Where(i => i.DeletedAt == null))
                 {
-                    var inv = await _db.VariantInventories
-                        .FromSqlRaw("SELECT * FROM variant_inventories WITH (UPDLOCK) WHERE [VariantId] = {0}", item.VariantId)
+                    var inv = await _db.BranchVariantInventories
+                        .FromSqlRaw("SELECT * FROM branch_variant_inventories WITH (UPDLOCK) WHERE [BranchId] = {0} AND [VariantId] = {1}", order.BranchId, item.VariantId)
                         .FirstOrDefaultAsync();
 
                     if (inv != null)
@@ -564,6 +591,7 @@ public class OrderService : IOrderService
                         _db.StockMovements.Add(new StockMovement
                         {
                             BusinessId = _db.CurrentBusinessId,
+                            BranchId = order.BranchId,
                             VariantId = item.VariantId,
                             MovementType = "RELEASE",
                             Qty = item.Qty,
@@ -651,6 +679,23 @@ public class OrderService : IOrderService
         return ChallanPdfGenerator.Generate(order, business?.Name ?? "");
     }
 
+    // ── Receipt PDF ───────────────────────────────────────────────────────────
+
+    public async Task<byte[]> GetReceiptPdfAsync(Guid id)
+    {
+        var order = await LoadFullOrderAsync(id)
+            ?? throw new KeyNotFoundException("Order not found.");
+
+        var business = await _db.Businesses.AsNoTracking()
+            .FirstOrDefaultAsync(b => b.Id == _db.CurrentBusinessId);
+
+        Branch? branch = null;
+        if (order.BranchId.HasValue)
+            branch = await _db.Branches.AsNoTracking().FirstOrDefaultAsync(b => b.Id == order.BranchId.Value);
+
+        return ReceiptPdfGenerator.Generate(order, business?.Name ?? "", branch?.Address, branch?.Phone);
+    }
+
     // ── Internal helpers ──────────────────────────────────────────────────────
 
     private async Task<Order> ConfirmInternalAsync(Order order, Guid userId)
@@ -662,8 +707,8 @@ public class OrderService : IOrderService
 
             foreach (var item in order.Items.Where(i => i.DeletedAt == null))
             {
-                var inv = await _db.VariantInventories
-                    .FromSqlRaw("SELECT * FROM variant_inventories WITH (UPDLOCK) WHERE [VariantId] = {0}", item.VariantId)
+                var inv = await _db.BranchVariantInventories
+                    .FromSqlRaw("SELECT * FROM branch_variant_inventories WITH (UPDLOCK) WHERE [BranchId] = {0} AND [VariantId] = {1}", order.BranchId, item.VariantId)
                     .FirstOrDefaultAsync();
 
                 var available = inv?.Available ?? 0;
@@ -681,8 +726,8 @@ public class OrderService : IOrderService
 
             foreach (var item in order.Items.Where(i => i.DeletedAt == null))
             {
-                var inv = await _db.VariantInventories
-                    .FromSqlRaw("SELECT * FROM variant_inventories WITH (UPDLOCK) WHERE [VariantId] = {0}", item.VariantId)
+                var inv = await _db.BranchVariantInventories
+                    .FromSqlRaw("SELECT * FROM branch_variant_inventories WITH (UPDLOCK) WHERE [BranchId] = {0} AND [VariantId] = {1}", order.BranchId, item.VariantId)
                     .FirstOrDefaultAsync()!;
 
                 inv!.Committed += item.Qty;
@@ -695,6 +740,7 @@ public class OrderService : IOrderService
                 _db.StockMovements.Add(new StockMovement
                 {
                     BusinessId = _db.CurrentBusinessId,
+                    BranchId = order.BranchId,
                     VariantId = item.VariantId,
                     MovementType = "COMMIT",
                     Qty = item.Qty,
@@ -741,7 +787,15 @@ public class OrderService : IOrderService
 
     private async Task<string> GenerateOrderNoAsync()
     {
-        var count = await _db.Orders.CountAsync() + 1;
+        // IgnoreQueryFilters is essential here, not just belt-and-suspenders: Order is
+        // IBranchScoped, so a plain _db.Orders.CountAsync() is silently filtered down to only
+        // the CURRENT branch whenever a branch is selected (not "All Branches"). OrderNo
+        // uniqueness is BUSINESS-wide (IX_orders_BusinessId_OrderNo), so counting one branch's
+        // orders undercounts and reuses numbers already taken by another branch. Re-adding the
+        // BusinessId filter manually keeps the business scope while dropping the branch/soft-
+        // delete ones. Same class of bug as ProductService.GenerateSkuAsync.
+        var count = await _db.Orders.IgnoreQueryFilters()
+            .CountAsync(o => o.BusinessId == _db.CurrentBusinessId) + 1;
         return $"O-{count:D4}";
     }
 
@@ -776,16 +830,32 @@ public class OrderService : IOrderService
     private static decimal ComputeTotal(Order o) =>
         ComputeSubtotal(o) - ComputeDiscount(o) + o.DeliveryChargeCustomer;
 
-    private static OrderListDto ToListDto(Order o)
+    private static OrderListDto ToListDto(Order o, bool canSeeCosts)
     {
         var total = ComputeTotal(o);
         var paid = o.Payments.Sum(p => p.Amount);
+        var items = o.Items.Where(i => i.DeletedAt == null)
+            .Select(i => new OrderListItemSummaryDto(i.Variant?.Product?.Name ?? "Unknown", i.Variant?.Sku ?? "", i.Qty))
+            .ToList();
+
+        // Same formula as OrderDetailDto.Economics (ToDetailDto) — cost = cost-snapshot per line
+        // + actual delivery cost, so the day-total profit here always matches what the order
+        // detail page would show for the same orders.
+        decimal? profit = null;
+        if (canSeeCosts)
+        {
+            var cost = o.Items.Where(i => i.DeletedAt == null && i.UnitCostSnapshot.HasValue)
+                .Sum(i => i.UnitCostSnapshot!.Value * i.Qty) + o.DeliveryCostActual;
+            profit = total - cost;
+        }
+
         return new OrderListDto(
             o.Id, o.OrderNo, o.Channel,
             o.CustomerName, o.CustomerPhone,
             o.OrderStatus, o.PaymentStatus, o.FulfillmentStatus,
             o.IsDraft, total, Math.Max(0, total - paid),
-            o.TrackingNo, o.HandlingUser?.Name, o.CreatedAt
+            o.TrackingNo, o.HandlingUser?.Name, o.CreatedAt, o.BusinessDate,
+            items, profit
         );
     }
 

@@ -40,7 +40,7 @@ export default function ShiftModal({ mode, shift, cashierName, onOpen, onClose }
           </div>
 
           <label className="block text-sm font-medium text-gray-700 mb-1">
-            Opening float (৳)
+            Opening Balance in Drawer (৳)
           </label>
           <input
             type="number"
@@ -96,10 +96,21 @@ export default function ShiftModal({ mode, shift, cashierName, onOpen, onClose }
     minute: '2-digit',
   });
 
+  const closedAtDisplay = new Date().toLocaleString('en-BD', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  });
+
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl">
-        <h2 className="text-base font-bold text-gray-900 mb-4">Close Shift — Z Report</h2>
+    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 print:static print:bg-white print:p-0">
+      <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl print:shadow-none print:rounded-none print:max-w-full">
+        <h2 className="text-base font-bold text-gray-900 mb-4 print:hidden">Close Shift — Z Report</h2>
+
+        {/* Printable report — shown on screen too, but this is what survives print:hidden on everything else */}
+        <div className="hidden print:block mb-4">
+          <p className="text-lg font-bold text-center">Z Report</p>
+          <p className="text-xs text-center text-gray-500">{closedAtDisplay}</p>
+        </div>
 
         <div className="text-sm divide-y divide-gray-50 mb-6">
           <Row label="Cashier" value={shift.cashierName} />
@@ -107,18 +118,24 @@ export default function ShiftModal({ mode, shift, cashierName, onOpen, onClose }
           <Row label="Total orders" value={`${shift.salesCount}`} />
           <Row label="Total sales" value={`৳${shift.totalSales.toLocaleString()}`} />
           <div className="pt-2 mt-1 space-y-1">
-            <Row label="Opening float" value={`৳${shift.openingFloat.toLocaleString()}`} />
+            <Row label="Opening Balance in Drawer" value={`৳${shift.openingFloat.toLocaleString()}`} />
             <Row label="Cash received" value={`৳${shift.totalCash.toLocaleString()}`} />
             <Row label="Expected in drawer" value={`৳${expectedCash.toLocaleString()}`} bold />
           </div>
         </div>
 
-        <div className="flex gap-3">
+        <div className="flex gap-3 print:hidden">
           <button
             onClick={onClose}
             className="flex-1 border border-gray-200 text-gray-700 py-2.5 rounded-xl font-medium text-sm"
           >
             Cancel
+          </button>
+          <button
+            onClick={() => window.print()}
+            className="flex-1 border border-gray-200 text-gray-700 py-2.5 rounded-xl font-medium text-sm"
+          >
+            Print
           </button>
           <button
             onClick={() => {

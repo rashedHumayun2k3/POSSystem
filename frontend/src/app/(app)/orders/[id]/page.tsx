@@ -4,7 +4,7 @@ import { use, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   getOrder, confirmOrder, packOrder, handoverOrder, deliverOrder,
-  returnOrder, cancelOrder, addOrderPayment, downloadChallan,
+  returnOrder, cancelOrder, addOrderPayment, downloadChallan, downloadReceipt,
   updateOrder, deleteOrder,
   listCouriers, listDeliveryMen,
 } from "@/lib/ordersApi";
@@ -62,6 +62,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
   const [payAmount, setPayAmount] = useState("");
 
   const [challanLoading, setChallanLoading] = useState(false);
+  const [receiptLoading, setReceiptLoading] = useState(false);
   const [actionError, setActionError] = useState("");
 
   const { data: order, isLoading } = useQuery<OrderDetail>({
@@ -190,6 +191,11 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
     try { await downloadChallan(id); } finally { setChallanLoading(false); }
   };
 
+  const handleReceipt = async () => {
+    setReceiptLoading(true);
+    try { await downloadReceipt(id); } finally { setReceiptLoading(false); }
+  };
+
   const PAYMENT_METHODS = ["CASH", "BKASH", "NAGAD", "CARD", "BAKI", "COD"];
   const TABS: { key: Tab; label: string }[] = [
     { key: "overview", label: t("orders.overview") },
@@ -240,15 +246,24 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
         {/* Status badges */}
         <div className="px-4 py-2 flex flex-wrap gap-2 bg-white border-b border-gray-100">
           <StatusBadge status={order.orderStatus} />
-          <StatusBadge status={order.fulfillmentStatus} />
-          <StatusBadge status={order.paymentStatus} />
+          {/* Shop and Hawker sales are already-settled walk-in/counter cash sales —
+              FulfillmentStatus (always UNFULFILLED) and PaymentStatus (always PAID) never carry
+              real information for these two channels, so they're hidden here too, matching the
+              Orders list. Delivery channels still show both. */}
+          {order.channel !== "HAWKER" && order.channel !== "SHOP" && (
+            <StatusBadge status={order.fulfillmentStatus} />
+          )}
+          {order.channel !== "HAWKER" && order.channel !== "SHOP" && (
+            <StatusBadge status={order.paymentStatus} />
+          )}
           {order.isDraft && (
             <span className="text-xs bg-gray-200 text-gray-500 px-2 py-0.5 rounded-full">
               DRAFT
             </span>
           )}
           <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">
-            {order.channel}
+            {/* Night-entry sales display as Shop (দোকান) — same walk-in-style channel visually */}
+            {order.channel === "HAWKER" ? "SHOP" : order.channel}
           </span>
         </div>
 
@@ -605,6 +620,15 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
               className="flex-1 py-2 rounded-xl border border-indigo-200 text-indigo-600 text-sm font-medium disabled:opacity-50"
             >
               {challanLoading ? "…" : t("orders.printChallan")}
+            </button>
+          )}
+          {!order.isDraft && os !== "CANCELLED" && (
+            <button
+              onClick={handleReceipt}
+              disabled={receiptLoading}
+              className="flex-1 py-2 rounded-xl border border-indigo-200 text-indigo-600 text-sm font-medium disabled:opacity-50"
+            >
+              {receiptLoading ? "…" : t("orders.printReceipt")}
             </button>
           )}
           {!isTerminal && (

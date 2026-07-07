@@ -4,7 +4,8 @@ namespace ResellerApi.DTOs.Purchases;
 
 public record CreatePurchaseTripRequest(
     string SourceType,
-    string? Note
+    string? Note,
+    Guid? BranchId = null
 );
 
 public record AddPurchaseItemRequest(

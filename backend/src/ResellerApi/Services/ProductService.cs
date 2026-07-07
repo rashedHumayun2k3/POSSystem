@@ -1,3 +1,4 @@
+using System.Linq.Expressions;
 using Microsoft.EntityFrameworkCore;
 using ResellerApi.Data;
 using ResellerApi.DTOs.Catalog;
@@ -36,7 +37,11 @@ public class ProductService : IProductService
             query = query.Where(p => p.Name.Contains(q) || p.Sku.Contains(q));
 
         var products = await query.OrderBy(p => p.Name).ToListAsync();
-        return products.Select(p => MapSummary(p)).ToList();
+
+        var variantIds = products.SelectMany(p => p.Variants).Select(v => v.Id);
+        var inv = await LoadInventoryAsync(variantIds);
+
+        return products.Select(p => MapSummary(p, inv)).ToList();
     }
 
     public async Task<object> GetAsync(Guid id, bool isOwner)
@@ -54,7 +59,8 @@ public class ProductService : IProductService
                 p.Id, p.CategoryId, p.Name, p.Sku, p.ImageUrl, p.Description, p.DefectNotes,
                 p.UnitCode, p.SellingPrice, p.MarketPrice, p.PackagingCostPerUnit, p.LowStockThreshold,
                 p.AttributesJson, p.Note, p.Status, p.Category.Name,
-                p.Variants.Where(v => v.DeletedAt == null).Select(MapVariantDto).ToList()
+                p.Variants.Where(v => v.DeletedAt == null).Select(MapVariantDto).ToList(),
+                p.RowVer
             );
         }
 
@@ -66,17 +72,22 @@ public class ProductService : IProductService
         );
     }
 
-    public async Task<List<ProductSearchResultDto>> SearchAsync(string q)
+    public async Task<List<ProductSearchResultDto>> SearchAsync(string q, bool onlyInStock = false)
     {
         q = q.Trim();
-        var variants = await _db.ProductVariants
+        var query = _db.ProductVariants
             .AsNoTracking()
             .Include(v => v.Product)
             .Where(v => v.Product.Status == "ACTIVE" &&
                         (v.Barcode == q ||
                          v.Sku.Contains(q) ||
                          v.Product.Name.Contains(q) ||
-                         v.Product.Sku.Contains(q)))
+                         v.Product.Sku.Contains(q)));
+
+        if (onlyInStock)
+            query = query.Where(HasStockInCurrentScope());
+
+        var variants = await query
             .OrderBy(v => v.Product.Name).ThenBy(v => v.Sku)
             .Take(30)
             .ToListAsync();
@@ -96,7 +107,7 @@ public class ProductService : IProductService
         return MapSearchResult(variant, inv, variant.AvgLandedCost);
     }
 
-    public async Task<List<ProductSearchResultDto>> BrowseAsync(Guid? categoryId)
+    public async Task<List<ProductSearchResultDto>> BrowseAsync(Guid? categoryId, bool onlyInStock = false)
     {
         var q = _db.ProductVariants
             .AsNoTracking()
@@ -105,6 +116,9 @@ public class ProductService : IProductService
 
         if (categoryId.HasValue)
             q = q.Where(v => v.Product.CategoryId == categoryId.Value);
+
+        if (onlyInStock)
+            q = q.Where(HasStockInCurrentScope());
 
         var variants = await q
             .OrderBy(v => v.Product.Name)
@@ -192,6 +206,7 @@ public class ProductService : IProductService
             var variantSku = $"{sku}-{(i + 1):D2}";
             var variant = new ProductVariant
             {
+                BusinessId = _business.CurrentBusinessId,
                 ProductId = product.Id,
                 VariantValuesJson = variantJson,
                 Sku = variantSku,
@@ -277,6 +292,7 @@ public class ProductService : IProductService
 
         var variant = new ProductVariant
         {
+            BusinessId = _business.CurrentBusinessId,
             ProductId = productId,
             VariantValuesJson = request.VariantValuesJson,
             Sku = sku,
@@ -322,14 +338,20 @@ public class ProductService : IProductService
 
     private async Task<string> GenerateSkuAsync()
     {
-        var count = await _db.Products.CountAsync() + 1;
+        // IgnoreQueryFilters so an archived (soft-deleted) product's number is never reused —
+        // its row still occupies the (BusinessId, Sku) unique index. Scoped to this business
+        // only: Sku uniqueness is per-business, not global (two tenants can both have "P-0001").
+        var count = await _db.Products.IgnoreQueryFilters()
+            .CountAsync(p => p.BusinessId == _business.CurrentBusinessId) + 1;
         return $"P-{count:D4}";
     }
 
     private async Task<string> GenerateBarcodeAsync()
     {
-        // Simple EAN-8 style: business prefix + sequential number
-        var count = await _db.ProductVariants.CountAsync() + 1;
+        // Simple EAN-8 style: business prefix + sequential number. Barcodes are globally
+        // unique (no BusinessId on ProductVariant), so count across all businesses — but still
+        // IgnoreQueryFilters so a soft-deleted variant's number is never reused.
+        var count = await _db.ProductVariants.IgnoreQueryFilters().CountAsync() + 1;
         var raw = $"880{count:D5}";
         return raw + ComputeLuhn(raw);
     }
@@ -351,17 +373,34 @@ public class ProductService : IProductService
         v.Id, v.VariantValuesJson, v.Sku, v.Barcode, v.PriceOverride, v.IsDefault
     );
 
-    private async Task<Dictionary<Guid, VariantInventory>> LoadInventoryAsync(IEnumerable<Guid> variantIds)
+    // POS search opt-in filter (onlyInStock): true when the variant has any branch_variant_
+    // inventories row, in the current branch scope, with real sellable stock (OnHand minus
+    // Committed/Damaged) — not just OnHand > 0, so already-reserved units don't show as
+    // available. Same branch-scoping convention as LoadInventoryAsync (null CurrentBranchId =
+    // OWNER/MANAGER "All Branches", checks across every branch instead of one).
+    private Expression<Func<ProductVariant, bool>> HasStockInCurrentScope() => v =>
+        _db.BranchVariantInventories.Any(i =>
+            i.VariantId == v.Id &&
+            (_db.CurrentBranchId == null || i.BranchId == _db.CurrentBranchId) &&
+            i.OnHand - i.Committed - i.Damaged > 0);
+
+    // Reads from branch_variant_inventories, not the old single-pool variant_inventories
+    // (frozen/stale since stock mutations moved to the branch-aware table). Sums across
+    // branches when CurrentBranchId is null (OWNER/MANAGER "All Branches" view), otherwise
+    // scoped to the active branch — same convention used in ReportService.
+    private async Task<Dictionary<Guid, decimal>> LoadInventoryAsync(IEnumerable<Guid> variantIds)
     {
         var ids = variantIds.ToList();
-        return await _db.VariantInventories
-            .Where(i => ids.Contains(i.VariantId))
-            .ToDictionaryAsync(i => i.VariantId);
+        return await _db.BranchVariantInventories
+            .Where(i => ids.Contains(i.VariantId) && (_db.CurrentBranchId == null || i.BranchId == _db.CurrentBranchId))
+            .GroupBy(i => i.VariantId)
+            .Select(g => new { VariantId = g.Key, OnHand = g.Sum(x => x.OnHand) })
+            .ToDictionaryAsync(x => x.VariantId, x => x.OnHand);
     }
 
     private static ProductSearchResultDto MapSearchResult(
         ProductVariant v,
-        Dictionary<Guid, VariantInventory> inv,
+        Dictionary<Guid, decimal> inv,
         decimal avgLandedCost) => new(
         v.Product.Id,
         v.Id,
@@ -372,13 +411,13 @@ public class ProductService : IProductService
         v.Product.ImageUrl,
         v.Product.UnitCode ?? "",
         v.VariantValuesJson,
-        inv.TryGetValue(v.Id, out var i) ? i.OnHand : 0m,
+        inv.TryGetValue(v.Id, out var onHand) ? onHand : 0m,
         avgLandedCost
     );
 
-    private static ProductSummaryDto MapSummary(Product p) => new(
+    private static ProductSummaryDto MapSummary(Product p, Dictionary<Guid, decimal> inv) => new(
         p.Id, p.Name, p.Sku, p.ImageUrl, p.UnitCode, p.SellingPrice, p.MarketPrice,
         p.PackagingCostPerUnit, p.Status, p.Category?.Name ?? "", p.Variants.Count,
-        0   // total stock from inventory Phase 3
+        (int)p.Variants.Sum(v => inv.TryGetValue(v.Id, out var onHand) ? onHand : 0m)
     );
 }

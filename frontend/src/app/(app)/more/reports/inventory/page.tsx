@@ -26,12 +26,13 @@ export default function InventoryReportPage() {
   const [groupBy, setGroupBy] = useState<GroupBy>("day");
   const role = useAuthStore((s) => s.user?.role);
   const canSeeCosts = role === "OWNER" || role === "MANAGER";
+  const currentBranchId = useAuthStore((s) => s.currentBranchId);
   const mounted = useMounted();
 
   const { from, to } = periodToDates(period);
 
   const { data, isLoading } = useQuery({
-    queryKey: ["report-inventory", from, to, groupBy],
+    queryKey: ["report-inventory", from, to, groupBy, currentBranchId],
     queryFn: () => getInventoryReport({ from, to, groupBy }),
     staleTime: 120_000,
     enabled: mounted,

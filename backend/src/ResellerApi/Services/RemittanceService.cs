@@ -171,7 +171,11 @@ public class RemittanceService : IRemittanceService
 
     private async Task<string> GenerateRemittanceNoAsync()
     {
-        var count = await _db.CourierRemittances.CountAsync() + 1;
+        // IgnoreQueryFilters so a soft-deleted remittance's number is never reused — its row
+        // still occupies the (BusinessId, RemittanceNo) unique index. Same class of bug as
+        // ProductService.GenerateSkuAsync / OrderService.GenerateOrderNoAsync.
+        var count = await _db.CourierRemittances.IgnoreQueryFilters()
+            .CountAsync(r => r.BusinessId == _db.CurrentBusinessId) + 1;
         return $"RMT-{count:D4}";
     }
 

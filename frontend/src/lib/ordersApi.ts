@@ -106,6 +106,19 @@ export const downloadChallan = async (id: string): Promise<void> => {
   }
 };
 
+export const downloadReceipt = async (id: string): Promise<void> => {
+  const response = await api.get(`${BASE}/${id}/receipt`, { responseType: 'blob' });
+  const url = URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
+  const win = window.open(url, '_blank');
+  setTimeout(() => URL.revokeObjectURL(url), 30_000);
+  if (!win) {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `receipt-${id}.pdf`;
+    a.click();
+  }
+};
+
 export const claimOrder = async (id: string): Promise<void> => {
   await api.post(`${BASE}/${id}/claim`);
 };

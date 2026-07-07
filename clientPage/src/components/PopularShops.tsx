@@ -1,0 +1,57 @@
+"use client";
+
+import Image from "next/image";
+import Link from "next/link";
+import { useState } from "react";
+import { usePopularShops } from "@/lib/hooks";
+import { useShopContext } from "@/context/ShopContext";
+
+function ShopLogo({ name, logoUrl }: { name: string; logoUrl?: string }) {
+  const [failed, setFailed] = useState(false);
+
+  if (logoUrl && !failed) {
+    return (
+      <Image
+        src={logoUrl}
+        alt={name}
+        width={56}
+        height={56}
+        className="rounded-full object-cover bg-gray-100"
+        unoptimized
+        onError={() => setFailed(true)}
+      />
+    );
+  }
+
+  return (
+    <div className="w-14 h-14 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center text-lg font-bold">
+      {name[0]?.toUpperCase()}
+    </div>
+  );
+}
+
+export default function PopularShops() {
+  const { mode } = useShopContext();
+  const { data, isLoading } = usePopularShops();
+
+  // Only meaningful in marketplace mode — in shop mode the visitor is already on the one shop.
+  if (mode !== "marketplace" || isLoading || !data || data.length < 2) return null;
+
+  return (
+    <div className="bg-white border-t border-gray-100">
+      <h2 className="px-4 lg:px-8 pt-4 text-sm lg:text-base font-semibold text-gray-900">Popular Shops</h2>
+      <div className="flex gap-4 lg:gap-6 overflow-x-auto px-4 lg:px-8 py-3 no-scrollbar">
+        {data.map((shop) => (
+          <Link
+            key={shop.id}
+            href={shop.subdomain ? `/shop/${shop.subdomain}` : "#"}
+            className="flex flex-col items-center gap-1.5 shrink-0 w-[72px]"
+          >
+            <ShopLogo name={shop.name} logoUrl={shop.logoUrl} />
+            <span className="text-[11px] text-gray-700 text-center leading-tight line-clamp-2">{shop.name}</span>
+          </Link>
+        ))}
+      </div>
+    </div>
+  );
+}

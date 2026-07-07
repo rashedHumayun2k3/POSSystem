@@ -8,10 +8,12 @@ import { getCategories } from '@/lib/catalogApi';
 import { useAuthStore } from '@/store/authStore';
 import type { ProductSummary } from '@/types/catalog';
 import { useLanguage } from '@/i18n/LanguageContext';
+import { resolveMediaUrl } from '@/lib/media';
 
 export default function ProductsPage() {
   const canSeeCosts = useAuthStore((s) => s.canSeeCosts());
   const isOwner = useAuthStore((s) => s.isOwner());
+  const currentBranchId = useAuthStore((s) => s.currentBranchId);
   const { t } = useLanguage();
 
   const [search, setSearch] = useState('');
@@ -24,7 +26,7 @@ export default function ProductsPage() {
   });
 
   const { data: products = [], isLoading } = useQuery({
-    queryKey: ['products', statusFilter, categoryFilter, search],
+    queryKey: ['products', statusFilter, categoryFilter, search, currentBranchId],
     queryFn: () =>
       getProducts({
         status: statusFilter || undefined,
@@ -140,7 +142,7 @@ function ProductCard({
         {/* Image */}
         <div className="w-14 h-14 rounded-lg bg-gray-100 flex items-center justify-center shrink-0 overflow-hidden">
           {product.imageUrl ? (
-            <img src={product.imageUrl} alt={product.name} className="w-full h-full object-cover" />
+            <img src={resolveMediaUrl(product.imageUrl) ?? ''} alt={product.name} className="w-full h-full object-cover" />
           ) : (
             <svg className="w-6 h-6 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path

@@ -1,0 +1,21 @@
+################################################################################
+# Build artifacts / IDE
+################################################################################
+[Bb]in/
+[Oo]bj/
+.vs/
+*.user
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+
+*.db-shm
+*.db-wal
+
+# Locally uploaded media (dev-time local disk storage)
+/backend/src/ResellerApi/wwwroot/uploads/
+
+# Misc logs
+*.log

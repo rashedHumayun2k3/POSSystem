@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/store/authStore";
 import AppHeader from "@/components/layout/AppHeader";
 import BottomTabBar from "@/components/layout/BottomTabBar";
+import TrialBanner from "@/components/layout/TrialBanner";
+import LiveNotificationsProvider from "@/components/layout/LiveNotificationsProvider";
 import { usePathname } from "next/navigation";
 import { useLanguage } from "@/i18n/LanguageContext";
 
@@ -25,6 +27,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     "/orders":           t("nav.orders"),
     "/products":         t("nav.products"),
     "/pos":              t("nav.pos"),
+    "/hawker/night-entry": t("hawker.nightEntryTitle"),
     "/more":             t("nav.more"),
     "/more/purchases":   t("more.purchases"),
     "/more/categories":  t("more.categories"),
@@ -42,7 +45,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     "/more/settings/couriers":           t("settings.couriers"),
     "/more/settings/expense-categories": t("settings.expenseCategories"),
     "/more/settings/config":             t("settings.businessConfig"),
+    "/more/settings/branches":           t("settings.branches"),
+    "/more/settings/subscription":       t("settings.subscription"),
+    "/more/catalog-templates":           t("catalogTemplates.title"),
     "/notifications":    "🔔",
+    "/profile":          t("profile.title"),
+    "/onboarding/sales-channel": t("onboarding.title"),
+    "/onboarding/business-type": t("onboarding.title"),
+    "/onboarding/catalog":       t("catalogTemplates.title"),
   };
 
   const backHrefMap: Record<string, string> = {
@@ -56,13 +66,24 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const title = titleMap[pathname] ?? "Reseller Manager";
   const backHref = backHrefMap[pathname];
 
+  // /orders/new and /orders/[id] render their own complete AppHeader (real title + edit/delete
+  // actions) — the layout must not also render its default one, or the branch dropdown (and
+  // everything else in AppHeader) shows twice, stacked.
+  const hasOwnHeader = /^\/orders\/[^/]+$/.test(pathname);
+
   return (
     <div className="flex flex-col min-h-screen">
-      <AppHeader title={title} backHref={backHref} />
-      <main className="flex-1 overflow-y-auto pb-20">
+      <div className="print:hidden">
+        {!hasOwnHeader && <AppHeader title={title} backHref={backHref} />}
+        <TrialBanner />
+      </div>
+      <main className="flex-1 overflow-y-auto pb-20 print:pb-0 print:overflow-visible">
         {children}
       </main>
-      <BottomTabBar />
+      <div className="print:hidden">
+        <BottomTabBar />
+      </div>
+      <LiveNotificationsProvider />
     </div>
   );
 }

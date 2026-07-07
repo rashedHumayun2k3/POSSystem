@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { getPnlReport } from "@/lib/reportsApi";
 import DateRangeBar, { periodToDates } from "@/components/reports/DateRangeBar";
 import type { ReportPeriod, GroupBy } from "@/types/reports";
+import { useAuthStore } from "@/store/authStore";
 import { useMounted } from "@/hooks/useMounted";
 import {
   AreaChart, Area, LineChart, Line, PieChart, Pie, Cell,
@@ -33,12 +34,13 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 export default function FinancialReportPage() {
   const [period, setPeriod] = useState<ReportPeriod>("30d");
   const [groupBy, setGroupBy] = useState<GroupBy>("day");
+  const currentBranchId = useAuthStore((s) => s.currentBranchId);
   const mounted = useMounted();
 
   const { from, to } = periodToDates(period);
 
   const { data, isLoading } = useQuery({
-    queryKey: ["report-financial", from, to, groupBy],
+    queryKey: ["report-financial", from, to, groupBy, currentBranchId],
     queryFn: () => getPnlReport({ from, to, groupBy }),
     staleTime: 60_000,
     enabled: mounted,

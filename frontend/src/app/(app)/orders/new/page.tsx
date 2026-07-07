@@ -143,8 +143,8 @@ export default function NewOrderPage() {
     mutationFn: (isDraft: boolean) =>
       createOrderApi({
         channel,
-        customerPhone: customer?.phone ?? "",
-        customerName: customer?.name ?? "",
+        customerPhone: customer?.phone || "00000000000",
+        customerName: customer?.name || "Walk-in",
         customerAddress: deliveryAddress.trim() || customer?.address || undefined,
         isDraft,
         courierId: courierId || undefined,
@@ -172,7 +172,7 @@ export default function NewOrderPage() {
     },
   });
 
-  const canConfirm = cart.length > 0 && !!customer?.name && !!customer?.phone;
+  const canConfirm = cart.length > 0;
   const canDraft = cart.length > 0;
 
   return (

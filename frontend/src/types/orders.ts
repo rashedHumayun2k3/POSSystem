@@ -36,7 +36,7 @@ export interface DeliveryManDto {
 }
 
 // ── Order ─────────────────────────────────────────────────────────────────────
-export type OrderChannel = 'FACEBOOK' | 'WHATSAPP' | 'INSTAGRAM' | 'PHONE' | 'SHOP' | 'OTHER';
+export type OrderChannel = 'FACEBOOK' | 'WHATSAPP' | 'INSTAGRAM' | 'PHONE' | 'SHOP' | 'HAWKER' | 'OTHER';
 export type OrderStatus = 'OPEN' | 'COMPLETED' | 'CANCELLED';
 export type PaymentStatus = 'UNPAID' | 'PARTIALLY_PAID' | 'PAID' | 'REFUNDED';
 export type FulfillmentStatus = 'UNFULFILLED' | 'PACKED' | 'IN_TRANSIT' | 'DELIVERED' | 'RETURNED';
@@ -78,6 +78,12 @@ export interface OrderEconomicsDto {
   discountAmount: number;
 }
 
+export interface OrderListItemSummary {
+  productName: string;
+  variantSku: string;
+  qty: number;
+}
+
 export interface OrderListItem {
   id: string;
   orderNo: string;
@@ -93,6 +99,9 @@ export interface OrderListItem {
   trackingNo?: string;
   handlingUserName?: string;
   createdAt: string;
+  businessDate: string;
+  items: OrderListItemSummary[];
+  profit?: number; // owner/manager only — absent for STAFF, server-side gated
 }
 
 export interface OrderDetail {
@@ -162,6 +171,7 @@ export interface CreateOrderPayload {
   note?: string;
   clientUid?: string;
   courierId?: string;
+  businessDate?: string; // backdatable — e.g. hawker night-entry logging an earlier day's sale
 }
 
 export interface UpdateOrderPayload {

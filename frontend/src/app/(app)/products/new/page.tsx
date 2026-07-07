@@ -6,6 +6,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getCategories, getUnits, createProduct } from '@/lib/catalogApi';
 import type { Category, CategoryField } from '@/types/catalog';
 import { useLanguage } from '@/i18n/LanguageContext';
+import ImageUploadField from '@/components/ui/ImageUploadField';
 
 const UNITS_FALLBACK = [
   { code: 'pcs', name: 'Pieces' },
@@ -28,6 +29,7 @@ export default function NewProductPage() {
   const [form, setForm] = useState({
     categoryId: '',
     name: '',
+    imageUrl: null as string | null,
     unitCode: 'pcs',
     sellingPrice: '',
     marketPrice: '',
@@ -79,10 +81,12 @@ export default function NewProductPage() {
     setError('');
     if (!form.categoryId) { setError(t('products.categoryRequired')); return; }
     if (!form.name.trim()) { setError(t('products.nameRequired')); return; }
+    if (!form.imageUrl) { setError(t('products.imageRequired')); return; }
 
     mutation.mutate({
       categoryId: form.categoryId,
       name: form.name.trim(),
+      imageUrl: form.imageUrl,
       unitCode: form.unitCode,
       sellingPrice: parseFloat(form.sellingPrice),
       marketPrice: form.marketPrice ? parseFloat(form.marketPrice) : null,
@@ -109,7 +113,7 @@ export default function NewProductPage() {
   };
 
   return (
-    <div className="pb-24">
+    <div className="pb-36">
       {/* Header */}
       <div className="sticky top-0 z-10 bg-white border-b border-gray-100 px-4 py-3 flex items-center gap-3">
         <button onClick={() => router.back()} className="text-gray-500 p-1">
@@ -148,6 +152,16 @@ export default function NewProductPage() {
             required
           />
         </div>
+
+        {/* Product photo */}
+        <ImageUploadField
+          value={form.imageUrl}
+          onChange={(url) => setForm((f) => ({ ...f, imageUrl: url }))}
+          label={`${t('products.imageLabel')} *`}
+          uploadingLabel={t('products.imageUploading')}
+          errorLabel={t('products.imageUploadFailed')}
+          removeLabel={t('products.imageRemove')}
+        />
 
         {/* Unit + Selling Price */}
         <div className="grid grid-cols-2 gap-3">
@@ -297,8 +311,8 @@ export default function NewProductPage() {
         )}
       </form>
 
-      {/* Submit bar */}
-      <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[768px] bg-white border-t border-gray-100 px-4 py-3">
+      {/* Submit bar — sits above the fixed bottom tab bar (h-16), not behind it */}
+      <div className="fixed bottom-16 left-1/2 -translate-x-1/2 w-full max-w-[768px] z-50 bg-white border-t border-gray-100 px-4 py-3">
         <button
           onClick={handleSubmit as React.MouseEventHandler}
           disabled={mutation.isPending}

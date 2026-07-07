@@ -2,8 +2,10 @@ using ResellerApi.Entities.Base;
 
 namespace ResellerApi.Entities;
 
-public class PurchaseReceiveSession : BusinessScopedEntity
+public class PurchaseReceiveSession : BusinessScopedEntity, IBranchScoped
 {
+    public Guid? BranchId { get; set; }
+    public Branch? Branch { get; set; }
     public Guid TripId { get; set; }
     public string SessionNo { get; set; } = null!;         // RS-001, RS-002 …
     public Guid ReceivedBy { get; set; }

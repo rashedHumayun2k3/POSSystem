@@ -14,12 +14,15 @@ export const api = axios.create({
 api.interceptors.request.use((config) => {
   let token: string | null = null;
   let businessId: string | null = null;
+  let branchId: string | null = null;
 
   if (typeof window !== "undefined") {
     token = localStorage.getItem("accessToken");
     businessId = localStorage.getItem("businessId");
+    branchId = localStorage.getItem("branchId");
     if (token) config.headers.Authorization = `Bearer ${token}`;
     if (businessId) config.headers["X-Business-Id"] = businessId;
+    if (branchId) config.headers["X-Branch-Id"] = branchId;
   }
 
   apiDebug("request", {
@@ -28,6 +31,7 @@ api.interceptors.request.use((config) => {
     url: config.url,
     hasToken: Boolean(token),
     businessId,
+    branchId,
   });
 
   return config;
@@ -55,6 +59,16 @@ api.interceptors.response.use(
       baseURL: original?.baseURL,
       url: original?.url,
     });
+
+    if (
+      error.response?.status === 402 &&
+      error.response?.data?.code === "SUBSCRIPTION_EXPIRED" &&
+      typeof window !== "undefined" &&
+      !window.location.pathname.startsWith("/more/settings/subscription")
+    ) {
+      window.location.href = "/more/settings/subscription?locked=1";
+      return Promise.reject(error);
+    }
 
     if (error.response?.status === 401 && original && !original._retry) {
       original._retry = true;

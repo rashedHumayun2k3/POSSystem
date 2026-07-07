@@ -106,7 +106,8 @@ public record CreateOrderRequest(
     string? AdvancePaymentMethod,
     string? Note,
     string? ClientUid,
-    Guid? CourierId
+    Guid? CourierId,
+    DateOnly? BusinessDate = null // backdatable — e.g. hawker night-entry logging an earlier day's sale
 );
 
 public record UpdateOrderRequest(
@@ -191,6 +192,12 @@ public record OrderEconomicsDto(
     decimal DiscountAmount
 );
 
+public record OrderListItemSummaryDto(
+    string ProductName,
+    string VariantSku,
+    decimal Qty
+);
+
 public record OrderListDto(
     Guid Id,
     string OrderNo,
@@ -205,7 +212,10 @@ public record OrderListDto(
     decimal DueAmount,
     string? TrackingNo,
     string? HandlingUserName,
-    DateTime CreatedAt
+    DateTime CreatedAt,
+    DateOnly BusinessDate,
+    List<OrderListItemSummaryDto> Items,
+    decimal? Profit // owner/manager only — null for STAFF, mirrors OrderDetailDto.Economics gating
 );
 
 public record OrderDetailDto(

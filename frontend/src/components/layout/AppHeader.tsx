@@ -1,9 +1,12 @@
 "use client";
 
 import { useAuthStore } from "@/store/authStore";
+import { useBranchSelection } from "@/hooks/useBranchSelection";
+import { useNotificationStore } from "@/store/notificationStore";
 import { BellIcon } from "@heroicons/react/24/outline";
 import Link from "next/link";
 import { useLanguage, type Lang } from "@/i18n/LanguageContext";
+import Avatar from "@/components/ui/Avatar";
 
 interface Props {
   title: string;
@@ -12,10 +15,23 @@ interface Props {
 }
 
 export default function AppHeader({ title, backHref, right }: Props) {
-  const { user, businesses, currentBusinessId, switchBusiness, isOwner } = useAuthStore();
+  const { user, businesses, currentBusinessId, switchBusiness, isOwner, canSeeCosts, branches, currentBranchId, switchBranch, clearBranch } = useAuthStore();
   const { lang, setLang } = useLanguage();
+  const resolveBranch = useBranchSelection();
+  const unreadCount = useNotificationStore((s) => s.unreadCount);
+  const resetUnread = useNotificationStore((s) => s.reset);
 
   const toggleLang = () => setLang(lang === "bn" ? "en" : ("bn" as Lang));
+
+  const handleBusinessSwitch = async (id: string) => {
+    switchBusiness(id);
+    await resolveBranch();
+  };
+
+  const handleBranchChange = (value: string) => {
+    if (value === "") clearBranch();
+    else switchBranch(value);
+  };
 
   return (
     <header className="sticky top-0 z-40 bg-white border-b border-gray-200 px-4 h-14 flex items-center gap-3">
@@ -31,7 +47,7 @@ export default function AppHeader({ title, backHref, right }: Props) {
       {isOwner() && businesses.length > 1 ? (
         <select
           value={currentBusinessId ?? ""}
-          onChange={(e) => switchBusiness(e.target.value)}
+          onChange={(e) => handleBusinessSwitch(e.target.value)}
           className="text-sm font-semibold text-gray-900 border-none outline-none bg-transparent"
         >
           {businesses.map((b) => (
@@ -42,10 +58,24 @@ export default function AppHeader({ title, backHref, right }: Props) {
         <span className="text-[15px] font-semibold text-gray-900 flex-1">{title}</span>
       )}
 
+      {/* Branch switcher — everyone, on every page (including ones with a back button);
+          OWNER/MANAGER get an "All Branches" option, others only see it once they have more
+          than one assigned branch. */}
+      {(canSeeCosts() ? branches.length > 0 : branches.length > 1) ? (
+        <select
+          value={currentBranchId ?? ""}
+          onChange={(e) => handleBranchChange(e.target.value)}
+          className="text-xs font-medium text-indigo-600 border-none outline-none bg-indigo-50 rounded-lg px-2 py-1 max-w-[110px]"
+        >
+          {canSeeCosts() && <option value="">All Branches</option>}
+          {branches.map((b) => (
+            <option key={b.id} value={b.id}>{b.name}</option>
+          ))}
+        </select>
+      ) : null}
+
       <div className="ml-auto flex items-center gap-3">
-        {backHref ? (
-          right ?? null
-        ) : (
+        {right ?? (
           <>
             <button
               onClick={toggleLang}
@@ -54,10 +84,17 @@ export default function AppHeader({ title, backHref, right }: Props) {
             >
               {lang === "bn" ? "EN" : "বাং"}
             </button>
-            <Link href="/notifications" className="relative text-gray-500">
+            <Link href="/notifications" onClick={resetUnread} className="relative text-gray-500">
               <BellIcon className="w-6 h-6" />
+              {unreadCount > 0 && (
+                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] leading-none rounded-full min-w-[16px] h-4 px-0.5 flex items-center justify-center">
+                  {unreadCount > 9 ? "9+" : unreadCount}
+                </span>
+              )}
             </Link>
-            <span className="text-xs text-gray-400">{user?.name}</span>
+            <Link href="/profile">
+              <Avatar name={user?.name ?? "?"} photoUrl={user?.photoUrl} size={28} />
+            </Link>
           </>
         )}
       </div>

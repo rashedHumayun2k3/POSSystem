@@ -72,7 +72,7 @@ export default function CartPanel({ session, onPayClick }: Props) {
     debounceRef.current = setTimeout(async () => {
       setSearching(true);
       try {
-        const results = await searchProducts(q);
+        const results = await searchProducts(q, true);
         setSearchResults(results.slice(0, 6));
       } finally {
         setSearching(false);
@@ -87,6 +87,18 @@ export default function CartPanel({ session, onPayClick }: Props) {
     setScanError('');
 
     const existing = session.items.findIndex(i => i.variantId === r.variantId);
+    const qtyAlreadyInCart = existing >= 0 ? session.items[existing].qty : 0;
+
+    // Belt-and-suspenders stock check — the product search already filters to in-stock items,
+    // but barcode scan/typed-barcode entry deliberately bypasses that filter (a cashier
+    // scanning a real shelf item shouldn't get a confusing "not found"). This is the one place
+    // every entry path funnels through, so it's the right spot to catch a zero-stock item
+    // regardless of how it was added, and to stop a re-scan from pushing qty past what's on hand.
+    if (r.stock <= qtyAlreadyInCart) {
+      setScanError(`Out of stock: ${r.productName}${r.variantSku ? ` (${r.variantSku})` : ''}`);
+      return;
+    }
+
     const newItems: PosCartItem[] = [...session.items];
 
     if (existing >= 0) {
@@ -320,7 +332,7 @@ export default function CartPanel({ session, onPayClick }: Props) {
         ) : (
           <button
             onClick={() => setCustomerPickerOpen(true)}
-            className="w-full flex items-center gap-2 px-3 py-2 rounded-xl border border-dashed border-gray-200 text-sm text-gray-400 hover:border-indigo-300 hover:text-indigo-500 transition-colors"
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-xl border border-dashed border-gray-300 bg-gray-50 text-sm text-gray-500 hover:border-indigo-300 hover:text-indigo-500 transition-colors"
           >
             <UserCircleIcon className="w-4 h-4 shrink-0" />
             <span>Add customer (optional)</span>

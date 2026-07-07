@@ -54,16 +54,21 @@ public class ReportService : IReportService
         var todayReturns = await _db.Orders.AsNoTracking()
             .CountAsync(o => o.ReturnedAt >= todayUtc && o.ReturnedAt < tomorrowUtc);
 
-        // Stock status
-        var lowStockCount = await _db.VariantInventories.AsNoTracking()
-            .Join(_db.ProductVariants.AsNoTracking(),
-                vi => vi.VariantId, pv => pv.Id, (vi, pv) => new { vi.OnHand, pv.ProductId })
-            .Join(_db.Products.AsNoTracking(),
-                x => x.ProductId, p => p.Id, (x, p) => new { x.OnHand, p.LowStockThreshold })
-            .CountAsync(x => x.OnHand > 0 && x.OnHand <= x.LowStockThreshold);
+        // Stock status — BranchVariantInventories isn't globally branch-filtered (its BranchId
+        // is part of the composite key), so sum across branches when CurrentBranchId is null
+        // (OWNER/MANAGER "All Branches" view) or filter to one branch otherwise.
+        var stockByVariant = await _db.BranchVariantInventories.AsNoTracking()
+            .Where(vi => _db.CurrentBranchId == null || vi.BranchId == _db.CurrentBranchId)
+            .GroupBy(vi => vi.VariantId)
+            .Select(g => new { VariantId = g.Key, OnHand = g.Sum(x => x.OnHand) })
+            .Join(_db.ProductVariants.AsNoTracking(), x => x.VariantId, pv => pv.Id,
+                (x, pv) => new { x.OnHand, pv.ProductId })
+            .Join(_db.Products.AsNoTracking(), x => x.ProductId, p => p.Id,
+                (x, p) => new { x.OnHand, p.LowStockThreshold })
+            .ToListAsync();
 
-        var outOfStockCount = await _db.VariantInventories.AsNoTracking()
-            .CountAsync(vi => vi.OnHand <= 0);
+        var lowStockCount = stockByVariant.Count(x => x.OnHand > 0 && x.OnHand <= x.LowStockThreshold);
+        var outOfStockCount = stockByVariant.Count(x => x.OnHand <= 0);
 
         // Sales trend — last 30 days from order payments
         var thirtyDaysAgo = DateTime.UtcNow.Date.AddDays(-29);
@@ -87,8 +92,11 @@ public class ReportService : IReportService
             // NOTE: GroupBy+Sum after a double Join can't be translated by the SQL Server
             // provider (nested TransparentIdentifier), so materialize the flat rows first
             // and aggregate in memory.
+            // OrderItem has no BranchId of its own — join through Orders (already
+            // branch-filtered by the global query filter) to keep this branch-scoped too.
             var topProductsRaw = await _db.Set<ResellerApi.Entities.OrderItem>().AsNoTracking()
                 .Where(i => i.DeletedAt == null && i.CreatedAt >= thirtyDaysAgo)
+                .Join(_db.Orders.AsNoTracking(), i => i.OrderId, o => o.Id, (i, o) => i)
                 .Join(_db.ProductVariants.AsNoTracking(), i => i.VariantId, pv => pv.Id,
                     (i, pv) => new { i.Qty, i.UnitPrice, pv.ProductId })
                 .Join(_db.Products.AsNoTracking(), x => x.ProductId, p => p.Id,
@@ -129,8 +137,11 @@ public class ReportService : IReportService
         }).ToList();
 
         // Sales by category (last 30 days)
+        // OrderItem has no BranchId of its own — join through Orders (already
+        // branch-filtered by the global query filter) to keep this branch-scoped too.
         var byCategoryRaw = await _db.Set<ResellerApi.Entities.OrderItem>().AsNoTracking()
             .Where(i => i.DeletedAt == null && i.CreatedAt >= thirtyDaysAgo)
+            .Join(_db.Orders.AsNoTracking(), i => i.OrderId, o => o.Id, (i, o) => i)
             .Join(_db.ProductVariants.AsNoTracking(), i => i.VariantId, pv => pv.Id,
                 (i, pv) => new { i.Qty, i.UnitPrice, pv.ProductId })
             .Join(_db.Products.AsNoTracking(), x => x.ProductId, p => p.Id,
@@ -264,28 +275,44 @@ public class ReportService : IReportService
 
     public async Task<InventoryReportDto> GetInventoryReportAsync(DateTime from, DateTime to, string groupBy, bool canSeeCosts)
     {
-        var items = await _db.VariantInventories.AsNoTracking()
-            .Join(_db.ProductVariants.AsNoTracking().Where(pv => pv.DeletedAt == null),
-                vi => vi.VariantId, pv => pv.Id, (vi, pv) => new { vi, pv })
-            .Join(_db.Products.AsNoTracking().Where(p => p.DeletedAt == null && p.Status == "ACTIVE"),
-                x => x.pv.ProductId, p => p.Id, (x, p) => new { x.vi, x.pv, p })
+        // BranchVariantInventories isn't globally branch-filtered (its BranchId is part of the
+        // composite key), so sum across branches when CurrentBranchId is null (OWNER/MANAGER
+        // "All Branches" view) or filter to one branch otherwise.
+        var stockByVariant = await _db.BranchVariantInventories.AsNoTracking()
+            .Where(vi => _db.CurrentBranchId == null || vi.BranchId == _db.CurrentBranchId)
+            .GroupBy(vi => vi.VariantId)
+            .Select(g => new { VariantId = g.Key, OnHand = g.Sum(x => x.OnHand), Committed = g.Sum(x => x.Committed), Damaged = g.Sum(x => x.Damaged) })
             .ToListAsync();
+
+        var variantIds = stockByVariant.Select(x => x.VariantId).ToList();
+        var variants = await _db.ProductVariants.AsNoTracking()
+            .Where(pv => pv.DeletedAt == null && variantIds.Contains(pv.Id))
+            .ToListAsync();
+        var productIds = variants.Select(v => v.ProductId).Distinct().ToList();
+        var products = await _db.Products.AsNoTracking()
+            .Where(p => p.DeletedAt == null && p.Status == "ACTIVE" && productIds.Contains(p.Id))
+            .ToListAsync();
+
+        var items = stockByVariant
+            .Join(variants, x => x.VariantId, pv => pv.Id, (x, pv) => new { x.OnHand, x.Committed, x.Damaged, pv })
+            .Join(products, x => x.pv.ProductId, p => p.Id, (x, p) => new { x.OnHand, x.Committed, x.Damaged, x.pv, p })
+            .ToList();
 
         var stockItems = items.Select(x =>
         {
-            var available = x.vi.OnHand - x.vi.Committed;
-            var isLow = x.vi.OnHand > 0 && x.vi.OnHand <= x.p.LowStockThreshold;
-            var isOut = x.vi.OnHand <= 0;
+            var available = x.OnHand - x.Committed;
+            var isLow = x.OnHand > 0 && x.OnHand <= x.p.LowStockThreshold;
+            var isOut = x.OnHand <= 0;
             return new StockStatusItem(
                 x.pv.Sku, x.p.Name,
                 x.pv.VariantValuesJson == "{}" ? null : x.pv.VariantValuesJson,
-                x.vi.OnHand, x.vi.Committed, available, x.vi.Damaged,
+                x.OnHand, x.Committed, available, x.Damaged,
                 x.p.LowStockThreshold, isLow, isOut
             );
         }).OrderBy(x => x.ProductName).ToList();
 
         decimal inventoryValue = canSeeCosts
-            ? items.Sum(x => x.vi.OnHand * x.pv.AvgLandedCost)
+            ? items.Sum(x => x.OnHand * x.pv.AvgLandedCost)
             : 0;
 
         // Movement trend — net movements over selected range (PURCHASE_IN positive, SALE_OUT negative)
@@ -306,8 +333,11 @@ public class ReportService : IReportService
         List<NameValue> slowMoving = new();
         try
         {
+            // OrderItem has no BranchId of its own — join through Orders (already
+            // branch-filtered by the global query filter) to keep this branch-scoped too.
             var movementRaw = await _db.Set<ResellerApi.Entities.OrderItem>().AsNoTracking()
                 .Where(i => i.DeletedAt == null && i.CreatedAt >= from.Date && i.CreatedAt < toExclusive)
+                .Join(_db.Orders.AsNoTracking(), i => i.OrderId, o => o.Id, (i, o) => i)
                 .Join(_db.ProductVariants.AsNoTracking(), i => i.VariantId, pv => pv.Id,
                     (i, pv) => new { i.Qty, pv.ProductId })
                 .Join(_db.Products.AsNoTracking(), x => x.ProductId, p => p.Id,

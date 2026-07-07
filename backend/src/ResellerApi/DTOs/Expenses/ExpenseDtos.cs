@@ -48,7 +48,8 @@ public record CreateExpenseRequest(
     Guid? AllocateToTripId,
     Guid? PettyCashBoxId,
     string? PhotoUrl,
-    string? Note
+    string? Note,
+    Guid? BranchId = null // null = business-wide expense (e.g. marketing, salary), not attributed to one branch
 );
 
 // ── Update ────────────────────────────────────────────────────────────────────

@@ -57,7 +57,8 @@ public record ProductDetailDto(
     string? Note,
     string Status,
     string CategoryName,
-    List<VariantDto> Variants       // OWNER only — STAFF gets VariantStaffDto list
+    List<VariantDto> Variants,      // OWNER only — STAFF gets VariantStaffDto list
+    byte[] RowVer
 );
 
 public record ProductDetailStaffDto(

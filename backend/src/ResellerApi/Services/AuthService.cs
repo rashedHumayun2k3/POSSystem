@@ -7,26 +7,47 @@ using Microsoft.IdentityModel.Tokens;
 using ResellerApi.Data;
 using ResellerApi.DTOs.Auth;
 using ResellerApi.Entities;
+using ResellerApi.Infrastructure;
 using ResellerApi.Services.Interfaces;
 
 namespace ResellerApi.Services;
 
 public class AuthService : IAuthService
 {
+    private const int CodeExpiryMinutes = 10;
+    private const int MaxVerifyAttempts = 5;
+    private const int VerifiedWindowMinutes = 15;
+
+    private static readonly (string Key, string Value)[] DefaultAppSettings =
+    {
+        ("low_stock_threshold", "5"),
+        ("overhead_mode", "\"AUTO\""),
+        ("return_window_days", "7"),
+        ("target_margin_pct", "40"),
+        ("parked_cart_expiry_minutes", "15"),
+        ("refund_approval_threshold", "500"),
+        ("staff_free_discount_pct", "5")
+    };
+
     private readonly AppDbContext _db;
     private readonly IConfiguration _config;
     private readonly IActivityLogService _activityLog;
+    private readonly IEmailSender _emailSender;
+    private readonly ISubscriptionService _subscriptions;
 
-    public AuthService(AppDbContext db, IConfiguration config, IActivityLogService activityLog)
+    public AuthService(AppDbContext db, IConfiguration config, IActivityLogService activityLog,
+        IEmailSender emailSender, ISubscriptionService subscriptions)
     {
         _db = db;
         _config = config;
         _activityLog = activityLog;
+        _emailSender = emailSender;
+        _subscriptions = subscriptions;
     }
 
     public async Task<AuthResponse> LoginAsync(LoginRequest request)
     {
-        var phone = NormalizePhone(request.Phone);
+        var phone = PhoneNormalizer.Normalize(request.Phone);
 
         var user = await _db.Users
             .AsNoTracking()
@@ -48,8 +69,8 @@ public class AuthService : IAuthService
         return new AuthResponse(
             accessToken,
             refreshTokenValue,
-            new UserDto(user.Id, user.Name, user.Phone, user.Role),
-            businesses.Select(b => new BusinessDto(b.Id, b.Name, b.Currency))
+            MapUserDto(user),
+            businesses.Select(MapBusinessDto)
         );
     }
 
@@ -74,8 +95,8 @@ public class AuthService : IAuthService
         return new AuthResponse(
             accessToken,
             refreshTokenValue,
-            new UserDto(user.Id, user.Name, user.Phone, user.Role),
-            businesses.Select(b => new BusinessDto(b.Id, b.Name, b.Currency))
+            MapUserDto(user),
+            businesses.Select(MapBusinessDto)
         );
     }
 
@@ -87,6 +108,151 @@ public class AuthService : IAuthService
         stored.IsRevoked = true;
         await _db.SaveChangesAsync();
     }
+
+    // ── Sign up ───────────────────────────────────────────────────────────
+
+    public async Task RequestSignupCodeAsync(RequestSignupCodeRequest request)
+    {
+        var email = request.Email.Trim().ToLowerInvariant();
+
+        if (await _db.Users.AnyAsync(u => u.Email == email))
+            throw new InvalidOperationException("This email is already registered.");
+
+        var code = RandomNumberGenerator.GetInt32(0, 1_000_000).ToString("D6");
+
+        _db.EmailVerifications.Add(new EmailVerification
+        {
+            Email = email,
+            CodeHash = HashVerificationCode(code),
+            ExpiresAt = DateTime.UtcNow.AddMinutes(CodeExpiryMinutes)
+        });
+        await _db.SaveChangesAsync();
+
+        await _emailSender.SendVerificationCodeAsync(email, code);
+    }
+
+    public async Task VerifySignupCodeAsync(VerifySignupCodeRequest request)
+    {
+        var email = request.Email.Trim().ToLowerInvariant();
+
+        var verification = await _db.EmailVerifications
+            .Where(v => v.Email == email && v.ExpiresAt > DateTime.UtcNow && v.VerifiedAt == null)
+            .OrderByDescending(v => v.CreatedAt)
+            .FirstOrDefaultAsync();
+
+        if (verification is null)
+            throw new InvalidOperationException("No active verification code found. Please request a new code.");
+
+        if (verification.Attempts >= MaxVerifyAttempts)
+            throw new InvalidOperationException("Too many incorrect attempts. Please request a new code.");
+
+        if (verification.CodeHash != HashVerificationCode(request.Code.Trim()))
+        {
+            verification.Attempts++;
+            await _db.SaveChangesAsync();
+            throw new InvalidOperationException("Incorrect verification code.");
+        }
+
+        verification.VerifiedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task<AuthResponse> CompleteSignupAsync(SignUpRequest request)
+    {
+        var email = request.Email.Trim().ToLowerInvariant();
+        var phone = PhoneNormalizer.Normalize(request.Phone);
+
+        var verification = await _db.EmailVerifications
+            .Where(v => v.Email == email && v.VerifiedAt != null)
+            .OrderByDescending(v => v.VerifiedAt)
+            .FirstOrDefaultAsync();
+
+        if (verification is null || verification.VerifiedAt < DateTime.UtcNow.AddMinutes(-VerifiedWindowMinutes))
+            throw new InvalidOperationException("Email not verified. Please verify your email first.");
+
+        if (await _db.Users.AnyAsync(u => u.Email == email))
+            throw new InvalidOperationException("This email is already registered.");
+
+        if (await _db.Users.AnyAsync(u => u.Phone == phone))
+            throw new InvalidOperationException("This phone number is already registered.");
+
+        Company company;
+        Business business;
+        User owner;
+
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        try
+        {
+            company = new Company { Name = request.BusinessName.Trim() };
+            _db.Companies.Add(company);
+
+            business = new Business
+            {
+                CompanyId = company.Id,
+                Name = request.BusinessName.Trim(),
+                Currency = "BDT",
+                Country = string.IsNullOrWhiteSpace(request.Country) ? null : request.Country.Trim()
+            };
+            _db.Businesses.Add(business);
+
+            owner = new User
+            {
+                CompanyId = company.Id,
+                Name = request.Name.Trim(),
+                Phone = phone,
+                Email = email,
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password),
+                Role = Roles.Owner,
+                IsActive = true
+            };
+            _db.Users.Add(owner);
+
+            _db.BusinessUsers.Add(new BusinessUser { BusinessId = business.Id, UserId = owner.Id });
+
+            _db.Branches.Add(new Branch
+            {
+                BusinessId = business.Id,
+                Name = "Main Branch",
+                Code = "MAIN",
+                IsActive = true,
+                IsDefault = true
+            });
+
+            foreach (var (key, value) in DefaultAppSettings)
+            {
+                _db.AppSettings.Add(new AppSetting { BusinessId = business.Id, Key = key, ValueJson = value });
+            }
+
+            await _db.SaveChangesAsync();
+            await _subscriptions.StartTrialAsync(company.Id);
+            await tx.CommitAsync();
+        }
+        catch
+        {
+            await tx.RollbackAsync();
+            throw;
+        }
+
+        var (accessToken, refreshTokenValue) = await GenerateTokensAsync(owner);
+        await _activityLog.LogAsync(business.Id, owner.Id, "SIGNUP", "Business", business.Id);
+
+        return new AuthResponse(
+            accessToken,
+            refreshTokenValue,
+            MapUserDto(owner),
+            new[] { MapBusinessDto(business) }
+        );
+    }
+
+    private static string HashVerificationCode(string code) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(code)));
+
+    private static UserDto MapUserDto(User user) => new(user.Id, user.Name, user.Phone, user.Email, user.Role, user.PhotoUrl);
+
+    private static BusinessDto MapBusinessDto(Business business) => new(
+        business.Id, business.Name, business.Currency, business.Country,
+        BusinessTypes.ParseJson(business.BusinessTypesJson),
+        SalesChannels.ParseJson(business.SalesChannelsJson), business.OnboardingCompletedAt != null);
 
     private async Task<(string AccessToken, string RefreshToken)> GenerateTokensAsync(User user)
     {
@@ -120,13 +286,5 @@ public class AuthService : IAuthService
         await _db.SaveChangesAsync();
 
         return (accessToken, refreshTokenValue);
-    }
-
-    private static string NormalizePhone(string phone)
-    {
-        phone = phone.Trim();
-        if (phone.StartsWith("+88")) phone = phone[3..];
-        if (phone.StartsWith("88") && phone.Length > 11) phone = phone[2..];
-        return phone;
     }
 }

@@ -59,6 +59,7 @@ export interface ProductDetail {
   status: string;
   categoryName: string;
   variants: Variant[];
+  rowVer?: number[]; // owner only — required for update (optimistic concurrency)
 }
 
 export interface PriceSlot {
