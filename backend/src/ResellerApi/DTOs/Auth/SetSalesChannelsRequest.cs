@@ -15,5 +15,8 @@ public class SetSalesChannelsRequestValidator : AbstractValidator<SetSalesChanne
         RuleForEach(x => x.SalesChannels)
             .Must(sc => SalesChannels.All.Contains(sc))
             .WithMessage($"Invalid sales channel. Allowed: {string.Join(", ", SalesChannels.All)}.");
+        RuleFor(x => x.SalesChannels)
+            .Must(SalesChannels.IsValidCombination)
+            .WithMessage("A business can't be both a Big Supershop and a Hawker/Small Shop at the same time.");
     }
 }

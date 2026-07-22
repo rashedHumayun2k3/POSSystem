@@ -6,6 +6,7 @@ import { uploadImage } from "@/lib/media";
 import { updateMyPhoto } from "@/lib/usersApi";
 import Avatar from "@/components/ui/Avatar";
 import { useLanguage } from "@/i18n/LanguageContext";
+import { useToastStore } from "@/store/toastStore";
 
 const ROLE_KEY: Record<string, string> = {
   OWNER: "settings.roleOwner",
@@ -20,7 +21,6 @@ export default function ProfilePage() {
   const updateUserPhoto = useAuthStore((s) => s.updateUserPhoto);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
-  const [error, setError] = useState("");
 
   if (!user) return null;
 
@@ -29,14 +29,13 @@ export default function ProfilePage() {
     e.target.value = "";
     if (!file) return;
 
-    setError("");
     setUploading(true);
     try {
       const url = await uploadImage(file);
       await updateMyPhoto(url);
       updateUserPhoto(url);
     } catch {
-      setError(t("profile.uploadFailed"));
+      useToastStore.getState().show(t("profile.uploadFailed"), "error");
     } finally {
       setUploading(false);
     }
@@ -74,7 +73,6 @@ export default function ProfilePage() {
         >
           {uploading ? t("profile.uploading") : t("profile.changePhoto")}
         </button>
-        {error && <p className="text-xs text-red-600">{error}</p>}
       </div>
 
       <div className="bg-white border border-gray-100 rounded-2xl divide-y divide-gray-100">

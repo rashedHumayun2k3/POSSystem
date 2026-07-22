@@ -1,0 +1,17 @@
+{
+  "name": "LavLokshan",
+  "short_name": "LavLokshan",
+  "description": "Business management for resellers",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#4f46e5",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "48x48",
+      "type": "image/x-icon"
+    }
+  ]
+}

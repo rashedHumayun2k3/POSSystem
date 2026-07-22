@@ -7,6 +7,9 @@ import { listSuggestedProducts, addSuggestedProducts } from "@/lib/catalogTempla
 import { listBranches } from "@/lib/branchesApi";
 import type { CategoryWithSuggestions } from "@/types/catalogTemplates";
 import { useLanguage } from "@/i18n/LanguageContext";
+import { getCategoryEmoji } from "@/lib/categoryEmoji";
+import { suggestedCategoryDisplayName } from "@/lib/suggestedCategoryBn";
+import { toastError } from "@/lib/toastError";
 
 interface Props {
   categories: CategoryWithSuggestions[];
@@ -15,7 +18,7 @@ interface Props {
 type Mode = "ONLY_PRODUCT" | "WITH_QUANTITY";
 
 export default function ProductSuggestionsPicker({ categories }: Props) {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const qc = useQueryClient();
   const [activeCategory, setActiveCategory] = useState<CategoryWithSuggestions | null>(null);
   const [mode, setMode] = useState<Mode>("ONLY_PRODUCT");
@@ -23,7 +26,6 @@ export default function ProductSuggestionsPicker({ categories }: Props) {
   const [customName, setCustomName] = useState("");
   const [customNames, setCustomNames] = useState<string[]>([]);
   const [branchId, setBranchId] = useState<string>("");
-  const [error, setError] = useState("");
 
   const { data: branches = [] } = useQuery({ queryKey: ["branches"], queryFn: listBranches });
 
@@ -39,7 +41,6 @@ export default function ProductSuggestionsPicker({ categories }: Props) {
       setCustomName("");
       setCustomNames([]);
       setMode("ONLY_PRODUCT");
-      setError("");
       if (branches.length === 1) setBranchId(branches[0].id);
     }
   }, [activeCategory, branches]);
@@ -84,12 +85,7 @@ export default function ProductSuggestionsPicker({ categories }: Props) {
       qc.invalidateQueries({ queryKey: ["catalog-templates-categories"] });
       setActiveCategory(null);
     },
-    onError: (err: unknown) => {
-      const msg =
-        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        t("catalogTemplates.saveFailed");
-      setError(msg);
-    },
+    onError: (err: unknown) => toastError(err, t("catalogTemplates.saveFailed")),
   });
 
   const selectedCount = Object.keys(selected).length;
@@ -103,10 +99,10 @@ export default function ProductSuggestionsPicker({ categories }: Props) {
             key={cat.categoryId}
             onClick={() => setActiveCategory(cat)}
             disabled={cat.availableSuggestionCount === 0}
-            className="w-full flex items-center justify-between bg-white border border-gray-100 rounded-xl px-4 py-3 disabled:opacity-40"
+            className="w-full flex items-center justify-between bg-green-50 border border-green-200 rounded-xl px-4 py-3 disabled:opacity-40"
           >
-            <span className="text-sm font-medium text-gray-900">{cat.name}</span>
-            <span className="text-xs text-gray-400">
+            <span className="text-sm font-medium text-green-900">{getCategoryEmoji(cat.name)} {suggestedCategoryDisplayName(cat.name, lang)}</span>
+            <span className="text-xs text-green-600">
               {cat.availableSuggestionCount > 0
                 ? t("catalogTemplates.suggestionsAvailable", { count: cat.availableSuggestionCount })
                 : t("catalogTemplates.noMoreSuggestions")}
@@ -121,7 +117,6 @@ export default function ProductSuggestionsPicker({ categories }: Props) {
         title={activeCategory?.name ?? ""}
         footer={
           <div className="space-y-2">
-            {error && <p className="text-xs text-red-600">{error}</p>}
             {needsBranchPick && (
               <p className="text-xs text-amber-600">{t("catalogTemplates.pickBranchFirst")}</p>
             )}
@@ -138,6 +133,11 @@ export default function ProductSuggestionsPicker({ categories }: Props) {
         }
       >
         <div className="px-4 py-3 space-y-4">
+          <p className="flex items-start gap-1.5 text-xs text-indigo-700 bg-indigo-50 rounded-lg px-3 py-2">
+            <span>💡</span>
+            <span>{t("catalogTemplates.pickProductsTip")}</span>
+          </p>
+
           {/* Only Product / With Quantity toggle */}
           <div className="flex rounded-xl bg-gray-100 p-1">
             <button
@@ -179,9 +179,14 @@ export default function ProductSuggestionsPicker({ categories }: Props) {
           ) : (
             <div className="space-y-2">
               {[
-                ...suggestions.map((s) => ({ name: s.name, alreadyAdded: s.alreadyAdded })),
-                ...customNames.map((name) => ({ name, alreadyAdded: false })),
-              ].map(({ name, alreadyAdded }) => {
+                ...suggestions.map((s) => ({
+                  name: s.name,
+                  alreadyAdded: s.alreadyAdded,
+                  existingSellingPrice: s.existingSellingPrice,
+                  existingQuantity: s.existingQuantity,
+                })),
+                ...customNames.map((name) => ({ name, alreadyAdded: false, existingSellingPrice: null, existingQuantity: null })),
+              ].map(({ name, alreadyAdded, existingSellingPrice, existingQuantity }) => {
                 const isChecked = !!selected[name];
                 if (alreadyAdded) {
                   return (
@@ -190,7 +195,16 @@ export default function ProductSuggestionsPicker({ categories }: Props) {
                       className="flex items-center gap-2.5 border border-gray-100 bg-gray-50 rounded-xl p-2.5"
                     >
                       <input type="checkbox" checked disabled className="w-4 h-4 rounded accent-gray-300" />
-                      <span className="text-sm flex-1 text-gray-400 line-through">{name}</span>
+                      <div className="flex-1 min-w-0">
+                        <span className="text-sm text-gray-400 line-through block truncate">{name}</span>
+                        {(existingQuantity != null || existingSellingPrice != null) && (
+                          <span className="text-[11px] text-gray-400">
+                            {existingQuantity != null && `${t("catalogTemplates.qty")}: ${existingQuantity}`}
+                            {existingQuantity != null && existingSellingPrice != null && " · "}
+                            {existingSellingPrice != null && `৳${existingSellingPrice}`}
+                          </span>
+                        )}
+                      </div>
                       <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-200 text-gray-500 font-medium shrink-0">
                         {t("catalogTemplates.alreadyAdded")}
                       </span>

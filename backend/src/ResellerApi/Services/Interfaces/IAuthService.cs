@@ -9,5 +9,10 @@ public interface IAuthService
     Task RevokeAsync(string refreshToken);
     Task RequestSignupCodeAsync(RequestSignupCodeRequest request);
     Task VerifySignupCodeAsync(VerifySignupCodeRequest request);
+    Task<string> VerifySignupEmailViaGoogleAsync(GoogleVerifyEmailRequest request);
     Task<AuthResponse> CompleteSignupAsync(SignUpRequest request);
+    Task RequestPasswordResetCodeAsync(RequestPasswordResetRequest request);
+    Task VerifyPasswordResetCodeAsync(VerifyPasswordResetRequest request);
+    Task CompletePasswordResetAsync(CompletePasswordResetRequest request);
+    Task<FindMyEmailResponse> FindMyEmailAsync(FindMyEmailRequest request);
 }

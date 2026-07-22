@@ -10,6 +10,7 @@ import { useLanguage } from "@/i18n/LanguageContext";
 import { PencilIcon, TrashIcon, StarIcon } from "@heroicons/react/24/outline";
 import { StarIcon as StarSolid } from "@heroicons/react/24/solid";
 import SlidePanel from "@/components/ui/SlidePanel";
+import { useToastStore } from "@/store/toastStore";
 
 type FormMode = "add" | "edit" | null;
 
@@ -33,14 +34,13 @@ export default function CouriersPage() {
   const [mode, setMode] = useState<FormMode>(null);
   const [editTarget, setEditTarget] = useState<Courier | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
-  const [error, setError] = useState("");
 
   const { data: couriers = [], isLoading } = useQuery({
     queryKey: ["couriers"],
     queryFn: getCouriers,
   });
 
-  const openAdd = () => { setForm(EMPTY_FORM); setEditTarget(null); setError(""); setMode("add"); };
+  const openAdd = () => { setForm(EMPTY_FORM); setEditTarget(null); setMode("add"); };
   const openEdit = (c: Courier) => {
     setForm({
       name: c.name,
@@ -53,9 +53,9 @@ export default function CouriersPage() {
       isDefault: c.isDefault,
       trackingUrlTemplate: c.trackingUrlTemplate ?? "",
     });
-    setEditTarget(c); setError(""); setMode("edit");
+    setEditTarget(c); setMode("edit");
   };
-  const close = () => { setMode(null); setEditTarget(null); setError(""); };
+  const close = () => { setMode(null); setEditTarget(null); };
 
   const buildPayload = (): CourierPayload => ({
     name: form.name.trim(),
@@ -76,7 +76,7 @@ export default function CouriersPage() {
       else if (editTarget) await updateCourier(editTarget.id, data);
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["couriers"] }); close(); },
-    onError: () => setError(t("settings.failedSaveCourier")),
+    onError: () => useToastStore.getState().show(t("settings.failedSaveCourier"), "error"),
   });
 
   const toggleMutation = useMutation({
@@ -155,7 +155,6 @@ export default function CouriersPage() {
         title={mode === "add" ? t("settings.addCourier") : t("settings.edit")}
         footer={
           <>
-            {error && <p className="text-xs text-red-600 mb-2">{error}</p>}
             <button
               onClick={() => saveMutation.mutate()}
               disabled={saveMutation.isPending || !form.name.trim()}

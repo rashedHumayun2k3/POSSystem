@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ResellerApi.DTOs.Catalog;
+using ResellerApi.Infrastructure;
 using ResellerApi.Services.Interfaces;
 
 namespace ResellerApi.Controllers;
@@ -11,8 +12,13 @@ namespace ResellerApi.Controllers;
 public class CategoriesController : ControllerBase
 {
     private readonly ICategoryService _svc;
+    private readonly ICurrentUserService _user;
 
-    public CategoriesController(ICategoryService svc) => _svc = svc;
+    public CategoriesController(ICategoryService svc, ICurrentUserService user)
+    {
+        _svc = svc;
+        _user = user;
+    }
 
     [HttpGet]
     public async Task<IActionResult> List() => Ok(await _svc.ListAsync());
@@ -24,20 +30,29 @@ public class CategoriesController : ControllerBase
     [Authorize(Roles = "OWNER")]
     public async Task<IActionResult> Create([FromBody] UpsertCategoryRequest request)
     {
-        var cat = await _svc.CreateAsync(request);
-        return CreatedAtAction(nameof(Get), new { id = cat.Id }, cat);
+        try
+        {
+            var cat = await _svc.CreateAsync(request, _user.UserId);
+            return CreatedAtAction(nameof(Get), new { id = cat.Id }, cat);
+        }
+        catch (ArgumentException ex) { return BadRequest(new { message = ex.Message }); }
+        catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
     }
 
     [HttpPut("{id:guid}")]
     [Authorize(Roles = "OWNER")]
     public async Task<IActionResult> Update(Guid id, [FromBody] UpsertCategoryRequest request)
-        => Ok(await _svc.UpdateAsync(id, request));
+    {
+        try { return Ok(await _svc.UpdateAsync(id, request, _user.UserId)); }
+        catch (ArgumentException ex) { return BadRequest(new { message = ex.Message }); }
+        catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
+    }
 
     [HttpDelete("{id:guid}")]
     [Authorize(Roles = "OWNER")]
     public async Task<IActionResult> Delete(Guid id)
     {
-        await _svc.DeleteAsync(id);
+        await _svc.DeleteAsync(id, _user.UserId);
         return NoContent();
     }
 
@@ -46,18 +61,22 @@ public class CategoriesController : ControllerBase
     [HttpPost("{id:guid}/fields")]
     [Authorize(Roles = "OWNER")]
     public async Task<IActionResult> AddField(Guid id, [FromBody] UpsertCategoryFieldRequest request)
-        => Ok(await _svc.AddFieldAsync(id, request));
+    {
+        try { return Ok(await _svc.AddFieldAsync(id, request, _user.UserId)); }
+        catch (ArgumentException ex) { return BadRequest(new { message = ex.Message }); }
+        catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
+    }
 
     [HttpPut("{id:guid}/fields/{fieldId:guid}")]
     [Authorize(Roles = "OWNER")]
     public async Task<IActionResult> UpdateField(Guid id, Guid fieldId, [FromBody] UpsertCategoryFieldRequest request)
-        => Ok(await _svc.UpdateFieldAsync(id, fieldId, request));
+        => Ok(await _svc.UpdateFieldAsync(id, fieldId, request, _user.UserId));
 
     [HttpDelete("{id:guid}/fields/{fieldId:guid}")]
     [Authorize(Roles = "OWNER")]
     public async Task<IActionResult> DeleteField(Guid id, Guid fieldId)
     {
-        await _svc.DeleteFieldAsync(id, fieldId);
+        await _svc.DeleteFieldAsync(id, fieldId, _user.UserId);
         return NoContent();
     }
 }

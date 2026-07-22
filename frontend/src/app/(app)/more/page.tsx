@@ -13,6 +13,8 @@ import {
   TagIcon,
   ArchiveBoxIcon,
   RectangleStackIcon,
+  QuestionMarkCircleIcon,
+  ChatBubbleLeftRightIcon,
 } from "@heroicons/react/24/outline";
 import { useLogout } from "@/hooks/useAuth";
 import { useLanguage } from "@/i18n/LanguageContext";
@@ -36,6 +38,8 @@ export default function MorePage() {
     { href: "/more/reports",    labelKey: "more.reports",    Icon: ChartBarIcon,    descKey: "more.reportsDesc" },
     { href: "/more/customers",  labelKey: "more.customers",  Icon: UserGroupIcon,   descKey: "more.customersDesc" },
     { href: "/more/settings",   labelKey: "more.settings",   Icon: Cog6ToothIcon,   descKey: "more.settingsDesc" },
+    { href: "/more/faq",        labelKey: "more.faq",        Icon: QuestionMarkCircleIcon, descKey: "more.faqDesc" },
+    { href: "/more/feedback",   labelKey: "more.feedback",   Icon: ChatBubbleLeftRightIcon, descKey: "more.feedbackDesc" },
   ];
 
   const managerLinks = [
@@ -45,17 +49,23 @@ export default function MorePage() {
     { href: "/more/reports",    labelKey: "more.reports",    Icon: ChartBarIcon,  descKey: "more.reportsDesc" },
     { href: "/more/customers",  labelKey: "more.customers",  Icon: UserGroupIcon, descKey: "more.customersDesc" },
     { href: "/more/settings",   labelKey: "more.settings",   Icon: Cog6ToothIcon, descKey: "more.settingsDescStaff" },
+    { href: "/more/faq",        labelKey: "more.faq",        Icon: QuestionMarkCircleIcon, descKey: "more.faqDesc" },
+    { href: "/more/feedback",   labelKey: "more.feedback",   Icon: ChatBubbleLeftRightIcon, descKey: "more.feedbackDesc" },
   ];
 
   const warehouseLinks = [
     { href: "/more/purchases",  labelKey: "more.purchases",  Icon: TruckIcon,      descKey: "more.purchasesDesc" },
     { href: "/more/storeroom",  labelKey: "more.storeroom",  Icon: ArchiveBoxIcon, descKey: "more.storeroomDesc" },
     { href: "/more/settings",   labelKey: "more.settings",   Icon: Cog6ToothIcon,  descKey: "more.settingsDescStaff" },
+    { href: "/more/faq",        labelKey: "more.faq",        Icon: QuestionMarkCircleIcon, descKey: "more.faqDesc" },
+    { href: "/more/feedback",   labelKey: "more.feedback",   Icon: ChatBubbleLeftRightIcon, descKey: "more.feedbackDesc" },
   ];
 
   const staffLinks = [
     { href: "/more/deliveries", labelKey: "more.deliveries", Icon: TruckIcon,     descKey: "more.deliveriesDescStaff" },
     { href: "/more/settings",   labelKey: "more.settings",   Icon: Cog6ToothIcon, descKey: "more.settingsDescStaff" },
+    { href: "/more/faq",        labelKey: "more.faq",        Icon: QuestionMarkCircleIcon, descKey: "more.faqDesc" },
+    { href: "/more/feedback",   labelKey: "more.feedback",   Icon: ChatBubbleLeftRightIcon, descKey: "more.feedbackDesc" },
   ];
 
   const links = isOwner ? ownerLinks

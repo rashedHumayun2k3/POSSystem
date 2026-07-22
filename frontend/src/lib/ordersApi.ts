@@ -4,10 +4,12 @@ import type {
   OrderDetail,
   CreateOrderPayload,
   UpdateOrderPayload,
+  ReviseOrderPayload,
   HandoverPayload,
   ReturnOrderPayload,
   AddPaymentPayload,
   CustomerSummary,
+  UpdateCustomerPayload,
   CourierDto,
   DeliveryManDto,
 } from '@/types/orders';
@@ -19,6 +21,7 @@ const BASE = '/orders';
 export interface ListOrdersParams {
   orderStatus?: string;
   fulfillmentStatus?: string;
+  paymentStatus?: string;
   channel?: string;
   q?: string;
   from?: string;
@@ -74,6 +77,11 @@ export const returnOrder = async (id: string, payload: ReturnOrderPayload): Prom
 
 export const updateOrder = async (id: string, payload: UpdateOrderPayload): Promise<OrderDetail> => {
   const { data } = await api.put(`${BASE}/${id}`, payload);
+  return data;
+};
+
+export const reviseOrder = async (id: string, payload: ReviseOrderPayload): Promise<OrderDetail> => {
+  const { data } = await api.post(`${BASE}/${id}/revise`, payload);
   return data;
 };
 
@@ -139,6 +147,16 @@ export const getCustomerByPhone = async (phone: string): Promise<CustomerSummary
   }
 };
 
+export const getCustomer = async (id: string): Promise<CustomerSummary> => {
+  const { data } = await api.get(`/customers/${id}`);
+  return data;
+};
+
+export const updateCustomer = async (id: string, payload: UpdateCustomerPayload): Promise<CustomerSummary> => {
+  const { data } = await api.put(`/customers/${id}`, payload);
+  return data;
+};
+
 // ── Couriers ──────────────────────────────────────────────────────────────────
 
 export const listCouriers = async (): Promise<CourierDto[]> => {
@@ -148,5 +166,15 @@ export const listCouriers = async (): Promise<CourierDto[]> => {
 
 export const listDeliveryMen = async (): Promise<DeliveryManDto[]> => {
   const { data } = await api.get('/couriers/delivery-men');
+  return data;
+};
+
+export const createDeliveryMan = async (payload: {
+  name: string;
+  phone: string;
+  courierId?: string;
+  costPerDelivery: number;
+}): Promise<DeliveryManDto> => {
+  const { data } = await api.post('/couriers/delivery-men', payload);
   return data;
 };

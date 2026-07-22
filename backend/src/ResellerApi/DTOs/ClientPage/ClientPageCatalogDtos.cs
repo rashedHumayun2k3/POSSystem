@@ -1,6 +1,6 @@
 namespace ResellerApi.DTOs.ClientPage;
 
-public record ClientPageCategoryDto(Guid Id, string Name);
+public record ClientPageCategoryDto(Guid Id, string Name, string? ImageUrl);
 
 public record ClientPageShopDto(
     Guid Id,
@@ -19,7 +19,10 @@ public record ClientPageProductCardDto(
     string VariantValuesJson,
     bool InStock,
     Guid ShopId,
-    string ShopName
+    string ShopName,
+    double? AverageRating,
+    int ReviewCount,
+    decimal? MarketPrice
 );
 
 public record ClientPageVariantDto(
@@ -28,6 +31,8 @@ public record ClientPageVariantDto(
     decimal Price,
     bool InStock
 );
+
+public record ClientPageMarketplaceDetailDto(string Section, string Label, string Value);
 
 public record ClientPageProductDetailDto(
     Guid Id,
@@ -39,5 +44,11 @@ public record ClientPageProductDetailDto(
     string CategoryName,
     Guid ShopId,
     string ShopName,
-    List<ClientPageVariantDto> Variants
+    string? ShopSubdomain,
+    List<ClientPageVariantDto> Variants,
+    string? YoutubeUrl,
+    List<ClientPageMarketplaceDetailDto> MarketplaceDetails,
+    List<string> Images,
+    int? WarrantyDurationValue,
+    string? WarrantyDurationUnit
 );

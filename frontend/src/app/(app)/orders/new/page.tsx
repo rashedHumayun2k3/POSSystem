@@ -11,6 +11,7 @@ import { useLanguage } from "@/i18n/LanguageContext";
 import CustomerPickerSlide, { type SelectedCustomer } from "@/components/orders/CustomerPickerSlide";
 import ProductPicker from "@/components/purchases/ProductPicker";
 import type { ProductSearchResult } from "@/types/catalog";
+import { useToastStore } from "@/store/toastStore";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 interface CartLine {
@@ -68,7 +69,6 @@ export default function NewOrderPage() {
   const [advanceMethod, setAdvanceMethod] = useState("CASH");
   const [note, setNote] = useState("");
   const [showDiscountSheet, setShowDiscountSheet] = useState(false);
-  const [error, setError] = useState("");
 
   // ── Couriers ────────────────────────────────────────────────────────────
   const { data: couriers = [] } = useQuery({
@@ -109,7 +109,7 @@ export default function NewOrderPage() {
         );
       }
       if (result.stock <= 0) {
-        setError(t("orders.outOfStockError", { product: result.productName }));
+        useToastStore.getState().show(t("orders.outOfStockError", { product: result.productName }), "error");
         return prev;
       }
       return [...prev, {
@@ -121,7 +121,6 @@ export default function NewOrderPage() {
         available: result.stock,
       }];
     });
-    setError("");
   };
 
   const updateQty = (variantId: string, delta: number) => {
@@ -163,12 +162,11 @@ export default function NewOrderPage() {
       }),
     onSuccess: (order) => router.push(`/orders/${order.id}`),
     onError: (err: unknown) => {
-      const data = (err as { response?: { data?: { unavailableItems?: string[]; message?: string } } })?.response?.data;
-      if (data?.unavailableItems?.length) {
-        setError(`${t("orders.stockUnavailable")}: ${data.unavailableItems.join(", ")}`);
-      } else {
-        setError(data?.message ?? t("orders.failedCreate"));
-      }
+      const data = (err as { response?: { data?: { items?: string[]; message?: string } } })?.response?.data;
+      const message = data?.items?.length
+        ? `${t("orders.stockUnavailable")}: ${data.items.join(", ")}`
+        : data?.message ?? t("orders.failedCreate");
+      useToastStore.getState().show(message, "error");
     },
   });
 
@@ -485,11 +483,6 @@ export default function NewOrderPage() {
           />
         </section>
 
-        {error && (
-          <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700">
-            {error}
-          </div>
-        )}
       </div>
 
       {/* ── Sticky bottom bar ────────────────────────────────────── */}

@@ -13,6 +13,7 @@ public class StockMovement : BusinessScopedEntity, IBranchScoped
     public string? ReferenceType { get; set; }
     public Guid? ReferenceId { get; set; }
     public Guid UserId { get; set; }
+    public string? Reason { get; set; } // ADJUSTMENT only: DAMAGED | LOST_THEFT | RECOUNT | FOUND_EXTRA | OTHER
     public string? Note { get; set; }
 
     public ProductVariant Variant { get; set; } = null!;

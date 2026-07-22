@@ -12,8 +12,12 @@ export interface CategoryField {
 export interface Category {
   id: string;
   name: string;
+  nameBn: string | null;
   defaultUnit: string | null;
   fields: CategoryField[];
+  parentCategoryId: string | null;
+  parentCategoryName: string | null;
+  parentCategoryNameBn: string | null;
 }
 
 export interface Variant {
@@ -21,9 +25,46 @@ export interface Variant {
   variantValuesJson: string;
   sku: string;
   barcode: string;
+  imageUrl: string | null; // null = falls back to the product's shared photo
+  note: string | null;
   priceOverride: number | null;
   isDefault: boolean;
   avgLandedCost?: number; // owner only
+  stock?: number; // owner only — current on-hand in the active branch scope
+  rowVer?: number[]; // owner only — required for update (optimistic concurrency)
+}
+
+export type StockAdjustReason = 'EXISTING_STOCK' | 'DAMAGED' | 'LOST_THEFT' | 'RECOUNT' | 'FOUND_EXTRA' | 'OTHER';
+
+export interface StockAdjustment {
+  id: string;
+  reason: StockAdjustReason;
+  qty: number; // signed delta actually applied
+  note: string | null;
+  userName: string;
+  createdAt: string;
+}
+
+export interface ReviewImage {
+  id: string;
+  imageUrl: string;
+}
+
+export interface ReviewReply {
+  body: string;
+  createdAt: string;
+}
+
+export interface AdminProductReview {
+  id: string;
+  rating: number;
+  body: string;
+  reviewerName: string;
+  reviewerPhotoUrl: string | null;
+  createdAt: string;
+  isHidden: boolean;
+  images: ReviewImage[];
+  reply: ReviewReply | null;
 }
 
 export interface ProductSummary {
@@ -34,11 +75,29 @@ export interface ProductSummary {
   unitCode: string;
   sellingPrice: number;
   marketPrice: number | null;
+  marketplacePrice: number | null; // marketplace-channel-only override, null = same as sellingPrice
   packagingCostPerUnit?: number; // owner only
   status: string;
   categoryName: string;
   variantCount: number;
   totalStock: number;
+  lowStockThreshold: number;
+}
+
+export type MarketplaceDetailSection = 'STYLE' | 'FEATURES_SPECS' | 'ITEM_DETAILS';
+
+export interface MarketplaceDetailItem {
+  id: string;
+  section: MarketplaceDetailSection;
+  label: string;
+  value: string;
+  sortOrder: number;
+}
+
+export interface ProductImage {
+  id: string;
+  imageUrl: string;
+  sortOrder: number;
 }
 
 export interface ProductDetail {
@@ -52,6 +111,7 @@ export interface ProductDetail {
   unitCode: string;
   sellingPrice: number;
   marketPrice: number | null;
+  marketplacePrice: number | null; // marketplace-channel-only override, null = same as sellingPrice
   packagingCostPerUnit?: number; // owner only
   lowStockThreshold: number;
   attributesJson: string | null;
@@ -60,6 +120,12 @@ export interface ProductDetail {
   categoryName: string;
   variants: Variant[];
   rowVer?: number[]; // owner only — required for update (optimistic concurrency)
+  showOnMarketplace?: boolean; // owner only — controls ClientPage marketplace visibility
+  youtubeUrl: string | null;
+  marketplaceDetails: MarketplaceDetailItem[];
+  images: ProductImage[];
+  warrantyDurationValue: number | null;
+  warrantyDurationUnit: string | null;
 }
 
 export interface PriceSlot {
@@ -102,6 +168,11 @@ export interface CreateProductPayload {
   attributesJson?: string | null;
   note?: string | null;
   variantCombinations?: Record<string, string>[] | null;
+  initialStock?: number | null;
+  costPrice?: number | null;
+  branchId?: string | null;
+  warrantyDurationValue?: number | null;
+  warrantyDurationUnit?: string | null;
 }
 
 export interface ProductSearchResult {

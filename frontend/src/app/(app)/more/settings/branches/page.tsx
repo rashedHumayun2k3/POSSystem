@@ -7,13 +7,10 @@ import { listBranches, createBranch, updateBranch, toggleBranchActive } from "@/
 import type { Branch } from "@/types/branch";
 import { useLanguage } from "@/i18n/LanguageContext";
 import { PencilIcon } from "@heroicons/react/24/outline";
+import { toastError } from "@/lib/toastError";
 
 type FormMode = "add" | "edit" | null;
 const EMPTY_FORM = { name: "", code: "", address: "", phone: "" };
-
-function errMsg(error: unknown, fallback: string) {
-  return (error as { response?: { data?: { message?: string } } })?.response?.data?.message ?? fallback;
-}
 
 export default function BranchesPage() {
   const router = useRouter();
@@ -23,19 +20,18 @@ export default function BranchesPage() {
   const [mode, setMode] = useState<FormMode>(null);
   const [editTarget, setEditTarget] = useState<Branch | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
-  const [error, setError] = useState("");
 
   const { data: branches = [], isLoading } = useQuery({
     queryKey: ["branches"],
     queryFn: listBranches,
   });
 
-  const openAdd = () => { setForm(EMPTY_FORM); setEditTarget(null); setError(""); setMode("add"); };
+  const openAdd = () => { setForm(EMPTY_FORM); setEditTarget(null); setMode("add"); };
   const openEdit = (b: Branch) => {
     setForm({ name: b.name, code: b.code, address: b.address ?? "", phone: b.phone ?? "" });
-    setEditTarget(b); setError(""); setMode("edit");
+    setEditTarget(b); setMode("edit");
   };
-  const close = () => { setMode(null); setEditTarget(null); setError(""); };
+  const close = () => { setMode(null); setEditTarget(null); };
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -49,12 +45,13 @@ export default function BranchesPage() {
       else if (editTarget) await updateBranch(editTarget.id, payload);
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["branches"] }); close(); },
-    onError: (err) => setError(errMsg(err, t("settings.failedSaveBranch"))),
+    onError: (err) => toastError(err, t("settings.failedSaveBranch")),
   });
 
   const toggleMutation = useMutation({
     mutationFn: (id: string) => toggleBranchActive(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["branches"] }),
+    onError: (err) => toastError(err, t("settings.failedSaveBranch")),
   });
 
   return (
@@ -113,9 +110,6 @@ export default function BranchesPage() {
             </div>
           ))
         )}
-        {toggleMutation.isError && (
-          <p className="text-xs text-red-600 px-1">{errMsg(toggleMutation.error, t("settings.failedSaveBranch"))}</p>
-        )}
       </div>
 
       {mode && (
@@ -138,7 +132,6 @@ export default function BranchesPage() {
             <input placeholder={t("settings.branchPhone")} value={form.phone}
               onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
               className="w-full h-11 px-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-            {error && <p className="text-xs text-red-600">{error}</p>}
             <button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending || !form.name.trim() || !form.code.trim()}
               className="w-full h-12 rounded-xl bg-indigo-600 text-white font-semibold text-sm disabled:opacity-40">
               {saveMutation.isPending ? t("common.saving") : t("common.save")}

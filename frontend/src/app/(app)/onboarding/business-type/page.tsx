@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/store/authStore";
 import { useSetBusinessTypes } from "@/hooks/useAuth";
 import { useLanguage } from "@/i18n/LanguageContext";
+import { toastError } from "@/lib/toastError";
 import type { BusinessType } from "@/types/auth";
 
 const BUSINESS_TYPES: { value: BusinessType; icon: string }[] = [
@@ -18,10 +19,6 @@ const BUSINESS_TYPES: { value: BusinessType; icon: string }[] = [
   { value: "BOOKS_STATIONERY", icon: "📚" },
   { value: "OTHER", icon: "🗂️" },
 ];
-
-function errMsg(error: unknown, fallback: string) {
-  return (error as { response?: { data?: { message?: string } } })?.response?.data?.message ?? fallback;
-}
 
 export default function BusinessTypeOnboardingPage() {
   const { t } = useLanguage();
@@ -46,7 +43,10 @@ export default function BusinessTypeOnboardingPage() {
 
   function handleContinue() {
     if (selected.length === 0) return;
-    setBusinessTypes.mutate({ businessTypes: selected });
+    setBusinessTypes.mutate(
+      { businessTypes: selected },
+      { onError: (err) => toastError(err, t("onboarding.setBusinessTypeFailed")) }
+    );
   }
 
   return (
@@ -83,12 +83,6 @@ export default function BusinessTypeOnboardingPage() {
           );
         })}
       </div>
-
-      {setBusinessTypes.isError && (
-        <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">
-          {errMsg(setBusinessTypes.error, t("onboarding.setBusinessTypeFailed"))}
-        </p>
-      )}
 
       <button
         onClick={handleContinue}

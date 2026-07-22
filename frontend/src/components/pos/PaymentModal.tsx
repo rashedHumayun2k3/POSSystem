@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { XMarkIcon } from '@heroicons/react/24/outline';
 import { createOrder, confirmOrder, addOrderPayment } from '@/lib/ordersApi';
 import type { PosSession } from '@/types/pos';
+import { useToastStore } from '@/store/toastStore';
 
 export type PayMethod = 'CASH' | 'BKASH' | 'CARD';
 
@@ -52,7 +53,6 @@ export default function PaymentModal({ session, onClose, onSuccess }: Props) {
   const [method, setMethod] = useState<PayMethod>('CASH');
   const [cashInput, setCashInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
 
   const sub = sessionSubtotal(session);
   const discount = calcDiscount(session, sub);
@@ -78,10 +78,9 @@ export default function PaymentModal({ session, onClose, onSuccess }: Props) {
 
   const handleConfirm = async () => {
     if (method === 'CASH' && cashReceived < total) {
-      setError('Cash received is less than the total.');
+      useToastStore.getState().show('Cash received is less than the total.', 'error');
       return;
     }
-    setError('');
     setLoading(true);
 
     try {
@@ -117,7 +116,7 @@ export default function PaymentModal({ session, onClose, onSuccess }: Props) {
 
       onSuccess(method, paidAmt, total, order.id, order.orderNo);
     } catch (err: unknown) {
-      setError(extractErrorMessage(err));
+      useToastStore.getState().show(extractErrorMessage(err), 'error');
       setLoading(false);
     }
   };
@@ -170,7 +169,7 @@ export default function PaymentModal({ session, onClose, onSuccess }: Props) {
             {METHODS.map(m => (
               <button
                 key={m}
-                onClick={() => { setMethod(m); setCashInput(''); setError(''); }}
+                onClick={() => { setMethod(m); setCashInput(''); }}
                 className={`flex-1 py-2 rounded-xl text-sm font-semibold border transition-colors ${
                   method === m
                     ? 'bg-indigo-600 text-white border-indigo-600'
@@ -249,10 +248,6 @@ export default function PaymentModal({ session, onClose, onSuccess }: Props) {
                 Collect <span className="font-bold text-gray-900">৳{total.toLocaleString()}</span> via {METHOD_LABEL[method]}
               </p>
             </div>
-          )}
-
-          {error && (
-            <p className="text-sm text-red-500 text-center whitespace-pre-line">{error}</p>
           )}
 
           {/* Confirm button */}

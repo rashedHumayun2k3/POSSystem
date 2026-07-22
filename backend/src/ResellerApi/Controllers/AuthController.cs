@@ -16,19 +16,34 @@ public class AuthController : ControllerBase
     private readonly IValidator<RequestSignupCodeRequest> _requestCodeValidator;
     private readonly IValidator<VerifySignupCodeRequest> _verifyCodeValidator;
     private readonly IValidator<SignUpRequest> _signUpValidator;
+    private readonly IValidator<GoogleVerifyEmailRequest> _verifyGoogleValidator;
+    private readonly IValidator<RequestPasswordResetRequest> _requestPasswordResetValidator;
+    private readonly IValidator<VerifyPasswordResetRequest> _verifyPasswordResetValidator;
+    private readonly IValidator<CompletePasswordResetRequest> _completePasswordResetValidator;
+    private readonly IValidator<FindMyEmailRequest> _findMyEmailValidator;
 
     public AuthController(
         IAuthService authService,
         IValidator<LoginRequest> loginValidator,
         IValidator<RequestSignupCodeRequest> requestCodeValidator,
         IValidator<VerifySignupCodeRequest> verifyCodeValidator,
-        IValidator<SignUpRequest> signUpValidator)
+        IValidator<SignUpRequest> signUpValidator,
+        IValidator<GoogleVerifyEmailRequest> verifyGoogleValidator,
+        IValidator<RequestPasswordResetRequest> requestPasswordResetValidator,
+        IValidator<VerifyPasswordResetRequest> verifyPasswordResetValidator,
+        IValidator<CompletePasswordResetRequest> completePasswordResetValidator,
+        IValidator<FindMyEmailRequest> findMyEmailValidator)
     {
         _authService = authService;
         _loginValidator = loginValidator;
         _requestCodeValidator = requestCodeValidator;
         _verifyCodeValidator = verifyCodeValidator;
         _signUpValidator = signUpValidator;
+        _verifyGoogleValidator = verifyGoogleValidator;
+        _requestPasswordResetValidator = requestPasswordResetValidator;
+        _verifyPasswordResetValidator = verifyPasswordResetValidator;
+        _completePasswordResetValidator = completePasswordResetValidator;
+        _findMyEmailValidator = findMyEmailValidator;
     }
 
     [HttpPost("login")]
@@ -131,5 +146,102 @@ public class AuthController : ControllerBase
         {
             return Conflict(new { code = "SIGNUP_FAILED", message = ex.Message });
         }
+    }
+
+    [HttpPost("signup/verify-google")]
+    [AllowAnonymous]
+    [EnableRateLimiting("signup")]
+    public async Task<IActionResult> VerifySignupEmailViaGoogle([FromBody] GoogleVerifyEmailRequest request)
+    {
+        var validation = await _verifyGoogleValidator.ValidateAsync(request);
+        if (!validation.IsValid)
+            return BadRequest(new { code = "VALIDATION_ERROR", details = validation.Errors.Select(e => e.ErrorMessage) });
+
+        try
+        {
+            var email = await _authService.VerifySignupEmailViaGoogleAsync(request);
+            return Ok(new { verified = true, email });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(new { code = "EMAIL_TAKEN", message = ex.Message });
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return Unauthorized(new { code = "GOOGLE_VERIFY_FAILED", message = ex.Message });
+        }
+    }
+
+    [HttpPost("forgot-password/request-code")]
+    [AllowAnonymous]
+    [EnableRateLimiting("password-reset")]
+    public async Task<IActionResult> RequestPasswordResetCode([FromBody] RequestPasswordResetRequest request)
+    {
+        var validation = await _requestPasswordResetValidator.ValidateAsync(request);
+        if (!validation.IsValid)
+            return BadRequest(new { code = "VALIDATION_ERROR", details = validation.Errors.Select(e => e.ErrorMessage) });
+
+        try
+        {
+            await _authService.RequestPasswordResetCodeAsync(request);
+            return NoContent();
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { code = "EMAIL_NOT_FOUND", message = ex.Message });
+        }
+    }
+
+    [HttpPost("forgot-password/verify-code")]
+    [AllowAnonymous]
+    [EnableRateLimiting("password-reset")]
+    public async Task<IActionResult> VerifyPasswordResetCode([FromBody] VerifyPasswordResetRequest request)
+    {
+        var validation = await _verifyPasswordResetValidator.ValidateAsync(request);
+        if (!validation.IsValid)
+            return BadRequest(new { code = "VALIDATION_ERROR", details = validation.Errors.Select(e => e.ErrorMessage) });
+
+        try
+        {
+            await _authService.VerifyPasswordResetCodeAsync(request);
+            return Ok(new { verified = true });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { code = "VERIFICATION_FAILED", message = ex.Message });
+        }
+    }
+
+    [HttpPost("forgot-password/complete")]
+    [AllowAnonymous]
+    [EnableRateLimiting("password-reset")]
+    public async Task<IActionResult> CompletePasswordReset([FromBody] CompletePasswordResetRequest request)
+    {
+        var validation = await _completePasswordResetValidator.ValidateAsync(request);
+        if (!validation.IsValid)
+            return BadRequest(new { code = "VALIDATION_ERROR", details = validation.Errors.Select(e => e.ErrorMessage) });
+
+        try
+        {
+            await _authService.CompletePasswordResetAsync(request);
+            return NoContent();
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { code = "RESET_FAILED", message = ex.Message });
+        }
+    }
+
+    [HttpPost("forgot-password/find-email")]
+    [AllowAnonymous]
+    [EnableRateLimiting("find-email")]
+    public async Task<IActionResult> FindMyEmail([FromBody] FindMyEmailRequest request)
+    {
+        var validation = await _findMyEmailValidator.ValidateAsync(request);
+        if (!validation.IsValid)
+            return BadRequest(new { code = "VALIDATION_ERROR", details = validation.Errors.Select(e => e.ErrorMessage) });
+
+        var result = await _authService.FindMyEmailAsync(request);
+        return Ok(result);
     }
 }

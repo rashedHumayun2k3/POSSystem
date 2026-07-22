@@ -50,4 +50,40 @@ public class EmailSender : IEmailSender
         await client.SendAsync(message);
         await client.DisconnectAsync(true);
     }
+
+    public async Task SendPasswordResetCodeAsync(string email, string code)
+    {
+        var host = _config["Email:SmtpHost"];
+        var fromAddress = _config["Email:FromAddress"];
+
+        if (string.IsNullOrWhiteSpace(host) || string.IsNullOrWhiteSpace(fromAddress))
+        {
+            _logger.LogWarning(
+                "Email:SmtpHost / Email:FromAddress not configured — password reset code for {Email} was NOT sent. Code: {Code}",
+                email, code);
+            return;
+        }
+
+        var message = new MimeMessage();
+        message.From.Add(new MailboxAddress(_config["Email:FromName"] ?? "Account Verification", fromAddress));
+        message.To.Add(MailboxAddress.Parse(email));
+        message.Subject = "Reset your password";
+        message.Body = new TextPart("plain")
+        {
+            Text = $"We received a request to reset your password. Your reset code is: {code}\n\n" +
+                   "This code expires in 10 minutes. If you didn't request this, you can safely ignore this email — your password will not be changed."
+        };
+
+        using var client = new SmtpClient();
+        var port = int.Parse(_config["Email:SmtpPort"] ?? "587");
+        await client.ConnectAsync(host, port, SecureSocketOptions.StartTls);
+
+        var user = _config["Email:SmtpUser"];
+        var password = _config["Email:SmtpPassword"];
+        if (!string.IsNullOrWhiteSpace(user))
+            await client.AuthenticateAsync(user, password);
+
+        await client.SendAsync(message);
+        await client.DisconnectAsync(true);
+    }
 }

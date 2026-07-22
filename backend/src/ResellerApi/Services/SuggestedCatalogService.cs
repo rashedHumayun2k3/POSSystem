@@ -92,10 +92,11 @@ public class SuggestedCatalogService : ISuggestedCatalogService
             await _log.LogAsync(_business.CurrentBusinessId, userId, "CREATE", "Category", cat.Id);
 
             created.Add(new CategoryDto(
-                cat.Id, cat.Name, cat.DefaultUnit,
+                cat.Id, cat.Name, cat.NameBn, cat.DefaultUnit,
                 fields.Select(f => new CategoryFieldDto(
                     f.Id, f.Name, f.FieldType, f.OptionsJson, f.IsRequired, f.IsVariant, f.IsPerLot, f.SortOrder
-                )).ToList()
+                )).ToList(),
+                null, null, null
             ));
         }
 
@@ -106,6 +107,7 @@ public class SuggestedCatalogService : ISuggestedCatalogService
     {
         var categories = await _db.Categories
             .Where(c => c.SuggestedCategoryId != null)
+            .OrderByDescending(c => c.CreatedAt)
             .Select(c => new { c.Id, c.Name, c.SuggestedCategoryId })
             .ToListAsync();
 
@@ -142,18 +144,41 @@ public class SuggestedCatalogService : ISuggestedCatalogService
         if (category.SuggestedCategoryId is null)
             return new List<SuggestedProductDto>();
 
-        var existingNames = await _db.Products
+        var existingProducts = await _db.Products
             .Where(p => p.CategoryId == categoryId)
-            .Select(p => p.Name)
+            .Select(p => new
+            {
+                p.Name,
+                p.SellingPrice,
+                DefaultVariantId = p.Variants.Where(v => v.IsDefault).Select(v => (Guid?)v.Id).FirstOrDefault()
+            })
             .ToListAsync();
-        var existingSet = existingNames.ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var defaultVariantIds = existingProducts
+            .Where(p => p.DefaultVariantId != null)
+            .Select(p => p.DefaultVariantId!.Value)
+            .ToList();
+        var onHandByVariant = await _db.VariantInventories
+            .Where(vi => defaultVariantIds.Contains(vi.VariantId))
+            .ToDictionaryAsync(vi => vi.VariantId, vi => vi.OnHand);
+
+        var existingByName = existingProducts
+            .GroupBy(p => p.Name, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
 
         var suggestions = await _db.SuggestedProducts
             .Where(sp => sp.SuggestedCategoryId == category.SuggestedCategoryId && sp.IsActive)
             .OrderBy(sp => sp.SortOrder)
             .ToListAsync();
 
-        return suggestions.Select(sp => new SuggestedProductDto(sp.Id, sp.Name, existingSet.Contains(sp.Name))).ToList();
+        return suggestions.Select(sp =>
+        {
+            existingByName.TryGetValue(sp.Name, out var existing);
+            decimal? qty = existing?.DefaultVariantId != null && onHandByVariant.TryGetValue(existing.DefaultVariantId.Value, out var onHand)
+                ? onHand
+                : null;
+            return new SuggestedProductDto(sp.Id, sp.Name, existing != null, existing?.SellingPrice, qty);
+        }).ToList();
     }
 
     public async Task<List<AddSuggestedProductsResultItem>> AddProductsAsync(
@@ -183,7 +208,12 @@ public class SuggestedCatalogService : ISuggestedCatalogService
                 LowStockThreshold: 5,
                 AttributesJson: null,
                 Note: null,
-                VariantCombinations: null // single default variant, no size/color matrix
+                VariantCombinations: null, // single default variant, no size/color matrix
+                InitialStock: null, // this flow has its own opening-stock path — see ReceiveOpeningStockAsync below
+                CostPrice: null,
+                BranchId: null,
+                WarrantyDurationValue: null,
+                WarrantyDurationUnit: null
             );
             var created = await _products.CreateAsync(createReq, userId);
 

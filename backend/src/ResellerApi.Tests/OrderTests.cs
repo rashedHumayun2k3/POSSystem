@@ -120,4 +120,48 @@ public class OrderTests
         var status = OrderMath.ComputePaymentStatus(1001m, 1000m);
         Assert.Equal("PAID", status);
     }
+
+    // ── Order revision overpayment (ReviseAsync) ────────────────────────────────
+
+    [Fact]
+    public void OverpaymentExcess_PaidExceedsRevisedTotal_ReturnsDifference()
+    {
+        // Customer paid for the original 10+2 order; revised down to just 5 of item 1.
+        var excess = OrderMath.ComputeOverpaymentExcess(totalPaid: 1200m, newTotal: 1000m);
+        Assert.Equal(200m, excess);
+    }
+
+    [Fact]
+    public void OverpaymentExcess_PaidEqualsRevisedTotal_IsZero()
+    {
+        var excess = OrderMath.ComputeOverpaymentExcess(totalPaid: 1000m, newTotal: 1000m);
+        Assert.Equal(0m, excess);
+    }
+
+    [Fact]
+    public void OverpaymentExcess_PaidLessThanRevisedTotal_IsZero()
+    {
+        // Still under-paid after revision — normal Due amount, not an overpayment case.
+        var excess = OrderMath.ComputeOverpaymentExcess(totalPaid: 400m, newTotal: 1000m);
+        Assert.Equal(0m, excess);
+    }
+
+    [Fact]
+    public void OverpaymentExcess_RoundsToTwoDecimalPlaces()
+    {
+        var excess = OrderMath.ComputeOverpaymentExcess(totalPaid: 100.017m, newTotal: 0m);
+        Assert.Equal(100.02m, excess);
+    }
+
+    [Fact]
+    public void OverpaymentExcess_ThenPaymentStatus_IsPaidAfterRefundingExactExcess()
+    {
+        // Simulates ReviseAsync: paid -= excess after the refund/store-credit resolution is
+        // applied, then payment status is recomputed against the new total.
+        var newTotal = 1000m;
+        var paid = 1200m;
+        var excess = OrderMath.ComputeOverpaymentExcess(paid, newTotal);
+        paid -= excess;
+        Assert.Equal("PAID", OrderMath.ComputePaymentStatus(paid, newTotal));
+    }
 }

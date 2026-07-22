@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCategories, CATEGORY_COLORS } from "@/lib/hooks";
+import CategoryAvatar from "./CategoryAvatar";
 
 export default function CategoryChips() {
   const { data } = useCategories();
@@ -16,15 +17,16 @@ export default function CategoryChips() {
           See all
         </Link>
       </div>
-      <div className="flex gap-4 lg:gap-6 overflow-x-auto px-4 lg:px-8 py-3 no-scrollbar">
+      <div className="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-7 gap-x-1 gap-y-2 lg:gap-x-3 lg:gap-y-3">
         {data.map((c, i) => (
-          <Link key={c.id} href={`/category/${c.id}`} className="flex flex-col items-center gap-1.5 shrink-0 w-16 lg:w-20">
-            <div
-              className={`w-14 h-14 lg:w-16 lg:h-16 rounded-full flex items-center justify-center text-lg lg:text-xl font-bold ${CATEGORY_COLORS[i % CATEGORY_COLORS.length]}`}
-            >
-              {c.name[0]?.toUpperCase()}
-            </div>
-            <span className="text-[11px] text-gray-700 text-center leading-tight line-clamp-2">{c.name}</span>
+          <Link key={c.id} href={`/category/${c.id}`} className="flex flex-col items-center gap-0.5">
+            <CategoryAvatar
+              name={c.name}
+              imageUrl={c.imageUrl}
+              colorClass={CATEGORY_COLORS[i % CATEGORY_COLORS.length]}
+              className="w-20 h-20 lg:w-24 lg:h-24 text-2xl lg:text-3xl"
+            />
+            <span className="text-xs text-gray-700 text-center leading-tight line-clamp-2">{c.name}</span>
           </Link>
         ))}
       </div>

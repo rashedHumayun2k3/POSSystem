@@ -7,8 +7,8 @@ import BottomNav from "@/components/BottomNav";
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 
 export const metadata: Metadata = {
-  title: "Shop",
-  description: "Online storefront",
+  title: "LavLokshan",
+  description: "LavLokshan — online storefront",
 };
 
 export const viewport: Viewport = {

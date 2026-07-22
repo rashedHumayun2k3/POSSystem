@@ -6,9 +6,20 @@ export interface CustomerSummary {
   address?: string;
   creditLimit: number;
   storeCreditBalance: number;
-  isRejecterFlag: boolean;
+  isSerialRejecter: boolean;
+  recentReturnCount: number;
+  recentOrderCount: number;
   orderCount: number;
+  returnCount: number;
+  lastOrderAt: string | null;
   unpaidBalance: number;
+}
+
+export interface UpdateCustomerPayload {
+  name: string;
+  address?: string | null;
+  creditLimit?: number | null;
+  note?: string | null;
 }
 
 // ── Courier ───────────────────────────────────────────────────────────────────
@@ -53,6 +64,7 @@ export interface OrderItemDto {
   unitCostSnapshot?: number;
   lineProfit?: number;
   isDamagedItem: boolean;
+  availableStock: number;
 }
 
 export interface OrderPaymentDto {
@@ -69,6 +81,9 @@ export interface OrderStatusHistoryDto {
   toStatus: string;
   userName: string;
   at: string;
+  // Only populated for track="ITEMS" (order revision) rows
+  reason?: ReviseReasonType;
+  note?: string;
 }
 
 export interface OrderEconomicsDto {
@@ -82,6 +97,7 @@ export interface OrderListItemSummary {
   productName: string;
   variantSku: string;
   qty: number;
+  availableStock: number;
 }
 
 export interface OrderListItem {
@@ -102,6 +118,7 @@ export interface OrderListItem {
   businessDate: string;
   items: OrderListItemSummary[];
   profit?: number; // owner/manager only — absent for STAFF, server-side gated
+  isRevised: boolean;
 }
 
 export interface OrderDetail {
@@ -147,6 +164,7 @@ export interface OrderDetail {
   payments: OrderPaymentDto[];
   statusHistory: OrderStatusHistoryDto[];
   economics?: OrderEconomicsDto;
+  isRevised: boolean;
 }
 
 // ── Request payloads ──────────────────────────────────────────────────────────
@@ -176,6 +194,7 @@ export interface CreateOrderPayload {
 
 export interface UpdateOrderPayload {
   customerName?: string;
+  customerPhone?: string;
   customerAddress?: string;
   channel?: string;
   discountType?: string;
@@ -215,4 +234,29 @@ export interface AddPaymentPayload {
   method: string;
   amount: number;
   receivedAt?: string;
+}
+
+// ── Revise (reduce/remove line items, pre-fulfillment) ──────────────────────────
+
+export type ReviseReasonType = 'OUT_OF_STOCK' | 'CUSTOMER_CHANGED_MIND' | 'OTHER';
+
+export interface ReviseOrderItemInput {
+  orderItemId: string;
+  newQty: number; // 0 = remove the line entirely; must be less than the item's current qty
+}
+
+export interface ReviseOrderPayload {
+  items: ReviseOrderItemInput[];
+  reason: ReviseReasonType;
+  note?: string; // required when reason is OTHER
+  // Only needed if the API responds 409 ORDER_OVERPAID on a first attempt — resubmit the same
+  // payload with these filled in. The refunded/credited amount is always server-computed.
+  resolutionType?: 'REFUND' | 'STORE_CREDIT';
+  refundMethod?: string; // required when resolutionType is REFUND
+}
+
+export interface OrderOverpaidError {
+  code: 'ORDER_OVERPAID';
+  message: string;
+  excessAmount: number;
 }

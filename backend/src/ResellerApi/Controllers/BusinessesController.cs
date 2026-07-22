@@ -1,0 +1,121 @@
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using ResellerApi.Data;
+using ResellerApi.Infrastructure;
+using ResellerApi.Services.Interfaces;
+
+namespace ResellerApi.Controllers;
+
+[ApiController]
+[Authorize(Roles = "OWNER")]
+[Route("api/v1/businesses")]
+public class BusinessesController : ControllerBase
+{
+    private readonly AppDbContext _db;
+    private readonly IBusinessContext _businessContext;
+    private readonly IActivityLogService _activityLog;
+    private readonly ICurrentUserService _currentUser;
+
+    public BusinessesController(AppDbContext db, IBusinessContext businessContext,
+        IActivityLogService activityLog, ICurrentUserService currentUser)
+    {
+        _db = db;
+        _businessContext = businessContext;
+        _activityLog = activityLog;
+        _currentUser = currentUser;
+    }
+
+    [HttpGet("storefront-settings")]
+    public async Task<IActionResult> GetStorefrontSettings()
+    {
+        var business = await _db.Businesses.FindAsync(_businessContext.CurrentBusinessId);
+        if (business is null) return NotFound();
+        return Ok(new { business.ShowOnMarketplace, business.Subdomain, business.StorefrontEnabled, business.LogoUrl });
+    }
+
+    [HttpPatch("storefront-settings")]
+    public async Task<IActionResult> UpdateStorefrontSettings([FromBody] StorefrontSettingsRequest request)
+    {
+        var business = await _db.Businesses.FindAsync(_businessContext.CurrentBusinessId);
+        if (business is null) return NotFound();
+
+        var before = new { business.ShowOnMarketplace };
+        business.ShowOnMarketplace = request.ShowOnMarketplace;
+        await _db.SaveChangesAsync();
+        await _activityLog.LogAsync(_businessContext.CurrentBusinessId, _currentUser.UserId,
+            "UPDATE", "Business", business.Id, before, new { business.ShowOnMarketplace });
+
+        return Ok(new { business.ShowOnMarketplace });
+    }
+
+    // Also used as the logo on the A4 online-order invoice (see OrderInvoicePdfGenerator) —
+    // not just storefront branding.
+    [HttpPatch("logo")]
+    public async Task<IActionResult> UpdateLogo([FromBody] UpdateLogoRequest request)
+    {
+        var business = await _db.Businesses.FindAsync(_businessContext.CurrentBusinessId);
+        if (business is null) return NotFound();
+
+        var before = new { business.LogoUrl };
+        business.LogoUrl = string.IsNullOrWhiteSpace(request.LogoUrl) ? null : request.LogoUrl;
+        await _db.SaveChangesAsync();
+        await _activityLog.LogAsync(_businessContext.CurrentBusinessId, _currentUser.UserId,
+            "UPDATE", "Business", business.Id, before, new { business.LogoUrl });
+
+        return Ok(new { business.LogoUrl });
+    }
+
+    // Claiming a subdomain also turns the shop page on immediately (StorefrontEnabled = true) —
+    // one action, shop page works right away. Use PATCH storefront-enabled afterwards to take it
+    // offline again without losing the claimed slug.
+    [HttpPut("subdomain")]
+    public async Task<IActionResult> SetSubdomain([FromBody] SetSubdomainRequest request)
+    {
+        var validationError = SubdomainValidator.Validate(request.Subdomain);
+        if (validationError != null)
+            return BadRequest(new { message = validationError });
+
+        var normalized = SubdomainValidator.Normalize(request.Subdomain);
+
+        var business = await _db.Businesses.FindAsync(_businessContext.CurrentBusinessId);
+        if (business is null) return NotFound();
+
+        var taken = await _db.Businesses.IgnoreQueryFilters()
+            .AnyAsync(b => b.Id != business.Id && b.DeletedAt == null && b.Subdomain == normalized);
+        if (taken)
+            return Conflict(new { message = "This subdomain is already taken. Please choose another." });
+
+        var before = new { business.Subdomain, business.StorefrontEnabled };
+        business.Subdomain = normalized;
+        business.StorefrontEnabled = true;
+        await _db.SaveChangesAsync();
+        await _activityLog.LogAsync(_businessContext.CurrentBusinessId, _currentUser.UserId,
+            "UPDATE", "Business", business.Id, before, new { business.Subdomain, business.StorefrontEnabled });
+
+        return Ok(new { business.Subdomain, business.StorefrontEnabled });
+    }
+
+    [HttpPatch("storefront-enabled")]
+    public async Task<IActionResult> SetStorefrontEnabled([FromBody] SetStorefrontEnabledRequest request)
+    {
+        var business = await _db.Businesses.FindAsync(_businessContext.CurrentBusinessId);
+        if (business is null) return NotFound();
+
+        if (request.Enabled && string.IsNullOrEmpty(business.Subdomain))
+            return BadRequest(new { message = "Claim a subdomain first." });
+
+        var before = new { business.StorefrontEnabled };
+        business.StorefrontEnabled = request.Enabled;
+        await _db.SaveChangesAsync();
+        await _activityLog.LogAsync(_businessContext.CurrentBusinessId, _currentUser.UserId,
+            "UPDATE", "Business", business.Id, before, new { business.StorefrontEnabled });
+
+        return Ok(new { business.StorefrontEnabled });
+    }
+}
+
+public record StorefrontSettingsRequest(bool ShowOnMarketplace);
+public record SetSubdomainRequest(string Subdomain);
+public record SetStorefrontEnabledRequest(bool Enabled);
+public record UpdateLogoRequest(string? LogoUrl);

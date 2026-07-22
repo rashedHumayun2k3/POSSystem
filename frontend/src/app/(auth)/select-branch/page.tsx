@@ -1,10 +1,19 @@
 "use client";
 
+import { Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useAuthStore } from "@/store/authStore";
 import { useLogout } from "@/hooks/useAuth";
 
 export default function SelectBranchPage() {
+  return (
+    <Suspense fallback={null}>
+      <SelectBranchPageInner />
+    </Suspense>
+  );
+}
+
+function SelectBranchPageInner() {
   const { branches, switchBranch } = useAuthStore();
   const router = useRouter();
   const logout = useLogout();

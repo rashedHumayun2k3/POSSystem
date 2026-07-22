@@ -1,8 +1,11 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import TopHeader from "@/components/TopHeader";
 import { useCheckoutResultStore } from "@/store/checkoutResultStore";
+import { buildProductHref } from "@/lib/slug";
+import { resolveMediaUrl } from "@/lib/media";
 
 const CheckIcon = () => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
@@ -18,6 +21,8 @@ const XIcon = () => (
 
 export default function CheckoutConfirmationPage() {
   const result = useCheckoutResultStore((s) => s.result);
+  const purchasedItems = useCheckoutResultStore((s) => s.purchasedItems);
+  const customerPhone = useCheckoutResultStore((s) => s.customerPhone);
 
   if (!result) {
     return (
@@ -69,6 +74,9 @@ export default function CheckoutConfirmationPage() {
               {shop.success ? (
                 <p className="text-sm text-gray-700">
                   Order <span className="font-medium">{shop.orderNo}</span> placed — cash on delivery.
+                  {shop.deliveryCharge > 0 && (
+                    <> Delivery charge: <span className="font-medium">৳{shop.deliveryCharge.toFixed(2)}</span>.</>
+                  )}
                 </p>
               ) : (
                 <p className="text-sm text-gray-700">{shop.errorMessage}</p>
@@ -76,6 +84,29 @@ export default function CheckoutConfirmationPage() {
             </div>
           </div>
         ))}
+
+        {anySuccess && purchasedItems.length > 0 && (
+          <div className="border border-gray-100 rounded-xl p-4">
+            <p className="text-sm font-semibold text-gray-900 mb-3">Rate your purchase</p>
+            <div className="flex flex-col gap-3">
+              {purchasedItems
+                .filter((item) => result.shops.find((s) => s.shopId === item.shopId)?.success)
+                .map((item) => (
+                  <Link
+                    key={item.variantId}
+                    href={`${buildProductHref(item.productId, item.name)}${customerPhone ? `?reviewPhone=${encodeURIComponent(customerPhone)}` : ""}`}
+                    className="flex items-center gap-3"
+                  >
+                    <div className="relative w-12 h-12 rounded-lg overflow-hidden bg-gray-100 shrink-0">
+                      {item.imageUrl && <Image src={resolveMediaUrl(item.imageUrl) ?? ''} alt={item.name} fill className="object-cover" unoptimized />}
+                    </div>
+                    <span className="text-sm text-gray-700 flex-1 truncate">{item.name}</span>
+                    <span className="text-xs font-medium text-indigo-600 shrink-0">★ Rate</span>
+                  </Link>
+                ))}
+            </div>
+          </div>
+        )}
 
         <Link
           href="/"

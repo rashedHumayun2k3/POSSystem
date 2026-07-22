@@ -15,6 +15,12 @@ public interface IProductService
     Task<ProductDetailDto> CreateAsync(CreateProductRequest request, Guid userId);
     Task<ProductDetailDto> UpdateAsync(Guid id, UpdateProductRequest request, Guid userId);
     Task ArchiveAsync(Guid id, Guid userId);
+    Task<bool> SetShowOnMarketplaceAsync(Guid id, bool show, Guid userId);
+    Task SetMarketplaceDetailsAsync(Guid productId, UpdateMarketplaceDetailsRequest request, Guid userId);
+    Task<List<MarketplaceDetailTemplateLabelDto>> GetMarketplaceDetailTemplatesAsync();
+    Task<ProductImageDto> AddImageAsync(Guid productId, AddProductImageRequest request, Guid userId);
+    Task RemoveImageAsync(Guid productId, Guid imageId, Guid userId);
+    Task ReorderImagesAsync(Guid productId, ReorderProductImagesRequest request, Guid userId);
     Task<List<VariantLabelData>> GetVariantLabelsAsync(Guid productId, Guid? variantId);
 
     Task<VariantDto> AddVariantAsync(Guid productId, CreateVariantRequest request, Guid userId);

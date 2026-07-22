@@ -42,12 +42,20 @@ export default function ProductsPage() {
         <div className="flex items-center justify-between mb-3">
           <h1 className="text-lg font-semibold text-gray-900">{t('products.title')}</h1>
           {isOwner && (
-            <Link
-              href="/products/new"
-              className="flex items-center gap-1 bg-indigo-600 text-white text-sm font-medium px-3 py-1.5 rounded-lg"
-            >
-              <span className="text-base leading-none">+</span> {t('products.new')}
-            </Link>
+            <div className="flex items-center gap-2">
+              <Link
+                href="/more/purchases/new"
+                className="flex items-center gap-1 bg-white border border-indigo-200 text-indigo-600 text-sm font-medium px-3 py-1.5 rounded-lg"
+              >
+                <span className="text-base leading-none">+</span> {t('dashboard.newPurchase')}
+              </Link>
+              <Link
+                href="/products/new"
+                className="flex items-center gap-1 bg-indigo-600 text-white text-sm font-medium px-3 py-1.5 rounded-lg"
+              >
+                <span className="text-base leading-none">+</span> {t('products.new')}
+              </Link>
+            </div>
           )}
         </div>
 
@@ -136,9 +144,22 @@ function ProductCard({
   canSeeCosts: boolean;
   t: (key: string, params?: Record<string, string | number>) => string;
 }) {
+  // Left accent bar, not a full-row tint — a whole-card red/pink background reads fine for one
+  // item, but a list with several low-stock products at once turns into a wall of color that
+  // stops drawing the eye to anything (and fights the price/name text for contrast). A colored
+  // edge stays scannable down the whole list while keeping the row's own content at full
+  // legibility — same pattern as Trello labels / most inventory dashboards.
+  const isOutOfStock = product.totalStock <= 0;
+  const isLowStock = !isOutOfStock && product.totalStock < product.lowStockThreshold;
+  const accentBorder = isOutOfStock
+    ? 'border-l-4 border-l-red-500'
+    : isLowStock
+      ? 'border-l-4 border-l-amber-400'
+      : 'border-l border-l-gray-100';
+
   return (
     <Link href={`/products/${product.id}`}>
-      <div className="bg-white border border-gray-100 rounded-xl p-3 flex gap-3 active:bg-gray-50">
+      <div className={`bg-white border border-gray-100 rounded-xl p-3 flex gap-3 active:bg-gray-50 ${accentBorder}`}>
         {/* Image */}
         <div className="w-14 h-14 rounded-lg bg-gray-100 flex items-center justify-center shrink-0 overflow-hidden">
           {product.imageUrl ? (
@@ -169,13 +190,22 @@ function ProductCard({
               ৳{product.sellingPrice.toLocaleString()}
             </span>
             <span className="text-xs text-gray-400">
-              {product.variantCount} {product.variantCount !== 1 ? t('products.variantsLabel') : t('products.variantLabel')} · {product.totalStock}{' '}
-              {product.unitCode}
+              {product.variantCount} {product.variantCount !== 1 ? t('products.variantsLabel') : t('products.variantLabel')} ·{' '}
+              <span className={
+                isOutOfStock ? 'text-red-600 font-semibold' : isLowStock ? 'text-amber-600 font-semibold' : ''
+              }>
+                {product.totalStock} {product.unitCode}
+              </span>
             </span>
             {canSeeCosts && product.packagingCostPerUnit != null && (
               <span className="text-xs text-gray-400">pkg ৳{product.packagingCostPerUnit}</span>
             )}
           </div>
+          {(isOutOfStock || isLowStock) && (
+            <p className={`text-xs font-medium mt-1 ${isOutOfStock ? 'text-red-600' : 'text-amber-600'}`}>
+              {isOutOfStock ? t('products.outOfStockMessage') : t('products.lowStockMessage')}
+            </p>
+          )}
         </div>
       </div>
     </Link>

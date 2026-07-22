@@ -6,6 +6,7 @@ import SlidePanel from '@/components/ui/SlidePanel';
 import { listSuppliers, createSupplier } from '@/lib/suppliersApi';
 import type { SupplierDto } from '@/types/supplier';
 import { useLanguage } from '@/i18n/LanguageContext';
+import { useToastStore } from '@/store/toastStore';
 
 interface Props {
   open: boolean;
@@ -18,7 +19,6 @@ export default function SupplierPicker({ open, onClose, onSelect, selectedId }: 
   const [search, setSearch] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
   const [addForm, setAddForm] = useState({ name: '', phone: '', address: '' });
-  const [addError, setAddError] = useState('');
   const { t } = useLanguage();
 
   const qc = useQueryClient();
@@ -41,10 +41,9 @@ export default function SupplierPicker({ open, onClose, onSelect, selectedId }: 
       qc.invalidateQueries({ queryKey: ['suppliers'] });
       setShowAddForm(false);
       setAddForm({ name: '', phone: '', address: '' });
-      setAddError('');
       handleSelect(supplier);
     },
-    onError: () => setAddError(t('pickers.failedSaveSupplier')),
+    onError: () => useToastStore.getState().show(t('pickers.failedSaveSupplier'), 'error'),
   });
 
   const handleSelect = (supplier: SupplierDto) => {
@@ -57,7 +56,6 @@ export default function SupplierPicker({ open, onClose, onSelect, selectedId }: 
     onClose();
     setSearch('');
     setShowAddForm(false);
-    setAddError('');
   };
 
   // Build A-Z grouped list; when searching show flat list, when not searching hide recent dupes
@@ -138,7 +136,6 @@ export default function SupplierPicker({ open, onClose, onSelect, selectedId }: 
               value={addForm.address}
               onChange={(e) => setAddForm((f) => ({ ...f, address: e.target.value }))}
             />
-            {addError && <p className="text-xs text-red-500">{addError}</p>}
             <div className="flex gap-2">
               <button
                 onClick={() =>
@@ -154,7 +151,7 @@ export default function SupplierPicker({ open, onClose, onSelect, selectedId }: 
                 {createMutation.isPending ? t('common.saving') : t('pickers.saveAndSelect')}
               </button>
               <button
-                onClick={() => { setShowAddForm(false); setAddForm({ name: '', phone: '', address: '' }); setAddError(''); }}
+                onClick={() => { setShowAddForm(false); setAddForm({ name: '', phone: '', address: '' }); }}
                 className="px-4 py-2 border border-gray-200 rounded-xl text-sm text-gray-500"
               >
                 {t('common.cancel')}

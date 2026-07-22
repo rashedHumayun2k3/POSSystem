@@ -3,9 +3,13 @@
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getCategory, updateCategory, addCategoryField, updateCategoryField, deleteCategoryField } from '@/lib/catalogApi';
+import Link from 'next/link';
+import { getCategory, getCategories, updateCategory, addCategoryField, updateCategoryField, deleteCategoryField } from '@/lib/catalogApi';
 import type { CategoryField } from '@/types/catalog';
 import { useLanguage } from '@/i18n/LanguageContext';
+import { categoryDisplayName, parentCategoryDisplayName } from '@/lib/categoryDisplay';
+import { toastError } from '@/lib/toastError';
+import { useToastStore } from '@/store/toastStore';
 
 const FIELD_TYPES = ['TEXT', 'NUMBER', 'DATE', 'DROPDOWN', 'BOOLEAN'] as const;
 
@@ -13,11 +17,12 @@ export default function CategoryDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const qc = useQueryClient();
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
 
   const [editName, setEditName] = useState('');
+  const [editNameBn, setEditNameBn] = useState('');
   const [editUnit, setEditUnit] = useState('');
-  const [editingMeta, setEditingMeta] = useState(false);
+  const [editParentId, setEditParentId] = useState('');
   const [showFieldForm, setShowFieldForm] = useState(false);
   const [fieldForm, setFieldForm] = useState<Partial<CategoryField>>({
     name: '', fieldType: 'TEXT', isRequired: false, isVariant: false, isPerLot: false, sortOrder: 0,
@@ -29,20 +34,27 @@ export default function CategoryDetailPage() {
     queryFn: () => getCategory(id),
   });
 
+  const { data: allCategories = [] } = useQuery({ queryKey: ['categories'], queryFn: getCategories });
+  const topLevelCategories = allCategories.filter((c) => !c.parentCategoryId && c.id !== id);
+  const hasSubcategories = allCategories.some((c) => c.parentCategoryId === id);
+
   useEffect(() => {
     if (category) {
       setEditName(category.name);
+      setEditNameBn(category.nameBn ?? '');
       setEditUnit(category.defaultUnit ?? 'pcs');
+      setEditParentId(category.parentCategoryId ?? '');
     }
   }, [category]);
 
   const updateMeta = useMutation({
-    mutationFn: () => updateCategory(id, { name: editName, defaultUnit: editUnit }),
+    mutationFn: () => updateCategory(id, { name: editName, nameBn: editNameBn.trim() || null, defaultUnit: editUnit, parentCategoryId: editParentId || null }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['category', id] });
       qc.invalidateQueries({ queryKey: ['categories'] });
-      setEditingMeta(false);
+      useToastStore.getState().show(t('common.saved'));
     },
+    onError: (err: unknown) => toastError(err, t('categories.failedUpdate')),
   });
 
   const addFieldMutation = useMutation({
@@ -81,21 +93,23 @@ export default function CategoryDetailPage() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
         </button>
-        <h1 className="flex-1 text-base font-semibold text-gray-900">{category.name}</h1>
-        <button onClick={() => setEditingMeta(!editingMeta)} className="text-indigo-600 text-sm font-medium">
-          {editingMeta ? t('common.cancel') : t('common.edit')}
-        </button>
+        <h1 className="flex-1 text-base font-semibold text-gray-900">{categoryDisplayName(category, lang)}</h1>
       </div>
 
       <div className="px-4 pt-4 space-y-6">
-        {/* Meta edit */}
-        {editingMeta && (
-          <div className="bg-indigo-50 rounded-xl p-4 space-y-3">
+        {/* Name / Bangla name / unit / parent — always editable, no extra click needed */}
+        <div className="bg-indigo-50 rounded-xl p-4 space-y-3">
             <input
               className="w-full border border-indigo-200 rounded-lg px-3 py-2 text-sm bg-white"
               value={editName}
               onChange={(e) => setEditName(e.target.value)}
               placeholder={t('categories.categoryName')}
+            />
+            <input
+              className="w-full border border-indigo-200 rounded-lg px-3 py-2 text-sm bg-white"
+              value={editNameBn}
+              onChange={(e) => setEditNameBn(e.target.value)}
+              placeholder={t('categories.namePlaceholderBn')}
             />
             <select
               className="w-full border border-indigo-200 rounded-lg px-3 py-2 text-sm bg-white"
@@ -106,6 +120,18 @@ export default function CategoryDetailPage() {
                 <option key={u} value={u}>{u}</option>
               ))}
             </select>
+            {!hasSubcategories && (
+              <select
+                className="w-full border border-indigo-200 rounded-lg px-3 py-2 text-sm bg-white"
+                value={editParentId}
+                onChange={(e) => setEditParentId(e.target.value)}
+              >
+                <option value="">{t('categories.noneTopLevel')}</option>
+                {topLevelCategories.map((c) => (
+                  <option key={c.id} value={c.id}>{categoryDisplayName(c, lang)}</option>
+                ))}
+              </select>
+            )}
             <button
               onClick={() => updateMeta.mutate()}
               disabled={updateMeta.isPending}
@@ -113,10 +139,18 @@ export default function CategoryDetailPage() {
             >
               {updateMeta.isPending ? t('common.saving') : t('categories.saveChanges')}
             </button>
-          </div>
-        )}
+        </div>
 
-        {/* Fields section */}
+        {/* Fields section — subcategories always use their parent's fields, so there's nothing
+            to manage here; send staff to the parent instead of showing a dead-end editor. */}
+        {category.parentCategoryId ? (
+          <div className="bg-gray-50 border border-gray-100 rounded-xl p-4 text-sm text-gray-600">
+            {t('categories.inheritsFields')} — {parentCategoryDisplayName(category, lang)}.{' '}
+            <Link href={`/more/categories/${category.parentCategoryId}`} className="text-indigo-600 font-medium">
+              {t('common.edit')}
+            </Link>
+          </div>
+        ) : (
         <div>
           <div className="flex items-center justify-between mb-3">
             <p className="text-sm font-semibold text-gray-900">{t('categories.customFields')}</p>
@@ -213,6 +247,7 @@ export default function CategoryDetailPage() {
             )}
           </div>
         </div>
+        )}
       </div>
     </div>
   );

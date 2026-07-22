@@ -9,8 +9,14 @@ public record CustomerSummaryDto(
     string? Address,
     decimal CreditLimit,
     decimal StoreCreditBalance,
-    bool IsRejecterFlag,
+    // Computed from actual recent order outcomes (2+ returns in the last 4 orders) — supersedes
+    // the old manually-set IsRejecterFlag column, which nothing ever set outside seed data.
+    bool IsSerialRejecter,
+    int RecentReturnCount,
+    int RecentOrderCount,
     int OrderCount,
+    int ReturnCount,
+    DateTime? LastOrderAt,
     decimal UnpaidBalance
 );
 
@@ -112,6 +118,7 @@ public record CreateOrderRequest(
 
 public record UpdateOrderRequest(
     string? CustomerName,
+    string? CustomerPhone,
     string? CustomerAddress,
     string? Channel,
     string? DiscountType,
@@ -146,6 +153,25 @@ public record ReturnOrderRequest(
 public record CancelOrderRequest(string Reason);
 public record DeleteOrderRequest(string Reason);
 
+// ── Revise (reduce/remove line items, pre-fulfillment) ─────────────────────────
+
+public record ReviseOrderItemInput(
+    Guid OrderItemId,
+    decimal NewQty   // 0 = remove the line entirely; must be < the item's current Qty (reduce-only)
+);
+
+public record ReviseOrderRequest(
+    List<ReviseOrderItemInput> Items,
+    string Reason,                // OUT_OF_STOCK | CUSTOMER_CHANGED_MIND | OTHER
+    string? Note,                 // required when Reason == OTHER
+    // Only required if the revised total would leave TotalPaid > new TotalAmount — the service
+    // rejects with OrderOverpaidException(excess) first so the client can prompt for these and
+    // resubmit the same request with them filled in. The refunded/credited amount is always the
+    // server-computed excess, never a client-supplied figure.
+    string? ResolutionType,       // REFUND | STORE_CREDIT
+    string? RefundMethod          // CASH | BKASH | NAGAD — required when ResolutionType == REFUND
+);
+
 public record AddOrderPaymentRequest(
     string Method,
     decimal Amount,
@@ -166,7 +192,10 @@ public record OrderItemDto(
     // owner-only — null for STAFF
     decimal? UnitCostSnapshot,
     decimal? LineProfit,
-    bool IsDamagedItem
+    bool IsDamagedItem,
+    // Current available stock (OnHand - Committed - Damaged) at the order's branch, at read
+    // time — same field/semantics as OrderListItemSummaryDto.AvailableStock.
+    decimal AvailableStock
 );
 
 public record OrderPaymentDto(
@@ -182,7 +211,10 @@ public record OrderStatusHistoryDto(
     string FromStatus,
     string ToStatus,
     string UserName,
-    DateTime At
+    DateTime At,
+    // Only populated for Track="ITEMS" (order revision) rows
+    string? Reason,
+    string? Note
 );
 
 public record OrderEconomicsDto(
@@ -195,7 +227,11 @@ public record OrderEconomicsDto(
 public record OrderListItemSummaryDto(
     string ProductName,
     string VariantSku,
-    decimal Qty
+    decimal Qty,
+    // Current available stock (OnHand - Committed - Damaged) at the order's branch, at read
+    // time — lets staff see at a glance whether a not-yet-confirmed order can actually be
+    // fulfilled before they call the customer to confirm it.
+    decimal AvailableStock
 );
 
 public record OrderListDto(
@@ -215,7 +251,8 @@ public record OrderListDto(
     DateTime CreatedAt,
     DateOnly BusinessDate,
     List<OrderListItemSummaryDto> Items,
-    decimal? Profit // owner/manager only — null for STAFF, mirrors OrderDetailDto.Economics gating
+    decimal? Profit, // owner/manager only — null for STAFF, mirrors OrderDetailDto.Economics gating
+    bool IsRevised
 );
 
 public record OrderDetailDto(
@@ -261,5 +298,6 @@ public record OrderDetailDto(
     List<OrderPaymentDto> Payments,
     List<OrderStatusHistoryDto> StatusHistory,
     // owner-only — null for STAFF
-    OrderEconomicsDto? Economics
+    OrderEconomicsDto? Economics,
+    bool IsRevised
 );

@@ -9,6 +9,7 @@ import type { PartnerDto, PartnerType } from "@/types/partner";
 import { useLanguage } from "@/i18n/LanguageContext";
 import { formatPaisa } from "@/lib/format";
 import SlidePanel from "@/components/ui/SlidePanel";
+import { useToastStore } from "@/store/toastStore";
 
 const EMPTY_FORM = {
   name: "",
@@ -48,7 +49,6 @@ export default function PartnersPage() {
 
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
-  const [error, setError] = useState("");
 
   const { data: partners = [], isLoading } = useQuery({
     queryKey: ["partners"],
@@ -58,8 +58,8 @@ export default function PartnersPage() {
   const managing = partners.filter((p) => p.partnerType === "MANAGING");
   const sleeping = partners.filter((p) => p.partnerType === "SLEEPING");
 
-  const openAdd = () => { setForm(EMPTY_FORM); setError(""); setOpen(true); };
-  const close = () => { setOpen(false); setError(""); };
+  const openAdd = () => { setForm(EMPTY_FORM); setOpen(true); };
+  const close = () => setOpen(false);
 
   const saveMutation = useMutation({
     mutationFn: () =>
@@ -80,7 +80,7 @@ export default function PartnersPage() {
         emergencyContactRelation: form.emergencyContactRelation.trim() || undefined,
       }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["partners"] }); close(); },
-    onError: () => setError(t("partners.failedSavePartner")),
+    onError: () => useToastStore.getState().show(t("partners.failedSavePartner"), "error"),
   });
 
   const renderCard = (p: PartnerDto) => (
@@ -144,7 +144,6 @@ export default function PartnersPage() {
         title={t("partners.addPartner")}
         footer={
           <>
-            {error && <p className="text-xs text-red-600 mb-2">{error}</p>}
             <button
               onClick={() => saveMutation.mutate()}
               disabled={saveMutation.isPending || !form.name.trim() || !form.nidNumber.trim() || !form.address.trim()}

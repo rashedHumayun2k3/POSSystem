@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import TopHeader from "@/components/TopHeader";
 import { useCartStore, groupByShop } from "@/store/cartStore";
 import { formatVariantLabel } from "@/lib/variantLabel";
+import { resolveMediaUrl } from "@/lib/media";
 
 const CartIcon = () => (
   <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-gray-300">
@@ -55,7 +56,7 @@ export default function CartPage() {
                 <div key={item.variantId} className="flex items-center gap-3 p-3 border-t border-gray-100">
                   <div className="relative w-16 h-16 rounded-lg bg-gray-100 shrink-0 overflow-hidden">
                     {item.imageUrl ? (
-                      <Image src={item.imageUrl} alt={item.name} fill className="object-cover" unoptimized />
+                      <Image src={resolveMediaUrl(item.imageUrl) ?? ''} alt={item.name} fill className="object-cover" unoptimized />
                     ) : null}
                   </div>
                   <div className="flex-1 min-w-0">

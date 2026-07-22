@@ -19,7 +19,9 @@ public record CategoryWithSuggestionsDto(
 public record SuggestedProductDto(
     Guid Id,
     string Name,
-    bool AlreadyAdded
+    bool AlreadyAdded,
+    decimal? ExistingSellingPrice,
+    decimal? ExistingQuantity
 );
 
 public record QuickAddProductItem(

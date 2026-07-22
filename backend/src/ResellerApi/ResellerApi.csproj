@@ -5,11 +5,15 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UserSecretsId>5a7d2c13-b88e-4039-9188-cbb7e6d0b615</UserSecretsId>
+    <!-- Web SDK always wires up Razor tooling even though this project has no .cshtml files;
+         some IDE Razor language services can't yet resolve the net10.0-inferred version. -->
+    <RazorLangVersion>Latest</RazorLangVersion>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="BCrypt.Net-Next" Version="4.2.0" />
     <PackageReference Include="FluentValidation.AspNetCore" Version="11.3.1" />
+    <PackageReference Include="Google.Apis.Auth" Version="1.75.0" />
     <PackageReference Include="Hangfire.AspNetCore" Version="1.8.23" />
     <PackageReference Include="Hangfire.Core" Version="1.8.23" />
     <PackageReference Include="Hangfire.SqlServer" Version="1.8.23" />

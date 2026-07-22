@@ -14,12 +14,20 @@ import {
 import type { ProductSearchResult } from '@/types/catalog';
 import { useLanguage } from '@/i18n/LanguageContext';
 import { QrCodeIcon } from '@heroicons/react/24/outline';
+import { resolveMediaUrl } from '@/lib/media';
 
 interface Props {
   open: boolean;
   onClose: () => void;
   onSelect: (result: ProductSearchResult) => void;
   cartVariantIds?: Set<string>;
+  // POS/sale contexts only see the selling price (never cost) and only want sellable stock —
+  // purchase-trip callers need the opposite (avg cost visible, out-of-stock items included since
+  // they're the ones being restocked). Both default to the original purchase-trip behavior so
+  // existing callers are unaffected.
+  showSellingPrice?: boolean;
+  onlyInStock?: boolean;
+  initialQuery?: string;
 }
 
 // Build A-Z grouped map from a flat list
@@ -33,7 +41,15 @@ function buildAzGroups(items: ProductSearchResult[]): Record<string, ProductSear
   return groups;
 }
 
-export default function ProductPicker({ open, onClose, onSelect, cartVariantIds }: Props) {
+export default function ProductPicker({
+  open,
+  onClose,
+  onSelect,
+  cartVariantIds,
+  showSellingPrice = false,
+  onlyInStock = false,
+  initialQuery = '',
+}: Props) {
   const [search, setSearch] = useState('');
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [searchResults, setSearchResults] = useState<ProductSearchResult[]>([]);
@@ -44,14 +60,18 @@ export default function ProductPicker({ open, onClose, onSelect, cartVariantIds 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { t } = useLanguage();
 
-  // Reset state when panel opens
+  // Reset state when panel opens — pre-seeding with whatever the caller's own search box already
+  // had typed in it (e.g. CartPanel's trigger input) so opening this sheet never feels like it
+  // discarded what the user just typed.
   useEffect(() => {
     if (open) {
-      setSearch('');
+      setSearch(initialQuery);
       setSearchResults([]);
       setSearchError('');
       setScanError('');
+      if (initialQuery.trim().length >= 2) handleSearch(initialQuery);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   const handleBarcodeScan = async (barcode: string) => {
@@ -89,8 +109,8 @@ export default function ProductPicker({ open, onClose, onSelect, cartVariantIds 
 
   // Browse products in selected category (A-Z)
   const { data: browseResults = [], isLoading: browseLoading } = useQuery({
-    queryKey: ['browse-products', selectedCategoryId],
-    queryFn: () => browseProducts(selectedCategoryId ?? undefined),
+    queryKey: ['browse-products', selectedCategoryId, onlyInStock],
+    queryFn: () => browseProducts(selectedCategoryId ?? undefined, onlyInStock),
     enabled: open && !search && selectedCategoryId !== null,
   });
 
@@ -103,7 +123,7 @@ export default function ProductPicker({ open, onClose, onSelect, cartVariantIds 
     debounceRef.current = setTimeout(async () => {
       setSearchLoading(true);
       try {
-        const data = await searchProducts(q);
+        const data = await searchProducts(q, onlyInStock);
         setSearchResults(data);
       } catch {
         setSearchError(t('pickers.searchFailed'));
@@ -189,7 +209,7 @@ export default function ProductPicker({ open, onClose, onSelect, cartVariantIds 
             <div key={letter}>
               <SectionHeader label={letter} />
               {searchGroups[letter].map((r) => (
-                <ProductRow key={r.variantId} product={r} onSelect={handleSelect} t={t} inCart={cartVariantIds?.has(r.variantId) ?? false} />
+                <ProductRow key={r.variantId} product={r} onSelect={handleSelect} t={t} inCart={cartVariantIds?.has(r.variantId) ?? false} showSellingPrice={showSellingPrice} />
               ))}
             </div>
           ))}
@@ -204,7 +224,7 @@ export default function ProductPicker({ open, onClose, onSelect, cartVariantIds 
             <div>
               <SectionHeader label={t('pickers.recentlyPurchased')} accent />
               {recentlyPurchased.map((r) => (
-                <ProductRow key={r.variantId} product={r} onSelect={handleSelect} t={t} inCart={cartVariantIds?.has(r.variantId) ?? false} />
+                <ProductRow key={r.variantId} product={r} onSelect={handleSelect} t={t} inCart={cartVariantIds?.has(r.variantId) ?? false} showSellingPrice={showSellingPrice} />
               ))}
             </div>
           )}
@@ -249,7 +269,7 @@ export default function ProductPicker({ open, onClose, onSelect, cartVariantIds 
               <div key={letter}>
                 <SectionHeader label={letter} />
                 {items.map((r) => (
-                  <ProductRow key={r.variantId} product={r} onSelect={handleSelect} t={t} inCart={cartVariantIds?.has(r.variantId) ?? false} />
+                  <ProductRow key={r.variantId} product={r} onSelect={handleSelect} t={t} inCart={cartVariantIds?.has(r.variantId) ?? false} showSellingPrice={showSellingPrice} />
                 ))}
               </div>
             );
@@ -286,11 +306,13 @@ function ProductRow({
   onSelect,
   t,
   inCart,
+  showSellingPrice = false,
 }: {
   product: ProductSearchResult;
   onSelect: (r: ProductSearchResult) => void;
   t: (key: string, params?: Record<string, string | number>) => string;
   inCart: boolean;
+  showSellingPrice?: boolean;
 }) {
   let variantLabel = '';
   try {
@@ -312,6 +334,14 @@ function ProductRow({
     >
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0 flex items-start gap-2">
+          <div className="w-11 h-11 rounded-lg bg-gray-100 overflow-hidden shrink-0 flex items-center justify-center">
+            {product.imageUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={resolveMediaUrl(product.imageUrl) ?? ''} alt="" className="w-full h-full object-cover" />
+            ) : (
+              <span className="text-lg">📦</span>
+            )}
+          </div>
           {inCart && (
             <span className="mt-0.5 shrink-0 w-4 h-4 rounded-full bg-indigo-600 flex items-center justify-center">
               <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
@@ -327,6 +357,9 @@ function ProductRow({
               )}
             </p>
             <p className="text-xs text-gray-400 mt-0.5">{product.variantSku}</p>
+            {product.barcode && (
+              <p className="text-xs text-gray-400">{product.barcode}</p>
+            )}
           </div>
         </div>
         <div className="text-right shrink-0">
@@ -334,7 +367,11 @@ function ProductRow({
           <p className="text-xs text-gray-500">
             {t('pickers.have')}: <span className={product.stock > 0 ? 'text-green-600 font-medium' : 'text-gray-400'}>{product.stock}</span>
           </p>
-          {product.avgLandedCost > 0 ? (
+          {showSellingPrice ? (
+            <p className="text-xs text-gray-500 mt-0.5">
+              <span className="text-indigo-600 font-semibold">৳{product.sellingPrice.toLocaleString()}</span>
+            </p>
+          ) : product.avgLandedCost > 0 ? (
             <p className="text-xs text-gray-500 mt-0.5">
               {t('pickers.avg')}: <span className="text-indigo-600 font-medium">৳{product.avgLandedCost.toLocaleString()}</span>
             </p>

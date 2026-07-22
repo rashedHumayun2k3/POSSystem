@@ -2,6 +2,7 @@ using System.Linq.Expressions;
 using Microsoft.EntityFrameworkCore;
 using ResellerApi.Data;
 using ResellerApi.DTOs.Catalog;
+using ResellerApi.DTOs.Purchases;
 using ResellerApi.Entities;
 using ResellerApi.Infrastructure;
 using ResellerApi.Services.Interfaces;
@@ -13,12 +14,14 @@ public class ProductService : IProductService
     private readonly AppDbContext _db;
     private readonly IBusinessContext _business;
     private readonly IActivityLogService _log;
+    private readonly IPurchaseTripService _purchaseTrips;
 
-    public ProductService(AppDbContext db, IBusinessContext business, IActivityLogService log)
+    public ProductService(AppDbContext db, IBusinessContext business, IActivityLogService log, IPurchaseTripService purchaseTrips)
     {
         _db = db;
         _business = business;
         _log = log;
+        _purchaseTrips = purchaseTrips;
     }
 
     public async Task<List<ProductSummaryDto>> ListAsync(string? status, Guid? categoryId, string? q)
@@ -50,26 +53,176 @@ public class ProductService : IProductService
             .AsNoTracking()
             .Include(p => p.Category)
             .Include(p => p.Variants)
+            .Include(p => p.MarketplaceDetails)
+            .Include(p => p.Images)
             .FirstOrDefaultAsync(p => p.Id == id)
             ?? throw new KeyNotFoundException("Product not found.");
 
+        var details = p.MarketplaceDetails
+            .OrderBy(d => d.Section).ThenBy(d => d.SortOrder)
+            .Select(d => new ProductMarketplaceDetailDto(d.Id, d.Section, d.Label, d.Value, d.SortOrder))
+            .ToList();
+        var images = p.Images
+            .OrderBy(i => i.SortOrder)
+            .Select(i => new ProductImageDto(i.Id, i.ImageUrl, i.SortOrder))
+            .ToList();
+
         if (isOwner)
         {
+            var inv = await LoadInventoryAsync(p.Variants.Select(v => v.Id));
             return new ProductDetailDto(
                 p.Id, p.CategoryId, p.Name, p.Sku, p.ImageUrl, p.Description, p.DefectNotes,
-                p.UnitCode, p.SellingPrice, p.MarketPrice, p.PackagingCostPerUnit, p.LowStockThreshold,
+                p.UnitCode, p.SellingPrice, p.MarketPrice, p.MarketplacePrice, p.PackagingCostPerUnit, p.LowStockThreshold,
                 p.AttributesJson, p.Note, p.Status, p.Category.Name,
-                p.Variants.Where(v => v.DeletedAt == null).Select(MapVariantDto).ToList(),
-                p.RowVer
+                p.Variants.Where(v => v.DeletedAt == null).Select(v => MapVariantDto(v, inv)).ToList(),
+                p.RowVer, p.ShowOnMarketplace, p.YoutubeUrl, details, images,
+                p.WarrantyDurationValue, p.WarrantyDurationUnit
             );
         }
 
         return new ProductDetailStaffDto(
             p.Id, p.CategoryId, p.Name, p.Sku, p.ImageUrl, p.Description, p.DefectNotes,
-            p.UnitCode, p.SellingPrice, p.MarketPrice, p.LowStockThreshold,
+            p.UnitCode, p.SellingPrice, p.MarketPrice, p.MarketplacePrice, p.LowStockThreshold,
             p.AttributesJson, p.Note, p.Status, p.Category.Name,
-            p.Variants.Where(v => v.DeletedAt == null).Select(MapVariantStaffDto).ToList()
+            p.Variants.Where(v => v.DeletedAt == null).Select(MapVariantStaffDto).ToList(),
+            p.YoutubeUrl, details, images,
+            p.WarrantyDurationValue, p.WarrantyDurationUnit
         );
+    }
+
+    private static readonly string[] AllowedMarketplaceDetailSections = { "STYLE", "FEATURES_SPECS", "ITEM_DETAILS" };
+
+    public async Task SetMarketplaceDetailsAsync(Guid productId, UpdateMarketplaceDetailsRequest request, Guid userId)
+    {
+        foreach (var d in request.Details)
+        {
+            if (!AllowedMarketplaceDetailSections.Contains(d.Section))
+                throw new ArgumentException($"Invalid section: {d.Section}");
+            if (string.IsNullOrWhiteSpace(d.Label) || string.IsNullOrWhiteSpace(d.Value))
+                throw new ArgumentException("Label and value are required for every detail row.");
+        }
+        if (!string.IsNullOrWhiteSpace(request.YoutubeUrl) &&
+            !request.YoutubeUrl.Contains("youtube.com") && !request.YoutubeUrl.Contains("youtu.be"))
+            throw new ArgumentException("Please provide a valid YouTube URL.");
+        if (request.MarketplacePrice is <= 0)
+            throw new ArgumentException("Marketplace price must be greater than zero.");
+
+        var product = await _db.Products.FirstOrDefaultAsync(p => p.Id == productId)
+            ?? throw new KeyNotFoundException("Product not found.");
+
+        product.YoutubeUrl = string.IsNullOrWhiteSpace(request.YoutubeUrl) ? null : request.YoutubeUrl.Trim();
+        product.MarketplacePrice = request.MarketplacePrice;
+
+        // Soft-delete the old rows and insert fresh ones rather than mutating in place — simplest
+        // correct way to apply a full-replace edit to a small freeform list while still honoring
+        // the project's soft-delete-only rule.
+        var existing = await _db.ProductMarketplaceDetails
+            .Where(d => d.ProductId == productId)
+            .ToListAsync();
+        foreach (var d in existing) d.DeletedAt = DateTime.UtcNow;
+
+        foreach (var d in request.Details)
+        {
+            _db.ProductMarketplaceDetails.Add(new ProductMarketplaceDetail
+            {
+                BusinessId = _business.CurrentBusinessId,
+                ProductId = productId,
+                Section = d.Section,
+                Label = d.Label.Trim(),
+                Value = d.Value.Trim(),
+                SortOrder = d.SortOrder
+            });
+        }
+
+        await AddNewTemplateLabelsAsync(request.Details.Select(d => (d.Section, d.Label.Trim())));
+
+        await _db.SaveChangesAsync();
+        await _log.LogAsync(_business.CurrentBusinessId, userId, "UPDATE", "ProductMarketplaceDetails", productId);
+    }
+
+    // Grows the reusable label picker organically — any label a seller actually uses that isn't
+    // already in the business's template library gets added to it, no separate management screen
+    // needed. Values are deliberately never captured here (they're product-specific), only labels.
+    private async Task AddNewTemplateLabelsAsync(IEnumerable<(string Section, string Label)> used)
+    {
+        var distinctUsed = used.Where(x => x.Label.Length > 0).Distinct().ToList();
+        if (distinctUsed.Count == 0) return;
+
+        var existing = await _db.MarketplaceDetailTemplateLabels
+            .Where(t => t.BusinessId == _business.CurrentBusinessId)
+            .Select(t => new { t.Section, t.Label })
+            .ToListAsync();
+        var existingSet = existing.Select(e => (e.Section, e.Label)).ToHashSet();
+
+        foreach (var (section, label) in distinctUsed)
+        {
+            if (existingSet.Contains((section, label))) continue;
+            _db.MarketplaceDetailTemplateLabels.Add(new MarketplaceDetailTemplateLabel
+            {
+                BusinessId = _business.CurrentBusinessId,
+                Section = section,
+                Label = label
+            });
+        }
+    }
+
+    public async Task<List<MarketplaceDetailTemplateLabelDto>> GetMarketplaceDetailTemplatesAsync()
+    {
+        return await _db.MarketplaceDetailTemplateLabels
+            .AsNoTracking()
+            .OrderBy(t => t.Section).ThenBy(t => t.Label)
+            .Select(t => new MarketplaceDetailTemplateLabelDto(t.Section, t.Label))
+            .ToListAsync();
+    }
+
+    private const int MaxProductImages = 10;
+
+    public async Task<ProductImageDto> AddImageAsync(Guid productId, AddProductImageRequest request, Guid userId)
+    {
+        var productExists = await _db.Products.AnyAsync(p => p.Id == productId);
+        if (!productExists) throw new KeyNotFoundException("Product not found.");
+
+        var count = await _db.ProductImages.CountAsync(i => i.ProductId == productId);
+        if (count >= MaxProductImages)
+            throw new ArgumentException($"A product can have at most {MaxProductImages} gallery photos.");
+
+        var image = new ProductImage
+        {
+            BusinessId = _business.CurrentBusinessId,
+            ProductId = productId,
+            ImageUrl = request.ImageUrl,
+            SortOrder = count
+        };
+        _db.ProductImages.Add(image);
+        await _db.SaveChangesAsync();
+        await _log.LogAsync(_business.CurrentBusinessId, userId, "CREATE", "ProductImage", image.Id);
+
+        return new ProductImageDto(image.Id, image.ImageUrl, image.SortOrder);
+    }
+
+    public async Task RemoveImageAsync(Guid productId, Guid imageId, Guid userId)
+    {
+        var image = await _db.ProductImages.FirstOrDefaultAsync(i => i.Id == imageId && i.ProductId == productId)
+            ?? throw new KeyNotFoundException("Image not found.");
+
+        image.DeletedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+        await _log.LogAsync(_business.CurrentBusinessId, userId, "DELETE", "ProductImage", imageId);
+    }
+
+    public async Task ReorderImagesAsync(Guid productId, ReorderProductImagesRequest request, Guid userId)
+    {
+        var images = await _db.ProductImages.Where(i => i.ProductId == productId).ToListAsync();
+        if (request.ImageIdsInOrder.Count != images.Count || images.Any(i => !request.ImageIdsInOrder.Contains(i.Id)))
+            throw new ArgumentException("The image list doesn't match this product's current gallery.");
+
+        for (int i = 0; i < request.ImageIdsInOrder.Count; i++)
+        {
+            var image = images.First(x => x.Id == request.ImageIdsInOrder[i]);
+            image.SortOrder = i;
+        }
+        await _db.SaveChangesAsync();
+        await _log.LogAsync(_business.CurrentBusinessId, userId, "UPDATE", "ProductImageOrder", productId);
     }
 
     public async Task<List<ProductSearchResultDto>> SearchAsync(string q, bool onlyInStock = false)
@@ -123,6 +276,10 @@ public class ProductService : IProductService
         var variants = await q
             .OrderBy(v => v.Product.Name)
             .ThenBy(v => v.Sku)
+            // Defensive ceiling — this previously had no cap at all, meaning a business with a
+            // large catalog would return its entire product_variants table in one query/payload.
+            // 500 is generous enough that no real reseller catalog hits it in practice.
+            .Take(500)
             .ToListAsync();
 
         var inv = await LoadInventoryAsync(variants.Select(v => v.Id));
@@ -173,6 +330,15 @@ public class ProductService : IProductService
 
     public async Task<ProductDetailDto> CreateAsync(CreateProductRequest request, Guid userId)
     {
+        // Fail fast, before anything is persisted, rather than leaving a product created without
+        // its requested opening stock if branch resolution turns out to be ambiguous.
+        if (request.InitialStock is > 0 && !request.BranchId.HasValue)
+        {
+            var activeBranchCount = await _db.Branches.CountAsync(b => b.IsActive);
+            if (activeBranchCount != 1)
+                throw new ArgumentException("This business has multiple branches — please select which branch the initial stock belongs to.");
+        }
+
         var sku = await GenerateSkuAsync();
 
         var product = new Product
@@ -191,13 +357,16 @@ public class ProductService : IProductService
             LowStockThreshold = request.LowStockThreshold,
             AttributesJson = request.AttributesJson,
             Note = request.Note,
-            Status = "ACTIVE"
+            Status = "ACTIVE",
+            WarrantyDurationValue = request.WarrantyDurationValue,
+            WarrantyDurationUnit = request.WarrantyDurationUnit
         };
         _db.Products.Add(product);
         await _db.SaveChangesAsync(); // get product Id
 
         // Generate variants
         var combinations = request.VariantCombinations ?? new List<Dictionary<string, string>> { new() };
+        ProductVariant? soleVariant = null;
         for (int i = 0; i < combinations.Count; i++)
         {
             var combo = combinations[i];
@@ -214,11 +383,60 @@ public class ProductService : IProductService
                 IsDefault = i == 0
             };
             _db.ProductVariants.Add(variant);
+            if (combinations.Count == 1) soleVariant = variant;
         }
         await _db.SaveChangesAsync();
         await _log.LogAsync(_business.CurrentBusinessId, userId, "CREATE", "Product", product.Id);
 
+        // "I already own some of these" — only meaningful for a single-variant product; a
+        // multi-variant product (e.g. Size/Color combinations) needs per-variant quantities,
+        // which this simple pair of fields can't express — those go through the normal Stock
+        // Adjustment flow instead, same as today.
+        if (soleVariant != null && request.InitialStock is > 0)
+        {
+            await RecordOpeningStockAsync(soleVariant.Id, request.InitialStock.Value, request.CostPrice ?? 0, request.BranchId, userId);
+        }
+
         return (ProductDetailDto)(await GetAsync(product.Id, true));
+    }
+
+    // Silently drives the real Purchase Trip pipeline (source type OPENING_BALANCE, already
+    // whitelisted — see PurchaseTripService) so stock entered here goes through the exact same
+    // landed-cost/weighted-average machinery as a real supplier purchase, rather than writing
+    // AvgLandedCost directly. That keeps every unit of stock in the system traceable to a real
+    // trip, so future real purchases don't get averaged against a fabricated number.
+    private async Task RecordOpeningStockAsync(Guid variantId, decimal qty, decimal costPerUnit, Guid? branchId, Guid userId)
+    {
+        var supplierId = await GetOrCreateOpeningStockSupplierAsync();
+
+        var trip = await _purchaseTrips.CreateAsync(
+            new CreatePurchaseTripRequest("OPENING_BALANCE", "Opening stock recorded at product creation", branchId), userId);
+
+        var item = await _purchaseTrips.AddItemAsync(trip.Id,
+            new AddPurchaseItemRequest(variantId, qty, costPerUnit * qty, supplierId, null, 0, 0, null), userId);
+
+        await _purchaseTrips.CreateReceiveSessionAsync(trip.Id,
+            new CreateReceiveSessionRequest(DateTime.UtcNow, "WALK_IN", null, "Opening stock",
+                new List<SessionItemInput> { new(item.Id, qty, 0, "{}") }),
+            userId, isOwner: true);
+    }
+
+    private async Task<Guid> GetOrCreateOpeningStockSupplierAsync()
+    {
+        const string name = "Opening Stock";
+        var existing = await _db.Suppliers
+            .FirstOrDefaultAsync(s => s.BusinessId == _business.CurrentBusinessId && s.Name == name);
+        if (existing != null) return existing.Id;
+
+        var supplier = new Supplier
+        {
+            BusinessId = _business.CurrentBusinessId,
+            Name = name,
+            Notes = "SYSTEM_RESERVED — auto-created to record stock owned before this product was added to the app."
+        };
+        _db.Suppliers.Add(supplier);
+        await _db.SaveChangesAsync();
+        return supplier.Id;
     }
 
     public async Task<ProductDetailDto> UpdateAsync(Guid id, UpdateProductRequest request, Guid userId)
@@ -243,6 +461,8 @@ public class ProductService : IProductService
         product.AttributesJson = request.AttributesJson;
         product.Note = request.Note;
         product.Status = request.Status;
+        product.WarrantyDurationValue = request.WarrantyDurationValue;
+        product.WarrantyDurationUnit = request.WarrantyDurationUnit;
 
         await _db.SaveChangesAsync();
         await _log.LogAsync(_business.CurrentBusinessId, userId, "UPDATE", "Product", product.Id);
@@ -281,6 +501,17 @@ public class ProductService : IProductService
         await _log.LogAsync(_business.CurrentBusinessId, userId, "UPDATE", "Product", product.Id);
     }
 
+    public async Task<bool> SetShowOnMarketplaceAsync(Guid id, bool show, Guid userId)
+    {
+        var product = await _db.Products.FirstOrDefaultAsync(p => p.Id == id)
+            ?? throw new KeyNotFoundException("Product not found.");
+
+        product.ShowOnMarketplace = show;
+        await _db.SaveChangesAsync();
+        await _log.LogAsync(_business.CurrentBusinessId, userId, "UPDATE", "Product", product.Id);
+        return product.ShowOnMarketplace;
+    }
+
     public async Task<VariantDto> AddVariantAsync(Guid productId, CreateVariantRequest request, Guid userId)
     {
         var product = await _db.Products.FirstOrDefaultAsync(p => p.Id == productId)
@@ -297,6 +528,8 @@ public class ProductService : IProductService
             VariantValuesJson = request.VariantValuesJson,
             Sku = sku,
             Barcode = barcode,
+            ImageUrl = request.ImageUrl,
+            Note = request.Note,
             PriceOverride = request.PriceOverride,
             IsDefault = request.IsDefault
         };
@@ -310,7 +543,8 @@ public class ProductService : IProductService
         _db.ProductVariants.Add(variant);
         await _db.SaveChangesAsync();
         await _log.LogAsync(_business.CurrentBusinessId, userId, "CREATE", "ProductVariant", variant.Id);
-        return MapVariantDto(variant);
+        // Brand new variant — no purchase trip has ever touched it, so stock is always 0.
+        return MapVariantDto(variant, new Dictionary<Guid, decimal>());
     }
 
     public async Task<VariantDto> UpdateVariantAsync(Guid productId, Guid variantId, UpdateVariantRequest request, Guid userId)
@@ -327,11 +561,14 @@ public class ProductService : IProductService
             if (currentDefault != null) currentDefault.IsDefault = false;
         }
 
+        variant.ImageUrl = request.ImageUrl;
+        variant.Note = request.Note;
         variant.PriceOverride = request.PriceOverride;
         variant.IsDefault = request.IsDefault;
         await _db.SaveChangesAsync();
         await _log.LogAsync(_business.CurrentBusinessId, userId, "UPDATE", "ProductVariant", variant.Id);
-        return MapVariantDto(variant);
+        var inv = await LoadInventoryAsync(new[] { variant.Id });
+        return MapVariantDto(variant, inv);
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────────
@@ -365,12 +602,13 @@ public class ProductService : IProductService
         return (char)('0' + check);
     }
 
-    private static VariantDto MapVariantDto(ProductVariant v) => new(
-        v.Id, v.VariantValuesJson, v.Sku, v.Barcode, v.PriceOverride, v.IsDefault, v.AvgLandedCost
+    private static VariantDto MapVariantDto(ProductVariant v, Dictionary<Guid, decimal> inv) => new(
+        v.Id, v.VariantValuesJson, v.Sku, v.Barcode, v.ImageUrl, v.Note, v.PriceOverride, v.IsDefault, v.AvgLandedCost,
+        inv.TryGetValue(v.Id, out var onHand) ? onHand : 0m, v.RowVer
     );
 
     private static VariantStaffDto MapVariantStaffDto(ProductVariant v) => new(
-        v.Id, v.VariantValuesJson, v.Sku, v.Barcode, v.PriceOverride, v.IsDefault
+        v.Id, v.VariantValuesJson, v.Sku, v.Barcode, v.ImageUrl, v.Note, v.PriceOverride, v.IsDefault
     );
 
     // POS search opt-in filter (onlyInStock): true when the variant has any branch_variant_
@@ -408,16 +646,18 @@ public class ProductService : IProductService
         v.Sku,
         v.Barcode,
         v.PriceOverride ?? v.Product.SellingPrice,
-        v.Product.ImageUrl,
+        v.ImageUrl ?? v.Product.ImageUrl,
         v.Product.UnitCode ?? "",
         v.VariantValuesJson,
         inv.TryGetValue(v.Id, out var onHand) ? onHand : 0m,
-        avgLandedCost
+        avgLandedCost,
+        v.Product.MarketPrice
     );
 
     private static ProductSummaryDto MapSummary(Product p, Dictionary<Guid, decimal> inv) => new(
-        p.Id, p.Name, p.Sku, p.ImageUrl, p.UnitCode, p.SellingPrice, p.MarketPrice,
+        p.Id, p.Name, p.Sku, p.ImageUrl, p.UnitCode, p.SellingPrice, p.MarketPrice, p.MarketplacePrice,
         p.PackagingCostPerUnit, p.Status, p.Category?.Name ?? "", p.Variants.Count,
-        (int)p.Variants.Sum(v => inv.TryGetValue(v.Id, out var onHand) ? onHand : 0m)
+        (int)p.Variants.Sum(v => inv.TryGetValue(v.Id, out var onHand) ? onHand : 0m),
+        p.LowStockThreshold
     );
 }

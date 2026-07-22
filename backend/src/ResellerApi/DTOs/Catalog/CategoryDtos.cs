@@ -14,13 +14,19 @@ public record CategoryFieldDto(
 public record CategoryDto(
     Guid Id,
     string Name,
+    string? NameBn,
     string? DefaultUnit,
-    List<CategoryFieldDto> Fields
+    List<CategoryFieldDto> Fields,
+    Guid? ParentCategoryId,
+    string? ParentCategoryName,
+    string? ParentCategoryNameBn
 );
 
 public record UpsertCategoryRequest(
     string Name,
-    string? DefaultUnit
+    string? NameBn,
+    string? DefaultUnit,
+    Guid? ParentCategoryId
 );
 
 public record UpsertCategoryFieldRequest(

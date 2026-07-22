@@ -2,18 +2,35 @@
 
 import { useAuthStore } from "@/store/authStore";
 import Link from "next/link";
+import { useQuery } from "@tanstack/react-query";
 import {
-  PlusIcon,
+  ClipboardDocumentListIcon,
   ShoppingCartIcon,
   TruckIcon,
   CurrencyDollarIcon,
+  BanknotesIcon,
+  RectangleStackIcon,
 } from "@heroicons/react/24/outline";
 import { useLanguage } from "@/i18n/LanguageContext";
+import { listOrders } from "@/lib/ordersApi";
 
 export default function DashboardPage() {
-  const { user, isOwner } = useAuthStore();
+  const { user, isOwner, businesses, currentBusinessId, currentBranchId } = useAuthStore();
   const owner = isOwner();
   const { t } = useLanguage();
+  const currentBusiness = businesses.find((b) => b.id === currentBusinessId);
+  const isHawker = currentBusiness?.salesChannels?.includes("HAWKER") ?? false;
+
+  // Not real-time — just "which online orders still need staff to start processing them",
+  // checked on every dashboard load. Storefront orders are auto-confirmed the moment they're
+  // placed (OrderStatus alone stays OPEN all the way through delivery), so FulfillmentStatus —
+  // not OrderStatus — is the right signal: it stays UNFULFILLED until someone packs the order,
+  // which is what actually clears this alert. Same query as the Notifications page.
+  const { data: pendingOnlineOrders = [] } = useQuery({
+    queryKey: ["dashboard-online-order-alert", currentBranchId],
+    queryFn: () => listOrders({ channel: "WEBSITE", fulfillmentStatus: "UNFULFILLED" }),
+    staleTime: 15_000,
+  });
 
   return (
     <div className="px-4 py-5 space-y-5">
@@ -22,6 +39,13 @@ export default function DashboardPage() {
         <p className="text-sm text-gray-500">{t("dashboard.welcomeBack")}</p>
         <h2 className="text-xl font-bold text-gray-900">{user?.name}</h2>
       </div>
+
+      {/* Company name — shown here in the body per request, not in the top bar */}
+      {currentBusiness && (
+        <div className="text-center">
+          <h1 className="text-lg font-bold text-gray-900">{currentBusiness.name}</h1>
+        </div>
+      )}
 
       {/* Money strip — owner only */}
       {owner && (
@@ -82,12 +106,19 @@ export default function DashboardPage() {
         <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-3">{t("dashboard.quickActions")}</p>
         <div className="grid grid-cols-2 gap-3">
           {[
-            { labelKey: "dashboard.newOrder",    href: "/orders/new",          Icon: PlusIcon,            color: "bg-indigo-600 text-white" },
-            { labelKey: "dashboard.posSale",     href: "/pos",                 Icon: ShoppingCartIcon,    color: "bg-green-600 text-white" },
+            { labelKey: "dashboard.newOrder",    href: "/orders/new",          Icon: ClipboardDocumentListIcon, color: "bg-indigo-600 text-white" },
+            {
+              labelKey: "dashboard.posSale",
+              href: isHawker ? "/hawker/night-entry" : "/pos",
+              Icon: ShoppingCartIcon,
+              color: "bg-green-600 text-white",
+            },
+            { labelKey: "nav.salesRecord", href: "/sales-record", Icon: BanknotesIcon, color: "bg-teal-600 text-white" },
             ...(owner
               ? [
                   { labelKey: "dashboard.newPurchase", href: "/more/purchases/new", Icon: TruckIcon,         color: "bg-amber-500 text-white" },
                   { labelKey: "dashboard.addExpense",  href: "/more/expenses/new",  Icon: CurrencyDollarIcon, color: "bg-red-500 text-white" },
+                  { labelKey: "more.catalogTemplates", href: "/more/catalog-templates", Icon: RectangleStackIcon, color: "bg-purple-600 text-white" },
                 ]
               : []),
           ].map(({ labelKey, href, Icon, color }) => (
@@ -103,11 +134,24 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Attention list placeholder */}
-      <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4">
-        <p className="text-sm font-semibold text-amber-800">{t("dashboard.noAlerts")}</p>
-        <p className="text-xs text-amber-600 mt-0.5">{t("dashboard.alertsDesc")}</p>
-      </div>
+      {/* Attention list — currently just new online-storefront orders; low-stock/baki reminders
+          are still the static placeholder until those are wired up too. */}
+      {pendingOnlineOrders.length > 0 ? (
+        <Link
+          href="/orders"
+          className="block bg-amber-50 border border-amber-200 rounded-2xl p-4 active:scale-[0.99] transition"
+        >
+          <p className="text-sm font-semibold text-amber-800">
+            {t("dashboard.newOnlineOrders", { count: pendingOnlineOrders.length })}
+          </p>
+          <p className="text-xs text-amber-600 mt-0.5">{t("dashboard.newOnlineOrdersDesc")}</p>
+        </Link>
+      ) : (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4">
+          <p className="text-sm font-semibold text-amber-800">{t("dashboard.noAlerts")}</p>
+          <p className="text-xs text-amber-600 mt-0.5">{t("dashboard.alertsDesc")}</p>
+        </div>
+      )}
     </div>
   );
 }

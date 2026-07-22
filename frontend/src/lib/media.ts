@@ -1,16 +1,30 @@
-import { api } from './api';
+import axios from 'axios';
 
 const MAX_DIMENSION = 1600;
 const JPEG_QUALITY = 0.8;
 
+// Upload/download of files is handled by the standalone ResellerApi.MediaService app, not the
+// main API — see docs/... (image upload architecture decision). Separate axios instance since
+// it talks to a different origin than `api` (frontend/src/lib/api.ts).
+const mediaApi = axios.create({ baseURL: process.env.NEXT_PUBLIC_MEDIA_URL });
+
+mediaApi.interceptors.request.use((config) => {
+  if (typeof window !== 'undefined') {
+    const token = localStorage.getItem('accessToken');
+    const businessId = localStorage.getItem('businessId');
+    if (token) config.headers.Authorization = `Bearer ${token}`;
+    if (businessId) config.headers['X-Business-Id'] = businessId;
+  }
+  return config;
+});
+
 // Backend returns storage-relative paths (e.g. "/uploads/{businessId}/{file}.jpg").
-// Resolve them against the API origin so <img> tags work regardless of the
+// Resolve them against the media service's origin so <img> tags work regardless of the
 // frontend's own origin/port.
 export function resolveMediaUrl(url: string | null | undefined): string | null {
   if (!url) return null;
   if (/^https?:\/\//i.test(url)) return url;
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? '';
-  const origin = apiUrl.replace(/\/api\/v1\/?$/, '');
+  const origin = process.env.NEXT_PUBLIC_MEDIA_URL ?? '';
   return `${origin}${url}`;
 }
 
@@ -50,7 +64,7 @@ export async function uploadImage(file: File): Promise<string> {
   const formData = new FormData();
   formData.append('file', compressed, file.name.replace(/\.[^.]+$/, '.jpg'));
 
-  const { data } = await api.post<{ url: string }>('/media/upload', formData, {
+  const { data } = await mediaApi.post<{ url: string }>('/api/v1/media/upload', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
   });
   return data.url;

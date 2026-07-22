@@ -6,6 +6,7 @@ import { useAuthStore } from "@/store/authStore";
 import AppHeader from "@/components/layout/AppHeader";
 import BottomTabBar from "@/components/layout/BottomTabBar";
 import TrialBanner from "@/components/layout/TrialBanner";
+import ConnectivityBanner from "@/components/layout/ConnectivityBanner";
 import LiveNotificationsProvider from "@/components/layout/LiveNotificationsProvider";
 import { usePathname } from "next/navigation";
 import { useLanguage } from "@/i18n/LanguageContext";
@@ -25,6 +26,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const titleMap: Record<string, string> = {
     "/dashboard":        t("nav.home"),
     "/orders":           t("nav.orders"),
+    "/sales-record":     t("nav.salesRecord"),
     "/products":         t("nav.products"),
     "/pos":              t("nav.pos"),
     "/hawker/night-entry": t("hawker.nightEntryTitle"),
@@ -63,7 +65,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     "/more/reports/orders":    "/more/reports",
   };
 
-  const title = titleMap[pathname] ?? "Reseller Manager";
+  const title = titleMap[pathname] ?? "LavLokshan";
   const backHref = backHrefMap[pathname];
 
   // /orders/new and /orders/[id] render their own complete AppHeader (real title + edit/delete
@@ -72,9 +74,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const hasOwnHeader = /^\/orders\/[^/]+$/.test(pathname);
 
   return (
-    <div className="flex flex-col min-h-screen">
+    <div className="max-w-[768px] mx-auto min-h-full bg-white shadow-sm flex flex-col min-h-screen">
       <div className="print:hidden">
         {!hasOwnHeader && <AppHeader title={title} backHref={backHref} />}
+        <ConnectivityBanner />
         <TrialBanner />
       </div>
       <main className="flex-1 overflow-y-auto pb-20 print:pb-0 print:overflow-visible">

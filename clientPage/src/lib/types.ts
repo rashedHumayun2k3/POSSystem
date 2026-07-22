@@ -9,6 +9,7 @@ export interface ShopContextDto {
 export interface CategoryDto {
   id: string;
   name: string;
+  imageUrl?: string;
 }
 
 export interface ShopSummaryDto {
@@ -29,13 +30,33 @@ export interface ProductCardDto {
   inStock: boolean;
   shopId: string;
   shopName: string;
+  averageRating?: number;
+  reviewCount: number;
+  marketPrice?: number;
 }
+
+export interface PagedResult<T> {
+  items: T[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export type ProductSort = "default" | "popularity" | "rating" | "discount";
 
 export interface VariantDto {
   id: string;
   variantValuesJson: string;
   price: number;
   inStock: boolean;
+}
+
+export type MarketplaceDetailSection = "STYLE" | "FEATURES_SPECS" | "ITEM_DETAILS";
+
+export interface MarketplaceDetailItem {
+  section: MarketplaceDetailSection;
+  label: string;
+  value: string;
 }
 
 export interface ProductDetailDto {
@@ -48,7 +69,44 @@ export interface ProductDetailDto {
   categoryName: string;
   shopId: string;
   shopName: string;
+  shopSubdomain?: string;
   variants: VariantDto[];
+  youtubeUrl?: string | null;
+  marketplaceDetails: MarketplaceDetailItem[];
+  images: string[];
+  warrantyDurationValue?: number | null;
+  warrantyDurationUnit?: string | null;
+}
+
+export interface ReviewImageDto {
+  id: string;
+  imageUrl: string;
+}
+
+export interface ReviewReplyDto {
+  body: string;
+  createdAt: string;
+}
+
+export interface ProductReviewDto {
+  id: string;
+  rating: number;
+  body: string;
+  reviewerName: string;
+  reviewerPhotoUrl?: string;
+  createdAt: string;
+  images: ReviewImageDto[];
+  reply?: ReviewReplyDto;
+}
+
+export interface ProductReviewSummaryDto {
+  averageRating: number;
+  count: number;
+}
+
+export interface ProductReviewListDto {
+  summary: ProductReviewSummaryDto;
+  reviews: ProductReviewDto[];
 }
 
 export interface CheckoutItem {
@@ -59,7 +117,10 @@ export interface CheckoutItem {
 export interface CheckoutRequest {
   customerName: string;
   customerPhone: string;
-  customerAddress: string;
+  buildingStreet: string;
+  colonyLandmark?: string;
+  city: string;
+  label?: string;
   items: CheckoutItem[];
   clientUid?: string;
 }
@@ -71,9 +132,19 @@ export interface ShopOrderResultDto {
   orderId?: string;
   orderNo?: string;
   errorMessage?: string;
+  deliveryCharge: number;
 }
 
 export interface CheckoutResultDto {
   checkoutGroupId: string;
   shops: ShopOrderResultDto[];
+}
+
+export interface SavedShippingAddress {
+  fullName: string;
+  phone: string;
+  buildingStreet: string;
+  colonyLandmark?: string;
+  city: string;
+  label?: string;
 }

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import TopHeader from "@/components/TopHeader";
 import { useCategories, CATEGORY_COLORS } from "@/lib/hooks";
+import CategoryAvatar from "@/components/CategoryAvatar";
 
 export default function AllCategoriesPage() {
   const { data, isLoading } = useCategories();
@@ -22,11 +23,12 @@ export default function AllCategoriesPage() {
       <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-4 px-4 lg:px-8 pb-6">
         {data?.map((c, i) => (
           <Link key={c.id} href={`/category/${c.id}`} className="flex flex-col items-center gap-1.5">
-            <div
-              className={`w-16 h-16 rounded-full flex items-center justify-center text-xl font-bold ${CATEGORY_COLORS[i % CATEGORY_COLORS.length]}`}
-            >
-              {c.name[0]?.toUpperCase()}
-            </div>
+            <CategoryAvatar
+              name={c.name}
+              imageUrl={c.imageUrl}
+              colorClass={CATEGORY_COLORS[i % CATEGORY_COLORS.length]}
+              className="w-16 h-16 text-xl"
+            />
             <span className="text-xs text-gray-700 text-center leading-tight line-clamp-2">{c.name}</span>
           </Link>
         ))}

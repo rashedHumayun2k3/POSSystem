@@ -8,6 +8,8 @@ public class ProductVariant : BusinessScopedEntity
     public string VariantValuesJson { get; set; } = "{}"; // e.g. {"Size":"M","Color":"Red"}
     public string Sku { get; set; } = null!;
     public string Barcode { get; set; } = null!;
+    public string? ImageUrl { get; set; } // null = falls back to Product.ImageUrl
+    public string? Note { get; set; } // free-text details — not folded into VariantValuesJson so it never leaks into the auto-built display label
     public decimal? PriceOverride { get; set; }           // null = use product.SellingPrice
     public bool IsDefault { get; set; } = false;
     public decimal AvgLandedCost { get; set; } = 0;

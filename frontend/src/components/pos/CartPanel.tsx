@@ -1,18 +1,20 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   QrCodeIcon,
+  MagnifyingGlassIcon,
   XMarkIcon,
   PlusIcon,
   MinusIcon,
   UserCircleIcon,
 } from '@heroicons/react/24/outline';
 import { posDb } from '@/lib/posDb';
-import { lookupBarcode, searchProducts } from '@/lib/catalogApi';
+import { lookupBarcode } from '@/lib/catalogApi';
 import type { PosSession, PosCartItem } from '@/types/pos';
 import type { ProductSearchResult } from '@/types/catalog';
 import BarcodeScanner from '@/components/ui/BarcodeScanner';
+import ProductPicker from '@/components/purchases/ProductPicker';
 import CustomerPickerSlide, { type SelectedCustomer } from '@/components/orders/CustomerPickerSlide';
 
 interface Props {
@@ -45,45 +47,21 @@ function calcDiscount(session: PosSession): number {
 }
 
 export default function CartPanel({ session, onPayClick }: Props) {
-  const [search, setSearch] = useState('');
-  const [searchResults, setSearchResults] = useState<ProductSearchResult[]>([]);
-  const [searching, setSearching] = useState(false);
   const [scanError, setScanError] = useState('');
   const [showScanner, setShowScanner] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [customerPickerOpen, setCustomerPickerOpen] = useState(false);
   const [showDiscount, setShowDiscount] = useState(
     !!(session.discountType && session.discountValue)
   );
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const searchRef = useRef<HTMLInputElement>(null);
 
-  // Reset search when session switches
+  // Reset transient state when session switches
   useEffect(() => {
-    setSearch('');
-    setSearchResults([]);
     setScanError('');
+    setPickerOpen(false);
   }, [session.id]);
 
-  // Debounced product search
-  useEffect(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    const q = search.trim();
-    if (!q) { setSearchResults([]); return; }
-    debounceRef.current = setTimeout(async () => {
-      setSearching(true);
-      try {
-        const results = await searchProducts(q, true);
-        setSearchResults(results.slice(0, 6));
-      } finally {
-        setSearching(false);
-      }
-    }, 280);
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, [search]);
-
   const addToCart = useCallback(async (r: ProductSearchResult) => {
-    setSearch('');
-    setSearchResults([]);
     setScanError('');
 
     const existing = session.items.findIndex(i => i.variantId === r.variantId);
@@ -116,7 +94,6 @@ export default function CartPanel({ session, onPayClick }: Props) {
     }
 
     await posDb.sessions.update(session.id, { items: newItems, updatedAt: Date.now() });
-    searchRef.current?.focus();
   }, [session.id, session.items]);
 
   const handleBarcodeInput = useCallback(async (barcode: string) => {
@@ -128,20 +105,6 @@ export default function CartPanel({ session, onPayClick }: Props) {
       setScanError(`Not found: ${barcode}`);
     }
   }, [addToCart]);
-
-  // Enter key in search bar: try barcode first, then first search result
-  const handleSearchKeyDown = async (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key !== 'Enter' || !search.trim()) return;
-    e.preventDefault();
-    try {
-      const r = await lookupBarcode(search.trim());
-      await addToCart(r);
-      return;
-    } catch { /* not a barcode */ }
-    if (searchResults.length > 0) {
-      await addToCart(searchResults[0]);
-    }
-  };
 
   const updateQty = async (variantId: string, delta: number) => {
     const newItems = session.items
@@ -194,30 +157,18 @@ export default function CartPanel({ session, onPayClick }: Props) {
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-gray-50">
 
-      {/* Search bar */}
+      {/* Search bar — tapping the box opens the full product picker (image, barcode, SKU,
+          price, stock) instead of a cramped inline dropdown; the camera icon stays a separate,
+          faster fast-path straight into the scanner. */}
       <div className="px-3 pt-3 pb-2 shrink-0 bg-gray-50">
         <div className="flex gap-2">
-          <div className="relative flex-1">
-            <input
-              ref={searchRef}
-              type="text"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              onKeyDown={handleSearchKeyDown}
-              placeholder="Search product or scan barcode…"
-              className="w-full pl-3 pr-8 py-2.5 text-sm rounded-xl border border-gray-200 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
-              autoComplete="off"
-              autoCorrect="off"
-            />
-            {search && (
-              <button
-                onClick={() => { setSearch(''); setSearchResults([]); setScanError(''); }}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-              >
-                <XMarkIcon className="w-4 h-4" />
-              </button>
-            )}
-          </div>
+          <button
+            onClick={() => { setScanError(''); setPickerOpen(true); }}
+            className="flex-1 flex items-center gap-2 pl-3 pr-3 py-2.5 text-sm text-left text-gray-400 rounded-xl border border-gray-200 bg-white active:bg-gray-50 transition-colors"
+          >
+            <MagnifyingGlassIcon className="w-4 h-4 shrink-0" />
+            Search product or scan barcode…
+          </button>
           <button
             onClick={() => { setScanError(''); setShowScanner(true); }}
             className="flex-shrink-0 px-3 py-2.5 bg-white border border-gray-200 rounded-xl text-gray-600 hover:bg-gray-50 transition-colors"
@@ -229,33 +180,6 @@ export default function CartPanel({ session, onPayClick }: Props) {
 
         {scanError && (
           <p className="mt-1.5 text-xs text-red-500 px-1">{scanError}</p>
-        )}
-
-        {/* Inline search results */}
-        {(searchResults.length > 0 || (searching && search)) && (
-          <div className="mt-1.5 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden">
-            {searching && (
-              <p className="px-3 py-2 text-xs text-gray-400">Searching…</p>
-            )}
-            {searchResults.map(r => (
-              <button
-                key={r.variantId}
-                onClick={() => addToCart(r)}
-                className="w-full flex items-center justify-between px-3 py-2.5 text-left hover:bg-indigo-50 border-b border-gray-50 last:border-0 transition-colors"
-              >
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-gray-900 truncate">{r.productName}</p>
-                  <p className="text-xs text-gray-400">
-                    {parseVariantLabel(r.variantValuesJson) || r.variantSku}
-                    {' · '}Stock: {r.stock}
-                  </p>
-                </div>
-                <span className="text-sm font-semibold text-indigo-600 ml-3 shrink-0">
-                  ৳{r.sellingPrice.toLocaleString()}
-                </span>
-              </button>
-            ))}
-          </div>
         )}
       </div>
 
@@ -432,6 +356,16 @@ export default function CartPanel({ session, onPayClick }: Props) {
         onClose={() => setCustomerPickerOpen(false)}
         onSelect={handleCustomerSelect}
         selectedPhone={session.customerPhone || undefined}
+      />
+
+      {/* Product picker — image, barcode, SKU, price, stock; only in-stock items for sale */}
+      <ProductPicker
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        onSelect={(r) => { setPickerOpen(false); addToCart(r); }}
+        cartVariantIds={new Set(session.items.map(i => i.variantId))}
+        showSellingPrice
+        onlyInStock
       />
     </div>
   );

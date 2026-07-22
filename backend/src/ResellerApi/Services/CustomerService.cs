@@ -8,6 +8,10 @@ namespace ResellerApi.Services;
 
 public class CustomerService : ICustomerService
 {
+    // "Serial rejecter" warning threshold — 2+ returns within a customer's last 4 orders.
+    private const int RecentWindowSize = 4;
+    private const int SerialRejecterThreshold = 2;
+
     private readonly AppDbContext _db;
 
     public CustomerService(AppDbContext db)
@@ -34,25 +38,12 @@ public class CustomerService : ICustomerService
 
         var ids = customers.Select(c => c.Id).ToList();
 
-        var unpaidBalances = await _db.Orders
-            .AsNoTracking()
-            .Where(o => o.CustomerId != null && ids.Contains(o.CustomerId.Value) && o.PaymentStatus != "PAID" && o.PaymentStatus != "REFUNDED" && o.OrderStatus != "CANCELLED")
-            .GroupBy(o => o.CustomerId!.Value)
-            .Select(g => new { CustomerId = g.Key, Balance = g.Sum(o => o.DeliveryChargeCustomer + o.Items.Sum(i => i.Qty * i.UnitPrice) - (o.DiscountValue ?? 0) - o.AdvancePaid) })
-            .ToListAsync();
+        var unpaidBalances = await UnpaidBalancesAsync(ids);
+        var orderSummaries = await OrderSummariesAsync(ids);
 
-        var orderCounts = await _db.Orders
-            .AsNoTracking()
-            .Where(o => o.CustomerId != null && ids.Contains(o.CustomerId.Value))
-            .GroupBy(o => o.CustomerId!.Value)
-            .Select(g => new { CustomerId = g.Key, Count = g.Count() })
-            .ToListAsync();
-
-        return customers.Select(c => new CustomerSummaryDto(
-            c.Id, c.Name, c.Phone, c.Address, c.CreditLimit, c.StoreCreditBalance, c.IsRejecterFlag,
-            orderCounts.FirstOrDefault(x => x.CustomerId == c.Id)?.Count ?? 0,
-            Math.Max(0, unpaidBalances.FirstOrDefault(x => x.CustomerId == c.Id)?.Balance ?? 0)
-        )).ToList();
+        return customers.Select(c =>
+            BuildFromParts(c, orderSummaries.GetValueOrDefault(c.Id), unpaidBalances.GetValueOrDefault(c.Id))
+        ).ToList();
     }
 
     public async Task<CustomerSummaryDto?> FindByPhoneAsync(string phone)
@@ -85,11 +76,62 @@ public class CustomerService : ICustomerService
 
     private async Task<CustomerSummaryDto> BuildDto(Customer c)
     {
-        var orderCount = await _db.Orders.AsNoTracking().CountAsync(o => o.CustomerId == c.Id);
-        var unpaid = await _db.Orders.AsNoTracking()
-            .Where(o => o.CustomerId == c.Id && o.PaymentStatus != "PAID" && o.PaymentStatus != "REFUNDED" && o.OrderStatus != "CANCELLED")
-            .SumAsync(o => (decimal?)o.AdvancePaid) ?? 0;
-        // simplified unpaid = sum of totals - sum of advances (use payment records for accuracy)
-        return new CustomerSummaryDto(c.Id, c.Name, c.Phone, c.Address, c.CreditLimit, c.StoreCreditBalance, c.IsRejecterFlag, orderCount, 0);
+        var unpaid = await UnpaidBalancesAsync(new List<Guid> { c.Id });
+        var orders = await OrderSummariesAsync(new List<Guid> { c.Id });
+        return BuildFromParts(c, orders.GetValueOrDefault(c.Id), unpaid.GetValueOrDefault(c.Id));
+    }
+
+    private static CustomerSummaryDto BuildFromParts(Customer c, OrderSummary? orders, decimal unpaidBalance)
+    {
+        var recentReturnCount = orders?.RecentReturnCount ?? 0;
+        var recentOrderCount = orders?.RecentOrderCount ?? 0;
+
+        return new CustomerSummaryDto(
+            c.Id, c.Name, c.Phone, c.Address, c.CreditLimit, c.StoreCreditBalance,
+            recentReturnCount >= SerialRejecterThreshold,
+            recentReturnCount, recentOrderCount,
+            orders?.OrderCount ?? 0, orders?.ReturnCount ?? 0, orders?.LastOrderAt,
+            unpaidBalance
+        );
+    }
+
+    private async Task<Dictionary<Guid, decimal>> UnpaidBalancesAsync(List<Guid> customerIds)
+    {
+        var rows = await _db.Orders
+            .AsNoTracking()
+            .Where(o => o.CustomerId != null && customerIds.Contains(o.CustomerId.Value) &&
+                        o.PaymentStatus != "PAID" && o.PaymentStatus != "REFUNDED" && o.OrderStatus != "CANCELLED")
+            .GroupBy(o => o.CustomerId!.Value)
+            .Select(g => new { CustomerId = g.Key, Balance = g.Sum(o => o.DeliveryChargeCustomer + o.Items.Sum(i => i.Qty * i.UnitPrice) - (o.DiscountValue ?? 0) - o.AdvancePaid) })
+            .ToListAsync();
+
+        return rows.ToDictionary(r => r.CustomerId, r => Math.Max(0, r.Balance));
+    }
+
+    private record OrderSummary(int OrderCount, int ReturnCount, DateTime? LastOrderAt, int RecentReturnCount, int RecentOrderCount);
+
+    // Recent-window stats (last N orders, chronologically) can't be expressed as a plain SQL
+    // aggregate, so this pulls the lightweight per-order fields needed and finishes the grouping
+    // in memory — fine at this scale (bounded to the same customer id list ListAsync already caps
+    // at 50, or a single customer for the profile page).
+    private async Task<Dictionary<Guid, OrderSummary>> OrderSummariesAsync(List<Guid> customerIds)
+    {
+        var rows = await _db.Orders
+            .AsNoTracking()
+            .Where(o => o.CustomerId != null && customerIds.Contains(o.CustomerId.Value))
+            .Select(o => new { CustomerId = o.CustomerId!.Value, o.FulfillmentStatus, o.CreatedAt })
+            .ToListAsync();
+
+        return rows.GroupBy(r => r.CustomerId).ToDictionary(g => g.Key, g =>
+        {
+            var recent = g.OrderByDescending(r => r.CreatedAt).Take(RecentWindowSize).ToList();
+            return new OrderSummary(
+                g.Count(),
+                g.Count(r => r.FulfillmentStatus == "RETURNED"),
+                g.Max(r => (DateTime?)r.CreatedAt),
+                recent.Count(r => r.FulfillmentStatus == "RETURNED"),
+                recent.Count
+            );
+        });
     }
 }
