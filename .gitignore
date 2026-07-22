@@ -3,13 +3,19 @@
 ################################################################################
 [Bb]in/
 [Oo]bj/
+artifacts/
 .vs/
+.idea/
 *.user
+*.suo
+*.userosscache
+*.sln.docstates
 
 # Node / Next.js
 node_modules/
 .next/
 out/
+*.tsbuildinfo
 
 *.db-shm
 *.db-wal
@@ -19,3 +25,12 @@ out/
 
 # Misc logs
 *.log
+
+################################################################################
+# OS junk
+################################################################################
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
