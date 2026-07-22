@@ -2,17 +2,15 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useRequestSignupCode, useVerifySignupCode, useCompleteSignup } from "@/hooks/useAuth";
+import { useRequestSignupCode, useVerifySignupCode, useVerifySignupEmailViaGoogle, useCompleteSignup } from "@/hooks/useAuth";
 import { useLanguage } from "@/i18n/LanguageContext";
+import { toastError } from "@/lib/toastError";
+import GoogleSignInButton from "@/components/GoogleSignInButton";
 
 type Step = "email" | "code" | "details";
 const STEPS: Step[] = ["email", "code", "details"];
 
 const COUNTRY_OPTIONS = ["Bangladesh", "India", "Pakistan", "Nepal", "Sri Lanka", "Myanmar", "Other"];
-
-function errMsg(error: unknown, fallback: string) {
-  return (error as { response?: { data?: { message?: string } } })?.response?.data?.message ?? fallback;
-}
 
 export default function SignUpPage() {
   const { t } = useLanguage();
@@ -25,11 +23,12 @@ export default function SignUpPage() {
   const [password, setPassword] = useState("");
   const [businessName, setBusinessName] = useState("");
   const [country, setCountry] = useState("Bangladesh");
-  const [error, setError] = useState("");
   const [resendCooldown, setResendCooldown] = useState(0);
+  const [verifiedViaGoogle, setVerifiedViaGoogle] = useState(false);
 
   const requestCode = useRequestSignupCode();
   const verifyCode = useVerifySignupCode();
+  const verifyGoogleEmail = useVerifySignupEmailViaGoogle();
   const completeSignup = useCompleteSignup();
 
   const stepIndex = STEPS.indexOf(step);
@@ -49,13 +48,18 @@ export default function SignUpPage() {
 
   function goBack() {
     if (stepIndex === 0) return;
-    setError("");
+    // Google verification jumps straight from "email" to "details", skipping "code" — back
+    // navigation from there must return to "email", not the index-based previous step.
+    if (step === "details" && verifiedViaGoogle) {
+      setVerifiedViaGoogle(false);
+      setStep("email");
+      return;
+    }
     setStep(STEPS[stepIndex - 1]);
   }
 
   function handleRequestCode(e: React.FormEvent) {
     e.preventDefault();
-    setError("");
     requestCode.mutate(
       { email },
       {
@@ -63,41 +67,52 @@ export default function SignUpPage() {
           setStep("code");
           startCooldown();
         },
-        onError: (err) => setError(errMsg(err, t("auth.signup.requestCodeFailed"))),
+        onError: (err) => toastError(err, t("auth.signup.requestCodeFailed")),
       }
     );
   }
 
   function handleResend() {
     if (resendCooldown > 0) return;
-    setError("");
     requestCode.mutate(
       { email },
       {
         onSuccess: () => startCooldown(),
-        onError: (err) => setError(errMsg(err, t("auth.signup.requestCodeFailed"))),
+        onError: (err) => toastError(err, t("auth.signup.requestCodeFailed")),
+      }
+    );
+  }
+
+  function handleGoogleVerify(idToken: string) {
+    verifyGoogleEmail.mutate(
+      { idToken },
+      {
+        onSuccess: (data) => {
+          setEmail(data.email);
+          setVerifiedViaGoogle(true);
+          setStep("details");
+        },
+        onError: (err) => toastError(err, t("auth.signup.googleVerifyFailed")),
       }
     );
   }
 
   function handleVerifyCode(e: React.FormEvent) {
     e.preventDefault();
-    setError("");
     verifyCode.mutate(
       { email, code },
       {
         onSuccess: () => setStep("details"),
-        onError: (err) => setError(errMsg(err, t("auth.signup.verifyCodeFailed"))),
+        onError: (err) => toastError(err, t("auth.signup.verifyCodeFailed")),
       }
     );
   }
 
   function handleComplete(e: React.FormEvent) {
     e.preventDefault();
-    setError("");
     completeSignup.mutate(
       { email, name, phone, password, businessName, country: country.trim() || undefined },
-      { onError: (err) => setError(errMsg(err, t("auth.signup.completeFailed"))) }
+      { onError: (err) => toastError(err, t("auth.signup.completeFailed")) }
     );
   }
 
@@ -151,7 +166,6 @@ export default function SignUpPage() {
                 className="w-full h-12 px-4 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
             </div>
-            {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
             <button
               type="submit"
               disabled={requestCode.isPending}
@@ -159,6 +173,15 @@ export default function SignUpPage() {
             >
               {requestCode.isPending ? t("auth.signup.sending") : t("auth.signup.sendCode")}
             </button>
+
+            <div className="flex items-center gap-3 pt-1">
+              <div className="flex-1 h-px bg-gray-100" />
+              <span className="text-xs text-gray-400">{t("auth.signup.orVerifyWithGoogle")}</span>
+              <div className="flex-1 h-px bg-gray-100" />
+            </div>
+            <div className="flex justify-center">
+              <GoogleSignInButton onSuccess={handleGoogleVerify} />
+            </div>
           </form>
         )}
 
@@ -191,7 +214,6 @@ export default function SignUpPage() {
                 ? `${t("auth.signup.resendIn")} ${resendCooldown}s`
                 : t("auth.signup.resendCode")}
             </button>
-            {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
             <button
               type="submit"
               disabled={verifyCode.isPending || code.length !== 6}
@@ -226,6 +248,7 @@ export default function SignUpPage() {
                 required
                 className="w-full h-12 px-4 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
+              <p className="text-xs text-gray-400 mt-1">{t("auth.signup.phoneNote")}</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">{t("auth.password")}</label>
@@ -265,7 +288,6 @@ export default function SignUpPage() {
                 ))}
               </select>
             </div>
-            {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
             <button
               type="submit"
               disabled={completeSignup.isPending}

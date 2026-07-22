@@ -5,7 +5,6 @@ using Hangfire;
 using Hangfire.SqlServer;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.FileProviders;
 using Microsoft.IdentityModel.Tokens;
 using ResellerApi.Data;
 using ResellerApi.DTOs.Auth;
@@ -73,6 +72,8 @@ builder.Services.AddScoped<ICategoryService, CategoryService>();
 builder.Services.AddScoped<IProductService, ProductService>();
 builder.Services.AddScoped<IPriceHistoryService, PriceHistoryService>();
 builder.Services.AddScoped<IPriceSlotService, PriceSlotService>();
+builder.Services.AddScoped<IPopularityService, PopularityService>();
+builder.Services.AddScoped<IStockAdjustmentService, StockAdjustmentService>();
 // Phase 3 — Inventory / Purchases
 builder.Services.AddScoped<IPurchaseTripService, PurchaseTripService>();
 builder.Services.AddScoped<ISuppliersService, SuppliersService>();
@@ -90,11 +91,17 @@ builder.Services.AddScoped<IExpenseService, ExpenseService>();
 builder.Services.AddScoped<IPettyCashService, PettyCashService>();
 // Phase 10 — Reports
 builder.Services.AddScoped<IReportService, ReportService>();
-// Media (product images, receipts, etc.)
-builder.Services.AddScoped<IMediaService, MediaService>();
+// Media upload/download now lives entirely in the standalone ResellerApi.MediaService app.
 // Subscriptions & billing
 builder.Services.AddHttpClient<IBkashPaymentService, BkashPaymentService>();
 builder.Services.AddScoped<ISubscriptionService, SubscriptionService>();
+// Platform Admin
+builder.Services.AddScoped<IPlatformAdminService, PlatformAdminService>();
+// Product Reviews
+builder.Services.AddHttpClient(); // generic IHttpClientFactory — used by ClientPageAuthService for Facebook Graph API calls
+builder.Services.AddScoped<IClientPageAuthService, ClientPageAuthService>();
+builder.Services.AddScoped<IProductReviewService, ProductReviewService>();
+builder.Services.AddScoped<IFeedbackService, FeedbackService>();
 // Catalog Templates (suggested categories/products)
 builder.Services.AddScoped<ISuggestedCatalogService, SuggestedCatalogService>();
 
@@ -150,6 +157,24 @@ builder.Services.AddRateLimiter(options =>
             partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
             factory: _ => new FixedWindowRateLimiterOptions
             {
+                PermitLimit = 10,
+                Window = TimeSpan.FromMinutes(15),
+                QueueLimit = 0
+            }));
+    options.AddPolicy("password-reset", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 5,
+                Window = TimeSpan.FromMinutes(15),
+                QueueLimit = 0
+            }));
+    options.AddPolicy("find-email", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
                 PermitLimit = 5,
                 Window = TimeSpan.FromMinutes(15),
                 QueueLimit = 0
@@ -160,6 +185,15 @@ builder.Services.AddRateLimiter(options =>
             factory: _ => new FixedWindowRateLimiterOptions
             {
                 PermitLimit = 5,
+                Window = TimeSpan.FromMinutes(15),
+                QueueLimit = 0
+            }));
+    options.AddPolicy("clientpage-review", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 10,
                 Window = TimeSpan.FromMinutes(15),
                 QueueLimit = 0
             }));
@@ -177,15 +211,8 @@ var app = builder.Build();
 // First in the pipeline so it wraps every downstream request/middleware.
 app.UseMiddleware<ConcurrencyExceptionMiddleware>();
 
-// Served explicitly (not via env.WebRootFileProvider) so it works regardless of
-// whether wwwroot existed at host-build time.
-var uploadsPath = Path.Combine(app.Environment.ContentRootPath, "wwwroot", "uploads");
-Directory.CreateDirectory(uploadsPath);
-app.UseStaticFiles(new StaticFileOptions
-{
-    FileProvider = new PhysicalFileProvider(uploadsPath),
-    RequestPath = "/uploads"
-});
+// Uploaded-file serving now lives entirely in the standalone ResellerApi.MediaService app
+// (localhost:5090 in dev) — this app no longer serves /uploads at all.
 
 // OpenAPI spec + Scalar UI (available in all environments for now)
 app.MapOpenApi();
@@ -220,8 +247,19 @@ RecurringJob.AddOrUpdate<ISubscriptionService>(
     svc => svc.ExpireDueSubscriptionsAsync(),
     "0 * * * *"); // hourly
 
+RecurringJob.AddOrUpdate<IPopularityService>(
+    "recompute-popularity-and-ratings",
+    svc => svc.RecomputeAsync(),
+    "0 21 * * *"); // once daily, off-peak
+
 app.MapControllers();
 app.MapHub<LiveHub>("/hubs/live");
+
+// Unauthenticated connectivity probe — frontend calls this once at startup and treats a
+// network-level failure (no response at all) as "server unreachable", distinct from normal
+// HTTP error responses which mean the server is fine.
+app.MapGet("/api/v1/health", async (AppDbContext db) =>
+    await db.Database.CanConnectAsync() ? Results.Ok(new { status = "ok" }) : Results.StatusCode(503));
 
 // ── Auto-migrate + seed on startup ───────────────────────────────────────
 using (var scope = app.Services.CreateScope())
@@ -293,6 +331,20 @@ static async Task SeedAsync(AppDbContext db)
             });
         }
 
+        await db.SaveChangesAsync();
+    }
+
+    // ── Platform admin account ────────────────────────────────────────────
+    // Seeded once, DB-backed from here on — password is changed via SQL UPDATE against
+    // platform_admin_accounts.PasswordHash (a bcrypt hash), not via config/redeploy.
+    if (!await db.PlatformAdminAccounts.AnyAsync())
+    {
+        db.PlatformAdminAccounts.Add(new ResellerApi.Entities.PlatformAdminAccount
+        {
+            Username = "admin",
+            PasswordHash = "$2a$11$0Z3h124DZbreexz3NyHtROnKBoAT8WqaworuDbkQNFs3uJjmwTyPC",
+            IsActive = true
+        });
         await db.SaveChangesAsync();
     }
 

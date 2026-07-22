@@ -106,12 +106,12 @@ export default function StoreroomPage() {
             placeholder={t('storeroom.searchPlaceholder')}
             className="w-full h-10 px-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
           />
-          {searchQuery && !searchVariantId && filteredProducts.length > 0 && (
+          {searchQuery && !searchVariantId && productResults.length > 0 && (
             <div className="absolute z-20 top-11 left-0 right-0 bg-white border border-gray-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
-              {filteredProducts.slice(0, 8).map(p => (
-                <button key={p.id} onClick={() => handleLocationSearch(p.id, p.name)}
+              {productResults.slice(0, 8).map(p => (
+                <button key={p.variantId} onClick={() => handleLocationSearch(p.variantId, p.productName)}
                   className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 border-b border-gray-50 last:border-0">
-                  {p.name}
+                  {p.productName}
                 </button>
               ))}
             </div>

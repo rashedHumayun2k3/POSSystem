@@ -6,6 +6,7 @@ import { useMutation } from '@tanstack/react-query';
 import { createTrip } from '@/lib/purchasesApi';
 import type { SourceType } from '@/types/purchases';
 import { useLanguage } from '@/i18n/LanguageContext';
+import { toastError } from '@/lib/toastError';
 
 type SourceOption = {
   type: SourceType;
@@ -75,7 +76,6 @@ export default function NewPurchasePage() {
   const [selected, setSelected] = useState<SourceType | null>(null);
   const [name, setName] = useState('');
   const [nameEdited, setNameEdited] = useState(false);
-  const [error, setError] = useState('');
 
   const handleSourceSelect = (opt: SourceOption) => {
     setSelected(opt.type);
@@ -91,10 +91,7 @@ export default function NewPurchasePage() {
       });
     },
     onSuccess: (trip) => router.replace(`/more/purchases/${trip.id}`),
-    onError: (err: unknown) => {
-      const e = err as { response?: { data?: { message?: string } } };
-      setError(e.response?.data?.message ?? t('purchases.failedCreate'));
-    },
+    onError: (err: unknown) => toastError(err, t('purchases.failedCreate')),
   });
 
   const selectedOpt = SOURCE_OPTIONS.find((o) => o.type === selected);
@@ -154,8 +151,6 @@ export default function NewPurchasePage() {
             <p className="text-[11px] text-gray-400 mt-1">{t('purchases.orderNameHint')}</p>
           </div>
         )}
-
-        {error && <p className="text-sm text-red-500">{error}</p>}
 
         <button
           onClick={() => mutation.mutate()}

@@ -99,6 +99,24 @@ public class AppDbContext : DbContext
     public DbSet<CpCheckoutGroup> CpCheckoutGroups => Set<CpCheckoutGroup>();
     public DbSet<CpCheckoutGroupOrder> CpCheckoutGroupOrders => Set<CpCheckoutGroupOrder>();
 
+    // ── Platform Admin ────────────────────────────────────────────────────
+    public DbSet<PlatformAdminAuditLog> PlatformAdminAuditLogs => Set<PlatformAdminAuditLog>();
+    public DbSet<PlatformAdminAccount> PlatformAdminAccounts => Set<PlatformAdminAccount>();
+
+    // ── Product Reviews ───────────────────────────────────────────────────
+    public DbSet<ClientPageCustomerAccount> ClientPageCustomerAccounts => Set<ClientPageCustomerAccount>();
+    public DbSet<ProductReview> ProductReviews => Set<ProductReview>();
+    public DbSet<ProductReviewImage> ProductReviewImages => Set<ProductReviewImage>();
+    public DbSet<ProductReviewReply> ProductReviewReplies => Set<ProductReviewReply>();
+    public DbSet<ProductMarketplaceDetail> ProductMarketplaceDetails => Set<ProductMarketplaceDetail>();
+    public DbSet<MarketplaceDetailTemplateLabel> MarketplaceDetailTemplateLabels => Set<MarketplaceDetailTemplateLabel>();
+    public DbSet<ProductImage> ProductImages => Set<ProductImage>();
+    public DbSet<CpShippingAddress> CpShippingAddresses => Set<CpShippingAddress>();
+
+    // ── Feedback ───────────────────────────────────────────────────────────
+    public DbSet<Feedback> Feedbacks => Set<Feedback>();
+    public DbSet<FeedbackReply> FeedbackReplies => Set<FeedbackReply>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -249,7 +267,7 @@ public class AppDbContext : DbContext
             e.HasIndex(x => new { x.BusinessId, x.Key }).IsUnique();
         });
 
-        // ── EmailVerification (signup, pre-tenant) ──────────────────────────
+        // ── EmailVerification (signup + password reset, pre-tenant) ─────────
         modelBuilder.Entity<EmailVerification>(e =>
         {
             e.ToTable("email_verifications");
@@ -257,7 +275,18 @@ public class AppDbContext : DbContext
             e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
             e.Property(x => x.Email).HasMaxLength(255).IsRequired();
             e.Property(x => x.CodeHash).HasMaxLength(128).IsRequired();
-            e.HasIndex(x => x.Email);
+            e.Property(x => x.Purpose).HasMaxLength(20).IsRequired().HasDefaultValue(EmailVerificationPurpose.Signup);
+            e.HasIndex(x => new { x.Email, x.Purpose });
+        });
+
+        // ── PlatformAdminAccount (super-admin login, pre-tenant) ─────────────
+        modelBuilder.Entity<PlatformAdminAccount>(e =>
+        {
+            e.ToTable("platform_admin_accounts");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Username).HasMaxLength(100).IsRequired();
+            e.Property(x => x.PasswordHash).HasMaxLength(255).IsRequired();
+            e.HasIndex(x => x.Username).IsUnique();
         });
 
         // ── Unit (global lookup, no business_id) ───────────────────────────
@@ -276,9 +305,12 @@ public class AppDbContext : DbContext
             e.HasKey(x => x.Id);
             e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
             e.Property(x => x.Name).HasMaxLength(100).IsRequired();
+            e.Property(x => x.NameBn).HasMaxLength(100);
             e.Property(x => x.DefaultUnit).HasMaxLength(20);
             e.HasOne<SuggestedCategory>().WithMany()
                 .HasForeignKey(x => x.SuggestedCategoryId).OnDelete(DeleteBehavior.SetNull);
+            e.HasOne(x => x.ParentCategory).WithMany(x => x.Subcategories)
+                .HasForeignKey(x => x.ParentCategoryId).OnDelete(DeleteBehavior.Restrict);
         });
 
         // ── CategoryField ──────────────────────────────────────────────────
@@ -307,9 +339,67 @@ public class AppDbContext : DbContext
             e.Property(x => x.Status).HasMaxLength(20);
             e.Property(x => x.SellingPrice).HasColumnType("DECIMAL(14,2)");
             e.Property(x => x.MarketPrice).HasColumnType("DECIMAL(14,2)");
+            e.Property(x => x.MarketplacePrice).HasColumnType("DECIMAL(14,2)");
             e.Property(x => x.PackagingCostPerUnit).HasColumnType("DECIMAL(14,2)");
+            // Explicit DB default — the C# property initializer (= true) only applies to newly
+            // constructed entities in memory, not the SQL column default EF generates for
+            // migrations, which defaults to false unless told otherwise. Getting this wrong here
+            // would flip every existing product to hidden the moment the migration ran.
+            e.Property(x => x.ShowOnMarketplace).HasDefaultValue(true);
+            e.Property(x => x.YoutubeUrl).HasMaxLength(500);
+            e.Property(x => x.WarrantyDurationUnit).HasMaxLength(10);
+            // Explicit DB defaults for the same reason as ShowOnMarketplace above — without
+            // these, existing rows would fail the NOT NULL constraint (PopularityScore/ReviewCount)
+            // when the migration runs.
+            e.Property(x => x.PopularityScore).HasColumnType("DECIMAL(14,4)").HasDefaultValue(0);
+            e.Property(x => x.AverageRating).HasColumnType("DECIMAL(3,2)");
+            e.Property(x => x.ReviewCount).HasDefaultValue(0);
+            // Not BusinessId-prefixed — marketplace ranking queries span every tenant at once.
+            e.HasIndex(x => new { x.ShowOnMarketplace, x.Status, x.PopularityScore });
+            e.HasIndex(x => new { x.ShowOnMarketplace, x.Status, x.AverageRating });
             e.HasOne(x => x.Category).WithMany(c => c.Products)
                 .HasForeignKey(x => x.CategoryId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // ── ProductMarketplaceDetail ──────────────────────────────────────────
+        modelBuilder.Entity<ProductMarketplaceDetail>(e =>
+        {
+            e.ToTable("product_marketplace_details");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
+            e.Property(x => x.Section).HasMaxLength(30).IsRequired();
+            e.Property(x => x.Label).HasMaxLength(200).IsRequired();
+            e.Property(x => x.Value).HasMaxLength(1000).IsRequired();
+            e.HasIndex(x => x.ProductId);
+            e.HasOne(x => x.Product).WithMany(p => p.MarketplaceDetails)
+                .HasForeignKey(x => x.ProductId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.Business).WithMany()
+                .HasForeignKey(x => x.BusinessId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // ── MarketplaceDetailTemplateLabel ────────────────────────────────────
+        modelBuilder.Entity<MarketplaceDetailTemplateLabel>(e =>
+        {
+            e.ToTable("marketplace_detail_template_labels");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
+            e.Property(x => x.Section).HasMaxLength(30).IsRequired();
+            e.Property(x => x.Label).HasMaxLength(200).IsRequired();
+            e.HasIndex(x => new { x.BusinessId, x.Section, x.Label }).IsUnique();
+        });
+
+        // ── ProductImage ───────────────────────────────────────────────────
+        modelBuilder.Entity<ProductImage>(e =>
+        {
+            e.ToTable("product_images");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
+            e.Property(x => x.ImageUrl).HasMaxLength(500).IsRequired();
+            e.HasIndex(x => x.ProductId);
+            e.HasOne(x => x.Product).WithMany(p => p.Images)
+                .HasForeignKey(x => x.ProductId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.Business).WithMany()
+                .HasForeignKey(x => x.BusinessId).OnDelete(DeleteBehavior.Restrict);
         });
 
         // ── ProductVariant ─────────────────────────────────────────────────
@@ -1073,6 +1163,102 @@ public class AppDbContext : DbContext
             e.HasOne(x => x.Order).WithMany()
                 .HasForeignKey(x => x.OrderId).OnDelete(DeleteBehavior.Restrict);
             e.HasIndex(x => x.CheckoutGroupId);
+        });
+
+        // ── Product Reviews: ClientPageCustomerAccount (not business-scoped — one identity
+        // shared across every shop) ──────────────────────────────────────────
+        modelBuilder.Entity<ClientPageCustomerAccount>(e =>
+        {
+            e.ToTable("client_page_customer_accounts");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
+            e.Property(x => x.GoogleId).HasMaxLength(100);
+            e.HasIndex(x => x.GoogleId).IsUnique();
+            e.Property(x => x.FacebookId).HasMaxLength(100);
+            e.HasIndex(x => x.FacebookId).IsUnique();
+            e.Property(x => x.Email).HasMaxLength(255);
+            e.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            e.Property(x => x.PhotoUrl).HasMaxLength(500);
+        });
+
+        modelBuilder.Entity<CpShippingAddress>(e =>
+        {
+            e.ToTable("cp_shipping_addresses");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
+            e.Property(x => x.Phone).HasMaxLength(20).IsRequired();
+            e.HasIndex(x => x.Phone).IsUnique();
+            e.Property(x => x.FullName).HasMaxLength(200).IsRequired();
+            e.Property(x => x.BuildingStreet).HasMaxLength(300).IsRequired();
+            e.Property(x => x.ColonyLandmark).HasMaxLength(300);
+            e.Property(x => x.City).HasMaxLength(100).IsRequired();
+            e.Property(x => x.Label).HasMaxLength(30);
+        });
+
+        // ── Product Reviews: ProductReview ────────────────────────────────────
+        modelBuilder.Entity<ProductReview>(e =>
+        {
+            e.ToTable("product_reviews");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
+            e.Property(x => x.Body).HasMaxLength(2000).IsRequired();
+            e.Property(x => x.VerifiedPhone).HasMaxLength(20).IsRequired();
+            e.HasOne(x => x.Product).WithMany()
+                .HasForeignKey(x => x.ProductId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.ReviewerAccount).WithMany(a => a.Reviews)
+                .HasForeignKey(x => x.ReviewerAccountId).OnDelete(DeleteBehavior.Restrict);
+            // One review per product per account (soft-deleted reviews excluded so a hidden
+            // review doesn't permanently block a re-review).
+            e.HasIndex(x => new { x.BusinessId, x.ProductId, x.ReviewerAccountId })
+                .IsUnique().HasFilter("[DeletedAt] IS NULL");
+        });
+
+        // ── Product Reviews: ProductReviewImage ───────────────────────────────
+        modelBuilder.Entity<ProductReviewImage>(e =>
+        {
+            e.ToTable("product_review_images");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
+            e.Property(x => x.ImageUrl).HasMaxLength(500).IsRequired();
+            e.HasOne(x => x.Review).WithMany(r => r.Images)
+                .HasForeignKey(x => x.ReviewId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // ── Product Reviews: ProductReviewReply ───────────────────────────────
+        modelBuilder.Entity<ProductReviewReply>(e =>
+        {
+            e.ToTable("product_review_replies");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
+            e.Property(x => x.Body).HasMaxLength(2000).IsRequired();
+            e.HasOne(x => x.Review).WithMany(r => r.Replies)
+                .HasForeignKey(x => x.ReviewId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.RepliedByUser).WithMany()
+                .HasForeignKey(x => x.RepliedByUserId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // ── Feedback ────────────────────────────────────────────────────────
+        modelBuilder.Entity<Feedback>(e =>
+        {
+            e.ToTable("feedback");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
+            e.Property(x => x.Subject).HasMaxLength(200).IsRequired();
+            e.Property(x => x.Details).HasMaxLength(4000).IsRequired();
+            e.Property(x => x.ImageUrl).HasMaxLength(500);
+            e.HasOne(x => x.SubmittedByUser).WithMany()
+                .HasForeignKey(x => x.SubmittedByUserId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<FeedbackReply>(e =>
+        {
+            e.ToTable("feedback_replies");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
+            e.Property(x => x.Body).HasMaxLength(2000).IsRequired();
+            e.Property(x => x.RepliedByUsername).HasMaxLength(100).IsRequired();
+            e.HasOne(x => x.Feedback).WithMany(f => f.Replies)
+                .HasForeignKey(x => x.FeedbackId).OnDelete(DeleteBehavior.Cascade);
         });
     }
 

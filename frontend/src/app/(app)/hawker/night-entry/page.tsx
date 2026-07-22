@@ -4,7 +4,9 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { browseProducts } from "@/lib/catalogApi";
 import { createOrder, confirmOrder, addOrderPayment } from "@/lib/ordersApi";
+import { resolveMediaUrl } from "@/lib/media";
 import { useLanguage } from "@/i18n/LanguageContext";
+import { useToastStore } from "@/store/toastStore";
 import type { ProductSearchResult } from "@/types/catalog";
 
 function todayStr() {
@@ -26,7 +28,7 @@ export default function NightEntryPage() {
   const [active, setActive] = useState<ProductSearchResult | null>(null);
   const [price, setPrice] = useState("");
   const [qty, setQty] = useState(1);
-  const [error, setError] = useState("");
+  const [note, setNote] = useState("");
   const [sessionCount, setSessionCount] = useState(0);
   const [sessionTotal, setSessionTotal] = useState(0);
 
@@ -39,7 +41,7 @@ export default function NightEntryPage() {
     setActive(p);
     setPrice(String(p.sellingPrice));
     setQty(1);
-    setError("");
+    setNote("");
   };
 
   const save = useMutation({
@@ -54,6 +56,7 @@ export default function NightEntryPage() {
         items: [{ variantId: active.variantId, qty, unitPrice }],
         deliveryChargeCustomer: 0,
         advancePaid: 0,
+        note: note.trim() || undefined,
         clientUid: crypto.randomUUID(),
         businessDate: date,
       });
@@ -68,7 +71,7 @@ export default function NightEntryPage() {
       setActive(null);
       queryClient.invalidateQueries({ queryKey: ["hawker-night-entry-products"] });
     },
-    onError: (err) => setError(extractErrorMessage(err, t("hawker.saveFailed"))),
+    onError: (err) => useToastStore.getState().show(extractErrorMessage(err, t("hawker.saveFailed")), "error"),
   });
 
   return (
@@ -100,25 +103,25 @@ export default function NightEntryPage() {
         ) : products.length === 0 ? (
           <p className="text-sm text-gray-400 text-center py-8">{t("hawker.noProducts")}</p>
         ) : (
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 gap-3">
             {products.map((p) => (
               <button
                 key={p.variantId}
                 onClick={() => openTile(p)}
-                className="flex flex-col items-center gap-1.5 p-2 rounded-xl border border-gray-100 bg-white active:bg-indigo-50 transition-colors"
+                className="flex flex-col items-center gap-1.5 p-2 rounded-2xl border border-gray-100 bg-white active:bg-indigo-50 active:scale-95 transition-all"
               >
-                <div className="w-16 h-16 rounded-lg bg-gray-100 overflow-hidden flex items-center justify-center">
+                <div className="w-full aspect-square rounded-xl bg-gray-100 overflow-hidden flex items-center justify-center">
                   {p.imageUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={p.imageUrl} alt={p.productName} className="w-full h-full object-cover" />
+                    <img src={resolveMediaUrl(p.imageUrl) ?? ''} alt={p.productName} className="w-full h-full object-cover" />
                   ) : (
-                    <span className="text-2xl">📦</span>
+                    <span className="text-5xl">📦</span>
                   )}
                 </div>
-                <span className="text-[11px] font-medium text-gray-700 text-center leading-tight line-clamp-2">
+                <span className="text-sm font-medium text-gray-700 text-center leading-tight line-clamp-2">
                   {p.productName}
                 </span>
-                <span className="text-[10px] text-gray-400">৳{p.sellingPrice}</span>
+                <span className="text-base font-bold text-indigo-700">৳{p.sellingPrice}</span>
               </button>
             ))}
           </div>
@@ -164,9 +167,16 @@ export default function NightEntryPage() {
               </button>
             </div>
 
-            {error && (
-              <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2 whitespace-pre-line">{error}</p>
-            )}
+            <div>
+              <label className="text-xs text-gray-500 font-medium block mb-1">{t("hawker.note")}</label>
+              <input
+                type="text"
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder={t("hawker.notePlaceholder")}
+                className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+              />
+            </div>
 
             <button
               onClick={() => save.mutate()}

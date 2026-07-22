@@ -1,16 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "next/navigation";
 import { listPlans, getCurrentSubscription, startCheckout } from "@/lib/subscriptionsApi";
 import { useLanguage } from "@/i18n/LanguageContext";
+import { toastError } from "@/lib/toastError";
+import { useToastStore } from "@/store/toastStore";
 
 const UNLIMITED = 2147483647;
-
-function errMsg(error: unknown, fallback: string) {
-  return (error as { response?: { data?: { message?: string } } })?.response?.data?.message ?? fallback;
-}
 
 function statusBadge(status: string, t: (key: string) => string) {
   const map: Record<string, { label: string; className: string }> = {
@@ -42,8 +40,13 @@ export default function SubscriptionPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { t } = useLanguage();
-  const [checkoutError, setCheckoutError] = useState("");
   const paymentResult = searchParams.get("payment"); // "success" | "failed" | null
+
+  useEffect(() => {
+    if (paymentResult === "success") useToastStore.getState().show(t("settings.paymentSuccess"));
+    if (paymentResult === "failed") useToastStore.getState().show(t("settings.paymentFailed"), "error");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paymentResult]);
 
   const { data: status, isLoading: statusLoading } = useQuery({
     queryKey: ["subscription-status"],
@@ -61,7 +64,7 @@ export default function SubscriptionPage() {
     onSuccess: (data) => {
       window.location.href = data.bkashRedirectUrl;
     },
-    onError: (err) => setCheckoutError(errMsg(err, t("settings.checkoutFailed"))),
+    onError: (err) => toastError(err, t("settings.checkoutFailed")),
   });
 
   const badge = status ? statusBadge(status.status, t) : null;
@@ -78,13 +81,6 @@ export default function SubscriptionPage() {
       </div>
 
       <div className="px-4 pt-4 space-y-4">
-        {paymentResult === "success" && (
-          <p className="text-sm text-green-700 bg-green-50 rounded-xl px-3 py-2.5">{t("settings.paymentSuccess")}</p>
-        )}
-        {paymentResult === "failed" && (
-          <p className="text-sm text-red-600 bg-red-50 rounded-xl px-3 py-2.5">{t("settings.paymentFailed")}</p>
-        )}
-
         {/* Current plan card */}
         {statusLoading ? (
           <div className="h-32 bg-gray-100 rounded-2xl animate-pulse" />
@@ -162,10 +158,7 @@ export default function SubscriptionPage() {
                       </p>
                       {!isCurrent && (
                         <button
-                          onClick={() => {
-                            setCheckoutError("");
-                            checkoutMutation.mutate({ planCode: plan.code, billingCycle: "MONTHLY" });
-                          }}
+                          onClick={() => checkoutMutation.mutate({ planCode: plan.code, billingCycle: "MONTHLY" })}
                           disabled={checkoutMutation.isPending}
                           className="w-full h-11 rounded-xl bg-[#e2136e] text-white font-semibold text-sm disabled:opacity-50"
                         >
@@ -178,7 +171,6 @@ export default function SubscriptionPage() {
                   );
                 })}
           </div>
-          {checkoutError && <p className="text-xs text-red-600 mt-2 px-1">{checkoutError}</p>}
         </div>
       </div>
     </div>

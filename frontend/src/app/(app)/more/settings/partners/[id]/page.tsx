@@ -18,6 +18,7 @@ import { useLanguage } from "@/i18n/LanguageContext";
 import { formatPaisa } from "@/lib/format";
 import { PencilIcon } from "@heroicons/react/24/outline";
 import SlidePanel from "@/components/ui/SlidePanel";
+import { useToastStore } from "@/store/toastStore";
 
 const ENTRY_TYPE_KEY: Record<string, string> = {
   CAPITAL_INJECTION: "partners.entryCapitalInjection",
@@ -53,17 +54,13 @@ export default function PartnerDetailPage() {
 
   const [editOpen, setEditOpen] = useState(false);
   const [editForm, setEditForm] = useState(EMPTY_EDIT_FORM);
-  const [editError, setEditError] = useState("");
 
   const [injectionOpen, setInjectionOpen] = useState(false);
   const [injectionForm, setInjectionForm] = useState(EMPTY_INJECTION_FORM);
-  const [injectionError, setInjectionError] = useState("");
 
   const [rejectReasons, setRejectReasons] = useState<Record<string, string>>({});
-  const [voteError, setVoteError] = useState("");
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState("");
-  const [cancelError, setCancelError] = useState("");
 
   const { data: partner, isLoading } = useQuery({
     queryKey: ["partners", id],
@@ -105,7 +102,6 @@ export default function PartnerDetailPage() {
       emergencyContactPhone: partner.emergencyContactPhone ?? "",
       emergencyContactRelation: partner.emergencyContactRelation ?? "",
     });
-    setEditError("");
     setEditOpen(true);
   };
 
@@ -132,7 +128,7 @@ export default function PartnerDetailPage() {
       qc.invalidateQueries({ queryKey: ["partners", id] });
       setEditOpen(false);
     },
-    onError: () => setEditError(t("partners.failedSavePartner")),
+    onError: () => useToastStore.getState().show(t("partners.failedSavePartner"), "error"),
   });
 
   const voteMutation = useMutation({
@@ -142,9 +138,8 @@ export default function PartnerDetailPage() {
       qc.invalidateQueries({ queryKey: ["partners"] });
       qc.invalidateQueries({ queryKey: ["partners", id] });
       qc.invalidateQueries({ queryKey: ["partners", id, "approval"] });
-      setVoteError("");
     },
-    onError: () => setVoteError(t("partners.failedVote")),
+    onError: () => useToastStore.getState().show(t("partners.failedVote"), "error"),
   });
 
   const cancelMutation = useMutation({
@@ -155,10 +150,10 @@ export default function PartnerDetailPage() {
       setCancelOpen(false);
       setCancelReason("");
     },
-    onError: () => setCancelError(t("partners.failedCancel")),
+    onError: () => useToastStore.getState().show(t("partners.failedCancel"), "error"),
   });
 
-  const openInjection = () => { setInjectionForm(EMPTY_INJECTION_FORM); setInjectionError(""); setInjectionOpen(true); };
+  const openInjection = () => { setInjectionForm(EMPTY_INJECTION_FORM); setInjectionOpen(true); };
 
   const injectionMutation = useMutation({
     mutationFn: () =>
@@ -173,7 +168,7 @@ export default function PartnerDetailPage() {
       qc.invalidateQueries({ queryKey: ["partners"] });
       setInjectionOpen(false);
     },
-    onError: () => setInjectionError(t("partners.failedSaveInjection")),
+    onError: () => useToastStore.getState().show(t("partners.failedSaveInjection"), "error"),
   });
 
   const formatDate = (iso: string) =>
@@ -226,7 +221,6 @@ export default function PartnerDetailPage() {
                   })}
                 </p>
               )}
-              {voteError && <p className="text-xs text-red-600">{voteError}</p>}
               <div className="space-y-2">
                 {managingPartners.map((mp) => {
                   const existingVote = approval?.votes.find((v) => v.votedByPartnerId === mp.id);
@@ -250,7 +244,7 @@ export default function PartnerDetailPage() {
                             <button
                               onClick={() => {
                                 const reason = (rejectReasons[mp.id] ?? "").trim();
-                                if (!reason) { setVoteError(t("partners.rejectReasonPlaceholder")); return; }
+                                if (!reason) { useToastStore.getState().show(t("partners.rejectReasonPlaceholder"), "error"); return; }
                                 voteMutation.mutate({ votedByPartnerId: mp.id, decision: "REJECT", note: reason });
                               }}
                               disabled={voteMutation.isPending}
@@ -274,7 +268,7 @@ export default function PartnerDetailPage() {
                 })}
               </div>
               <button
-                onClick={() => { setCancelReason(""); setCancelError(""); setCancelOpen(true); }}
+                onClick={() => { setCancelReason(""); setCancelOpen(true); }}
                 className="w-full h-9 rounded-lg border border-amber-300 text-amber-800 text-xs font-semibold"
               >
                 {t("partners.cancelRequest")}
@@ -350,7 +344,6 @@ export default function PartnerDetailPage() {
         title={t("common.edit")}
         footer={
           <>
-            {editError && <p className="text-xs text-red-600 mb-2">{editError}</p>}
             <button
               onClick={() => editMutation.mutate()}
               disabled={editMutation.isPending || !editForm.name.trim() || !editForm.nidNumber.trim() || !editForm.address.trim()}
@@ -428,7 +421,6 @@ export default function PartnerDetailPage() {
         title={t("partners.cancelRequest")}
         footer={
           <>
-            {cancelError && <p className="text-xs text-red-600 mb-2">{cancelError}</p>}
             <button
               onClick={() => cancelMutation.mutate()}
               disabled={cancelMutation.isPending || !cancelReason.trim()}
@@ -453,7 +445,6 @@ export default function PartnerDetailPage() {
         title={t("partners.addInjection")}
         footer={
           <>
-            {injectionError && <p className="text-xs text-red-600 mb-2">{injectionError}</p>}
             <button
               onClick={() => injectionMutation.mutate()}
               disabled={injectionMutation.isPending || !injectionForm.amountTaka}

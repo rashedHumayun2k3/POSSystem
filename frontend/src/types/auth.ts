@@ -53,6 +53,15 @@ export interface VerifySignupCodeResponse {
   verified: boolean;
 }
 
+export interface GoogleVerifyEmailRequest {
+  idToken: string;
+}
+
+export interface GoogleVerifyEmailResponse {
+  verified: boolean;
+  email: string;
+}
+
 export interface SignUpCompleteRequest {
   email: string;
   name: string;
@@ -60,6 +69,34 @@ export interface SignUpCompleteRequest {
   password: string;
   businessName: string;
   country?: string;
+}
+
+export interface RequestPasswordResetRequest {
+  email: string;
+}
+
+export interface VerifyPasswordResetRequest {
+  email: string;
+  code: string;
+}
+
+export interface VerifyPasswordResetResponse {
+  verified: boolean;
+}
+
+export interface CompletePasswordResetRequest {
+  email: string;
+  newPassword: string;
+}
+
+export interface FindMyEmailRequest {
+  phone: string;
+  shopName: string;
+}
+
+export interface FindMyEmailResponse {
+  found: boolean;
+  maskedEmail: string | null;
 }
 
 export interface SetBusinessTypesRequest {

@@ -1,8 +1,10 @@
 import TopHeader from "@/components/TopHeader";
 import PromoBanner from "@/components/PromoBanner";
+import FlashSaleSection from "@/components/FlashSaleSection";
+import HighRatingSection from "@/components/HighRatingSection";
 import CategoryChips from "@/components/CategoryChips";
 import PopularShops from "@/components/PopularShops";
-import ProductGrid from "@/components/ProductGrid";
+import PopularSection from "@/components/PopularSection";
 import Footer from "@/components/Footer";
 
 export default function HomePage() {
@@ -10,9 +12,11 @@ export default function HomePage() {
     <main>
       <TopHeader />
       <PromoBanner />
+      <FlashSaleSection />
+      <HighRatingSection />
       <CategoryChips />
       <PopularShops />
-      <ProductGrid title="Popular Products" />
+      <PopularSection />
       <Footer />
     </main>
   );

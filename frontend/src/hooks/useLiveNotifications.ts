@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import * as signalR from "@microsoft/signalr";
+import { useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "@/store/authStore";
-import { useNotificationStore } from "@/store/notificationStore";
+import { useToastStore } from "@/store/toastStore";
 
 interface OrderCreatedPayload {
   orderId: string;
@@ -20,8 +21,8 @@ interface OrderCreatedPayload {
 export function useLiveNotifications() {
   const accessToken = useAuthStore((s) => s.accessToken);
   const currentBusinessId = useAuthStore((s) => s.currentBusinessId);
-  const incrementUnread = useNotificationStore((s) => s.increment);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const showToast = useToastStore((s) => s.show);
   const connectionRef = useRef<signalR.HubConnection | null>(null);
   const joinedBusinessRef = useRef<string | null>(null);
 
@@ -34,9 +35,13 @@ export function useLiveNotifications() {
       .build();
 
     connection.on("OrderCreated", (payload: OrderCreatedPayload) => {
-      incrementUnread();
-      setToastMessage(
-        `New order ${payload.orderNo} from ${payload.customerName} (${payload.itemCount} item${payload.itemCount > 1 ? "s" : ""})`
+      // Bell badge/list are query-driven (see AppHeader / notifications page), not a separate
+      // counter — invalidating here just makes the badge bump instantly instead of waiting out
+      // the 15s staleTime, on top of the browser tab that placed the toast either way.
+      queryClient.invalidateQueries({ queryKey: ["notifications-online-orders"] });
+      showToast(
+        `New order ${payload.orderNo} from ${payload.customerName} (${payload.itemCount} item${payload.itemCount > 1 ? "s" : ""})`,
+        "success"
       );
     });
 
@@ -79,6 +84,4 @@ export function useLiveNotifications() {
       joinedBusinessRef.current = currentBusinessId;
     })();
   }, [currentBusinessId]);
-
-  return { toastMessage, clearToast: () => setToastMessage(null) };
 }

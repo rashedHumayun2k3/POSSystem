@@ -16,14 +16,29 @@ public class StockUnavailableException : Exception
     }
 }
 
+// Thrown by ReviseAsync when reducing/removing items would leave TotalPaid > the new
+// TotalAmount and the request didn't specify how to resolve it (ResolutionType). The controller
+// surfaces ExcessAmount so the client can prompt for Refund/Store Credit and resubmit.
+public class OrderOverpaidException : Exception
+{
+    public decimal ExcessAmount { get; }
+    public OrderOverpaidException(decimal excessAmount)
+        : base("Revised total is less than the amount already paid.")
+    {
+        ExcessAmount = excessAmount;
+    }
+}
+
 public class OrderService : IOrderService
 {
     private readonly AppDbContext _db;
     private readonly IActivityLogService _log;
+    private readonly IWebHostEnvironment _env;
 
-    public OrderService(AppDbContext db, IActivityLogService log)
+    public OrderService(AppDbContext db, IActivityLogService log, IWebHostEnvironment env)
     {
         _db = db;
+        _env = env;
         _log = log;
     }
 
@@ -127,7 +142,7 @@ public class OrderService : IOrderService
 
     // ── List ──────────────────────────────────────────────────────────────────
 
-    public async Task<List<OrderListDto>> ListAsync(string? orderStatus, string? fulfillmentStatus, string? channel, string? q, DateTime? from, DateTime? to, bool canSeeCosts)
+    public async Task<List<OrderListDto>> ListAsync(string? orderStatus, string? fulfillmentStatus, string? paymentStatus, string? channel, string? q, DateTime? from, DateTime? to, bool canSeeCosts)
     {
         var query = _db.Orders
             .AsNoTracking()
@@ -140,6 +155,8 @@ public class OrderService : IOrderService
             query = query.Where(o => o.OrderStatus == orderStatus);
         if (!string.IsNullOrWhiteSpace(fulfillmentStatus))
             query = query.Where(o => o.FulfillmentStatus == fulfillmentStatus);
+        if (!string.IsNullOrWhiteSpace(paymentStatus))
+            query = query.Where(o => o.PaymentStatus == paymentStatus);
         if (!string.IsNullOrWhiteSpace(channel))
             query = query.Where(o => o.Channel == channel);
         if (!string.IsNullOrWhiteSpace(q))
@@ -162,7 +179,8 @@ public class OrderService : IOrderService
             .Take(200)
             .ToListAsync();
 
-        return orders.Select(o => ToListDto(o, canSeeCosts)).ToList();
+        var stock = await BuildStockLookupAsync(orders);
+        return orders.Select(o => ToListDto(o, canSeeCosts, stock)).ToList();
     }
 
     // ── List by product ───────────────────────────────────────────────────────
@@ -179,7 +197,32 @@ public class OrderService : IOrderService
             .Take(200)
             .ToListAsync();
 
-        return orders.Select(o => ToListDto(o, canSeeCosts)).ToList();
+        var stock = await BuildStockLookupAsync(orders);
+        return orders.Select(o => ToListDto(o, canSeeCosts, stock)).ToList();
+    }
+
+    // Batched per list call rather than N+1 per order/item — same pattern as
+    // ClientPageCatalogService.BuildVariantAvailabilityAsync, but keyed by (BranchId, VariantId)
+    // since stock is per-branch and these orders can span branches when "All Branches" is active.
+    private async Task<Dictionary<(Guid BranchId, Guid VariantId), decimal>> BuildStockLookupAsync(List<Order> orders)
+    {
+        var pairs = orders
+            .Where(o => o.BranchId.HasValue)
+            .SelectMany(o => o.Items.Where(i => i.DeletedAt == null)
+                .Select(i => (BranchId: o.BranchId!.Value, VariantId: i.VariantId)))
+            .Distinct()
+            .ToList();
+        if (pairs.Count == 0) return new();
+
+        var branchIds = pairs.Select(p => p.BranchId).Distinct().ToList();
+        var variantIds = pairs.Select(p => p.VariantId).Distinct().ToList();
+
+        var rows = await _db.BranchVariantInventories
+            .Where(i => branchIds.Contains(i.BranchId) && variantIds.Contains(i.VariantId))
+            .Select(i => new { i.BranchId, i.VariantId, i.Available })
+            .ToListAsync();
+
+        return rows.ToDictionary(r => (r.BranchId, r.VariantId), r => r.Available);
     }
 
     // ── Get ───────────────────────────────────────────────────────────────────
@@ -188,7 +231,8 @@ public class OrderService : IOrderService
     {
         var order = await LoadFullOrderAsync(id)
             ?? throw new KeyNotFoundException("Order not found.");
-        return ToDetailDto(order, isOwner);
+        var stock = await BuildStockLookupAsync(new List<Order> { order });
+        return ToDetailDto(order, isOwner, stock);
     }
 
     // ── Update (draft only) ───────────────────────────────────────────────────
@@ -203,6 +247,7 @@ public class OrderService : IOrderService
 
         // Basic fields — always editable (draft or live, any fulfillment stage except terminal)
         if (request.CustomerName != null) order.CustomerName = request.CustomerName;
+        if (request.CustomerPhone != null) order.CustomerPhone = request.CustomerPhone;
         if (request.CustomerAddress != null) order.CustomerAddress = request.CustomerAddress;
         if (request.Channel != null) order.Channel = request.Channel;
         if (request.Note != null) order.Note = request.Note;
@@ -217,6 +262,176 @@ public class OrderService : IOrderService
         }
 
         await _db.SaveChangesAsync();
+        await _log.LogAsync(_db.CurrentBusinessId, userId, "UPDATE", "Order", order.Id);
+        return await GetAsync(id, true);
+    }
+
+    // ── Revise (reduce/remove line items, pre-fulfillment) ─────────────────────
+    // Deliberately narrow scope: reduce qty or remove a line only — never increase qty or add a
+    // new product (that would need the same atomic availability check as Confirm, GTR-4, and is
+    // a separate feature). Only allowed while FulfillmentStatus == UNFULFILLED — once something
+    // is packed, a qty change means physically unpacking/repacking a real parcel, which belongs
+    // to the Return/Courier-Return flow, not a data edit here.
+    private static readonly string[] ValidReviseReasons = { "OUT_OF_STOCK", "CUSTOMER_CHANGED_MIND", "OTHER" };
+
+    public async Task<OrderDetailDto> ReviseAsync(Guid id, ReviseOrderRequest request, Guid userId)
+    {
+        if (request.Items == null || request.Items.Count == 0)
+            throw new InvalidOperationException("At least one item change is required.");
+        if (!ValidReviseReasons.Contains(request.Reason))
+            throw new InvalidOperationException($"Invalid reason '{request.Reason}'.");
+        if (request.Reason == "OTHER" && string.IsNullOrWhiteSpace(request.Note))
+            throw new InvalidOperationException("Note is required when reason is OTHER.");
+
+        var order = await _db.Orders
+            .Include(o => o.Items).ThenInclude(i => i.Variant).ThenInclude(v => v.Product)
+            .Include(o => o.Payments)
+            .Include(o => o.Customer)
+            .FirstOrDefaultAsync(o => o.Id == id)
+            ?? throw new KeyNotFoundException("Order not found.");
+
+        if (order.OrderStatus == "CANCELLED")
+            throw new InvalidOperationException("Cannot revise a cancelled order.");
+        if (order.FulfillmentStatus != "UNFULFILLED")
+            throw new InvalidOperationException("Can only revise an order before it's packed.");
+
+        // Validate each requested change against the order's actual current items — reduce-only.
+        foreach (var change in request.Items)
+        {
+            var item = order.Items.FirstOrDefault(i => i.Id == change.OrderItemId && i.DeletedAt == null)
+                ?? throw new KeyNotFoundException($"Order item {change.OrderItemId} not found.");
+            if (change.NewQty < 0)
+                throw new InvalidOperationException("Quantity cannot be negative.");
+            if (change.NewQty >= item.Qty)
+                throw new InvalidOperationException($"New quantity for {item.Variant?.Product?.Name ?? item.Id.ToString()} must be less than its current quantity (reduce or remove only).");
+        }
+
+        // Resulting order must retain at least one item with qty > 0
+        var changeByItemId = request.Items.ToDictionary(c => c.OrderItemId);
+        var remainingCount = order.Items.Count(i => i.DeletedAt == null &&
+            (!changeByItemId.TryGetValue(i.Id, out var c) || c.NewQty > 0));
+        if (remainingCount == 0)
+            throw new InvalidOperationException("Revision would leave the order with no items — cancel the order instead.");
+
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        try
+        {
+            var summaryParts = new List<string>();
+
+            foreach (var change in request.Items)
+            {
+                var item = order.Items.First(i => i.Id == change.OrderItemId);
+                var delta = item.Qty - change.NewQty; // amount being released
+                var itemLabel = item.Variant?.Product?.Name ?? item.VariantId.ToString();
+
+                // Release committed stock only if the order was confirmed — draft orders have
+                // zero stock effect (R8.3), so there's nothing to release yet.
+                if (!order.IsDraft && order.ConfirmedAt.HasValue)
+                {
+                    var inv = await _db.BranchVariantInventories
+                        .FromSqlRaw("SELECT * FROM branch_variant_inventories WITH (UPDLOCK) WHERE [BranchId] = {0} AND [VariantId] = {1}", order.BranchId, item.VariantId)
+                        .FirstOrDefaultAsync();
+                    if (inv != null)
+                    {
+                        inv.Committed = Math.Max(0, inv.Committed - delta);
+                        _db.StockMovements.Add(new StockMovement
+                        {
+                            BusinessId = _db.CurrentBusinessId,
+                            BranchId = order.BranchId,
+                            VariantId = item.VariantId,
+                            MovementType = "RELEASE",
+                            Qty = delta,
+                            ReferenceType = "Order",
+                            ReferenceId = order.Id,
+                            UserId = userId,
+                            Note = "Order revised"
+                        });
+                    }
+                }
+
+                if (change.NewQty <= 0)
+                {
+                    item.DeletedAt = DateTime.UtcNow;
+                    summaryParts.Add($"{itemLabel} removed ({item.Qty} pcs)");
+                }
+                else
+                {
+                    summaryParts.Add($"{itemLabel} {item.Qty}→{change.NewQty}");
+                    item.Qty = change.NewQty;
+                }
+            }
+
+            // ── Overpayment check & resolution ──────────────────────────────────
+            var newTotal = ComputeTotal(order);
+            var paid = order.Payments.Sum(p => p.Amount);
+            var excess = OrderMath.ComputeOverpaymentExcess(paid, newTotal);
+
+            if (excess > 0)
+            {
+                if (string.IsNullOrEmpty(request.ResolutionType))
+                    throw new OrderOverpaidException(excess);
+
+                if (request.ResolutionType == "REFUND")
+                {
+                    if (string.IsNullOrWhiteSpace(request.RefundMethod))
+                        throw new InvalidOperationException("RefundMethod is required for REFUND resolution.");
+                    _db.OrderPayments.Add(new OrderPayment
+                    {
+                        OrderId = order.Id,
+                        Method = $"REFUND_{request.RefundMethod}",
+                        Amount = -excess,
+                        ReceivedAt = DateTime.UtcNow,
+                        UserId = userId
+                    });
+                }
+                else if (request.ResolutionType == "STORE_CREDIT")
+                {
+                    if (order.Customer == null)
+                        throw new InvalidOperationException("Order has no linked customer to credit.");
+                    order.Customer.StoreCreditBalance += excess;
+                    _db.OrderPayments.Add(new OrderPayment
+                    {
+                        OrderId = order.Id,
+                        Method = "STORE_CREDIT",
+                        Amount = -excess,
+                        ReceivedAt = DateTime.UtcNow,
+                        UserId = userId
+                    });
+                }
+                else
+                {
+                    throw new InvalidOperationException($"Invalid resolution type '{request.ResolutionType}'.");
+                }
+
+                paid -= excess;
+            }
+
+            var prevPayment = order.PaymentStatus;
+            order.PaymentStatus = OrderMath.ComputePaymentStatus(paid, newTotal);
+            if (prevPayment != order.PaymentStatus)
+                _db.OrderStatusHistories.Add(new OrderStatusHistory { OrderId = order.Id, Track = "PAYMENT", FromStatus = prevPayment, ToStatus = order.PaymentStatus, UserId = userId });
+
+            order.IsRevised = true;
+            _db.OrderStatusHistories.Add(new OrderStatusHistory
+            {
+                OrderId = order.Id,
+                Track = "ITEMS",
+                FromStatus = "ORIGINAL",
+                ToStatus = "REVISED",
+                Reason = request.Reason,
+                Note = string.Join("; ", summaryParts) + (string.IsNullOrWhiteSpace(request.Note) ? "" : $" — {request.Note}"),
+                UserId = userId
+            });
+
+            await _db.SaveChangesAsync();
+            await tx.CommitAsync();
+        }
+        catch
+        {
+            await tx.RollbackAsync();
+            throw;
+        }
+
         await _log.LogAsync(_db.CurrentBusinessId, userId, "UPDATE", "Order", order.Id);
         return await GetAsync(id, true);
     }
@@ -693,7 +908,33 @@ public class OrderService : IOrderService
         if (order.BranchId.HasValue)
             branch = await _db.Branches.AsNoTracking().FirstOrDefaultAsync(b => b.Id == order.BranchId.Value);
 
+        // Online orders get a customer-facing A4 invoice (OrderInvoicePdfGenerator); Shop/Hawker
+        // counter sales keep the 80mm thermal POS receipt they're actually printed on.
+        if (order.Channel != "SHOP" && order.Channel != "HAWKER")
+        {
+            var logoBytes = TryReadLogoBytes(business?.LogoUrl);
+            return OrderInvoicePdfGenerator.Generate(order, business?.Name ?? "", branch?.Address, branch?.Phone, logoBytes);
+        }
+
         return ReceiptPdfGenerator.Generate(order, business?.Name ?? "", branch?.Address, branch?.Phone);
+    }
+
+    // LogoUrl is a relative "/uploads/{businessId}/{file}" path (see MediaService.SaveImageAsync)
+    // — resolve it straight off disk rather than over HTTP, since we're already on the server.
+    private byte[]? TryReadLogoBytes(string? logoUrl)
+    {
+        if (string.IsNullOrWhiteSpace(logoUrl)) return null;
+        try
+        {
+            var webRoot = _env.WebRootPath ?? Path.Combine(_env.ContentRootPath, "wwwroot");
+            var relativePath = logoUrl.TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
+            var fullPath = Path.Combine(webRoot, relativePath);
+            return File.Exists(fullPath) ? File.ReadAllBytes(fullPath) : null;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     // ── Internal helpers ──────────────────────────────────────────────────────
@@ -830,12 +1071,15 @@ public class OrderService : IOrderService
     private static decimal ComputeTotal(Order o) =>
         ComputeSubtotal(o) - ComputeDiscount(o) + o.DeliveryChargeCustomer;
 
-    private static OrderListDto ToListDto(Order o, bool canSeeCosts)
+    private static OrderListDto ToListDto(Order o, bool canSeeCosts, Dictionary<(Guid BranchId, Guid VariantId), decimal> stock)
     {
         var total = ComputeTotal(o);
         var paid = o.Payments.Sum(p => p.Amount);
         var items = o.Items.Where(i => i.DeletedAt == null)
-            .Select(i => new OrderListItemSummaryDto(i.Variant?.Product?.Name ?? "Unknown", i.Variant?.Sku ?? "", i.Qty))
+            .Select(i => new OrderListItemSummaryDto(
+                i.Variant?.Product?.Name ?? "Unknown", i.Variant?.Sku ?? "", i.Qty,
+                o.BranchId.HasValue ? stock.GetValueOrDefault((o.BranchId.Value, i.VariantId)) : 0
+            ))
             .ToList();
 
         // Same formula as OrderDetailDto.Economics (ToDetailDto) — cost = cost-snapshot per line
@@ -855,11 +1099,11 @@ public class OrderService : IOrderService
             o.OrderStatus, o.PaymentStatus, o.FulfillmentStatus,
             o.IsDraft, total, Math.Max(0, total - paid),
             o.TrackingNo, o.HandlingUser?.Name, o.CreatedAt, o.BusinessDate,
-            items, profit
+            items, profit, o.IsRevised
         );
     }
 
-    private static OrderDetailDto ToDetailDto(Order o, bool isOwner)
+    private static OrderDetailDto ToDetailDto(Order o, bool isOwner, Dictionary<(Guid BranchId, Guid VariantId), decimal> stock)
     {
         var subtotal = ComputeSubtotal(o);
         var discount = ComputeDiscount(o);
@@ -880,7 +1124,8 @@ public class OrderService : IOrderService
                 i.Qty, i.UnitPrice, lineSubtotal,
                 isOwner ? i.UnitCostSnapshot : null,
                 lineProfit,
-                i.IsDamagedItem
+                i.IsDamagedItem,
+                o.BranchId.HasValue ? stock.GetValueOrDefault((o.BranchId.Value, i.VariantId)) : 0
             );
         }).ToList();
 
@@ -907,8 +1152,11 @@ public class OrderService : IOrderService
             o.CreatedAt, o.CreatedByUser?.Name ?? "",
             items,
             o.Payments.Select(p => new OrderPaymentDto(p.Id, p.Method, p.Amount, p.ReceivedAt, p.User?.Name ?? "")).ToList(),
-            o.StatusHistory.OrderBy(h => h.At).Select(h => new OrderStatusHistoryDto(h.Track, h.FromStatus, h.ToStatus, h.User?.Name ?? "", h.At)).ToList(),
-            economics
+            o.StatusHistory.OrderBy(h => h.At)
+                .Select(h => new OrderStatusHistoryDto(h.Track, h.FromStatus, h.ToStatus, h.User?.Name ?? "", h.At, h.Reason, h.Note))
+                .ToList(),
+            economics,
+            o.IsRevised
         );
     }
 }

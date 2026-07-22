@@ -181,7 +181,7 @@ function CustomerRow({
               {customer.orderCount}x
             </span>
           )}
-          {customer.isRejecterFlag && (
+          {customer.isSerialRejecter && (
             <span className="shrink-0 text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full font-medium">
               ⚠ Reject
             </span>

@@ -34,6 +34,7 @@ import { useAuthStore } from '@/store/authStore';
 import SupplierPicker from '@/components/purchases/SupplierPicker';
 import ProductPicker from '@/components/purchases/ProductPicker';
 import { useLanguage } from '@/i18n/LanguageContext';
+import { useToastStore } from '@/store/toastStore';
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -93,7 +94,6 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
   const [showAddItem, setShowAddItem] = useState(false);
   const [showAddCost, setShowAddCost] = useState(false);
   const [editingItem, setEditingItem] = useState<PurchaseItemDto | null>(null);
-  const [globalError, setGlobalError] = useState('');
 
   // Trip header inline editing
   const [headerDelivery, setHeaderDelivery] = useState<string>('');
@@ -195,7 +195,7 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
         dueAmount: getDueAmount(),
       }),
     onSuccess: () => { invalidate(); resetItemForm(); setShowAddItem(false); },
-    onError: (err) => setGlobalError(getApiErrorMessage(err, t('common.error'))),
+    onError: (err) => useToastStore.getState().show(getApiErrorMessage(err, t('common.error')), 'error'),
   });
 
   const updateItemMutation = useMutation({
@@ -208,7 +208,7 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
         dueAmount: getDueAmount(),
       }),
     onSuccess: () => { invalidate(); resetItemForm(); setEditingItem(null); },
-    onError: (err) => setGlobalError(getApiErrorMessage(err, t('common.error'))),
+    onError: (err) => useToastStore.getState().show(getApiErrorMessage(err, t('common.error')), 'error'),
   });
 
   const removeItemMutation = useMutation({
@@ -241,7 +241,7 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
     mutationFn: () =>
       addCost(id, { costType: costForm.costType, amount: parseFloat(costForm.amount), note: costForm.note || undefined, paidBy: costForm.paidBy || undefined }),
     onSuccess: () => { invalidate(); setCostForm({ costType: 'TRANSPORT', amount: '', note: '', paidBy: '' }); setShowAddCost(false); },
-    onError: (err) => setGlobalError(getApiErrorMessage(err, t('common.error'))),
+    onError: (err) => useToastStore.getState().show(getApiErrorMessage(err, t('common.error')), 'error'),
   });
 
   const removeCostMutation = useMutation({
@@ -254,19 +254,19 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
   const submitMutation = useMutation({
     mutationFn: () => submitTrip(id),
     onSuccess: () => invalidate(),
-    onError: (err) => setGlobalError(getApiErrorMessage(err, t('common.error'))),
+    onError: (err) => useToastStore.getState().show(getApiErrorMessage(err, t('common.error')), 'error'),
   });
 
   const approveMutation = useMutation({
     mutationFn: () => approveTrip(id),
     onSuccess: () => invalidate(),
-    onError: (err) => setGlobalError(getApiErrorMessage(err, t('common.error'))),
+    onError: (err) => useToastStore.getState().show(getApiErrorMessage(err, t('common.error')), 'error'),
   });
 
   const cancelMutation = useMutation({
     mutationFn: () => cancelTrip(id),
     onSuccess: () => { invalidate(); router.back(); },
-    onError: (err) => setGlobalError(getApiErrorMessage(err, t('common.error'))),
+    onError: (err) => useToastStore.getState().show(getApiErrorMessage(err, t('common.error')), 'error'),
   });
 
   // ── Session mutations ────────────────────────────────────────────────────
@@ -313,25 +313,25 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
       setSessionItemEntries({});
       setSessionFormMeta({ receivedAt: new Date().toISOString().slice(0, 16), transportMode: 'TRUCK', vehicleOrTrackingNo: '', note: '' });
     },
-    onError: (err) => setGlobalError(getApiErrorMessage(err, t('common.error'))),
+    onError: (err) => useToastStore.getState().show(getApiErrorMessage(err, t('common.error')), 'error'),
   });
 
   const previewSessionMutation = useMutation({
     mutationFn: (sessionId: string) => previewSession(id, sessionId),
     onSuccess: (data, sessionId) => setPreviewData({ sessionId, data }),
-    onError: (err) => setGlobalError(getApiErrorMessage(err, t('common.error'))),
+    onError: (err) => useToastStore.getState().show(getApiErrorMessage(err, t('common.error')), 'error'),
   });
 
   const approveSessionMutation = useMutation({
     mutationFn: (sessionId: string) => approveSession(id, sessionId),
     onSuccess: () => { invalidate(); invalidateList(); setPreviewData(null); },
-    onError: (err) => setGlobalError(getApiErrorMessage(err, t('common.error'))),
+    onError: (err) => useToastStore.getState().show(getApiErrorMessage(err, t('common.error')), 'error'),
   });
 
   const rejectSessionMutation = useMutation({
     mutationFn: (sessionId: string) => rejectSession(id, sessionId, rejectReason || undefined),
     onSuccess: () => { invalidate(); setRejectingSessionId(null); setRejectReason(''); },
-    onError: (err) => setGlobalError(getApiErrorMessage(err, t('common.error'))),
+    onError: (err) => useToastStore.getState().show(getApiErrorMessage(err, t('common.error')), 'error'),
   });
 
   const closeTripMutation = useMutation({
@@ -348,7 +348,7 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
       setForceCloseReason('');
       if (data.status === 'COMPLETED') router.replace('/more/purchases');
     },
-    onError: (err) => setGlobalError(getApiErrorMessage(err, t('common.error'))),
+    onError: (err) => useToastStore.getState().show(getApiErrorMessage(err, t('common.error')), 'error'),
   });
 
   // ── Translated lookup maps (built inside component to access t()) ──────────
@@ -563,13 +563,6 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
           </div>
         );
       })()}
-
-      {globalError && (
-        <div className="mx-4 mt-3 text-sm text-red-600 bg-red-50 rounded-xl px-3 py-2 flex items-center justify-between">
-          <span>{globalError}</span>
-          <button className="text-red-400 font-medium ml-2" onClick={() => setGlobalError('')}>✕</button>
-        </div>
-      )}
 
       {/* ── Items tab ─────────────────────────────────────────────────── */}
       {tab === 'items' && (

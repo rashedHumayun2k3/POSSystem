@@ -19,3 +19,26 @@ body {
   background: #f9fafb;
   color: #111827;
 }
+
+@keyframes hero-kenburns {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.07); }
+}
+@keyframes hero-float {
+  0%, 100% { transform: translate(0, 0); }
+  50% { transform: translate(10px, -16px); }
+}
+@keyframes hero-float-reverse {
+  0%, 100% { transform: translate(0, 0); }
+  50% { transform: translate(-12px, 14px); }
+}
+
+.animate-hero-kenburns {
+  animation: hero-kenburns 9s ease-in-out infinite;
+}
+.animate-hero-float {
+  animation: hero-float 7s ease-in-out infinite;
+}
+.animate-hero-float-reverse {
+  animation: hero-float-reverse 8.5s ease-in-out infinite;
+}

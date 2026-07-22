@@ -11,7 +11,15 @@ import type {
   RequestSignupCodeRequest,
   VerifySignupCodeRequest,
   VerifySignupCodeResponse,
+  GoogleVerifyEmailRequest,
+  GoogleVerifyEmailResponse,
   SignUpCompleteRequest,
+  RequestPasswordResetRequest,
+  VerifyPasswordResetRequest,
+  VerifyPasswordResetResponse,
+  CompletePasswordResetRequest,
+  FindMyEmailRequest,
+  FindMyEmailResponse,
   SetBusinessTypesRequest,
   SetSalesChannelsRequest,
 } from "@/types/auth";
@@ -103,6 +111,16 @@ export function useVerifySignupCode() {
   });
 }
 
+export function useVerifySignupEmailViaGoogle() {
+  return useMutation({
+    mutationFn: async (data: GoogleVerifyEmailRequest) => {
+      const response = await api.post<GoogleVerifyEmailResponse>("/auth/signup/verify-google", data);
+      return response.data;
+    },
+    onError: (error) => authDebug("signup verify-google failed", getErrorDetails(error)),
+  });
+}
+
 export function useCompleteSignup() {
   const { setAuth } = useAuthStore();
   const resolveBranch = useBranchSelection();
@@ -122,16 +140,52 @@ export function useCompleteSignup() {
   });
 }
 
-export function useSetSalesChannels() {
-  const router = useRouter();
+export function useRequestPasswordResetCode() {
+  return useMutation({
+    mutationFn: async (data: RequestPasswordResetRequest) => {
+      await api.post("/auth/forgot-password/request-code", data);
+    },
+    onError: (error) => authDebug("forgot-password request-code failed", getErrorDetails(error)),
+  });
+}
 
+export function useVerifyPasswordResetCode() {
+  return useMutation({
+    mutationFn: async (data: VerifyPasswordResetRequest) => {
+      const response = await api.post<VerifyPasswordResetResponse>("/auth/forgot-password/verify-code", data);
+      return response.data;
+    },
+    onError: (error) => authDebug("forgot-password verify-code failed", getErrorDetails(error)),
+  });
+}
+
+export function useCompletePasswordReset() {
+  return useMutation({
+    mutationFn: async (data: CompletePasswordResetRequest) => {
+      await api.post("/auth/forgot-password/complete", data);
+    },
+    onError: (error) => authDebug("forgot-password complete failed", getErrorDetails(error)),
+  });
+}
+
+export function useFindMyEmail() {
+  return useMutation({
+    mutationFn: async (data: FindMyEmailRequest) => {
+      const response = await api.post<FindMyEmailResponse>("/auth/forgot-password/find-email", data);
+      return response.data;
+    },
+    onError: (error) => authDebug("find-my-email failed", getErrorDetails(error)),
+  });
+}
+
+// No baked-in onSuccess navigation here — this endpoint is reused by both the onboarding wizard
+// (advance to the next step) and the later Settings > Shop Type screen (stay put, show a toast),
+// which need different post-save behavior. Callers pass their own via `.mutate(data, {onSuccess})`.
+export function useSetSalesChannels() {
   return useMutation({
     mutationFn: async (data: SetSalesChannelsRequest) => {
       const response = await api.post("/onboarding/sales-channels", data);
       return response.data;
-    },
-    onSuccess: () => {
-      router.replace("/onboarding/business-type");
     },
     onError: (error) => authDebug("set sales channels failed", getErrorDetails(error)),
   });

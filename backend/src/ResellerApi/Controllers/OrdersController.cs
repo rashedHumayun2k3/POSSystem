@@ -25,11 +25,12 @@ public class OrdersController : ControllerBase
     public async Task<IActionResult> List(
         [FromQuery] string? orderStatus,
         [FromQuery] string? fulfillmentStatus,
+        [FromQuery] string? paymentStatus,
         [FromQuery] string? channel,
         [FromQuery] string? q,
         [FromQuery] DateTime? from,
         [FromQuery] DateTime? to)
-        => Ok(await _svc.ListAsync(orderStatus, fulfillmentStatus, channel, q, from, to, _user.CanSeeCosts));
+        => Ok(await _svc.ListAsync(orderStatus, fulfillmentStatus, paymentStatus, channel, q, from, to, _user.CanSeeCosts));
 
     [HttpGet("{id:guid}")]
     public async Task<IActionResult> Get(Guid id)
@@ -47,6 +48,24 @@ public class OrdersController : ControllerBase
     [HttpPut("{id:guid}")]
     public async Task<IActionResult> Update(Guid id, [FromBody] UpdateOrderRequest request)
         => Ok(await _svc.UpdateAsync(id, request, _user.UserId));
+
+    [HttpPost("{id:guid}/revise")]
+    public async Task<IActionResult> Revise(Guid id, [FromBody] ReviseOrderRequest request)
+    {
+        try { return Ok(await _svc.ReviseAsync(id, request, _user.UserId)); }
+        catch (OrderOverpaidException ex)
+        {
+            return Conflict(new { code = "ORDER_OVERPAID", message = ex.Message, excessAmount = ex.ExcessAmount });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new { message = ex.Message });
+        }
+    }
 
     [HttpDelete("{id:guid}")]
     [Authorize(Roles = Roles.Owner)]

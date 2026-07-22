@@ -60,6 +60,12 @@ public class Order : BusinessScopedEntity, IBranchScoped
     public string? ReturnReason { get; set; }       // DEFECTIVE|WRONG_SIZE_COLOR|CHANGED_MIND|DAMAGED_DELIVERY|OTHER
     public string? ReturnNote { get; set; }
 
+    // Set once an item qty/removal revision has been applied (pre-fulfillment, see ReviseAsync)
+    // — cheap flag for list-page "Revised" badges; the actual reason/note per revision lives in
+    // StatusHistory (Track="ITEMS", append-only per GTR-7) since an order can be revised more
+    // than once before it ships.
+    public bool IsRevised { get; set; }
+
     public Guid? RemittanceId { get; set; }
     public CourierRemittance? Remittance { get; set; }
     public string? CodRemittanceStatus { get; set; } // PENDING | REMITTED | NOT_APPLICABLE

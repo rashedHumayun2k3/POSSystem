@@ -7,6 +7,9 @@ import { getCategories, getUnits, createProduct } from '@/lib/catalogApi';
 import type { Category, CategoryField } from '@/types/catalog';
 import { useLanguage } from '@/i18n/LanguageContext';
 import ImageUploadField from '@/components/ui/ImageUploadField';
+import { categoryDisplayName } from '@/lib/categoryDisplay';
+import { toastError } from '@/lib/toastError';
+import { useToastStore } from '@/store/toastStore';
 
 const UNITS_FALLBACK = [
   { code: 'pcs', name: 'Pieces' },
@@ -24,7 +27,7 @@ const UNITS_FALLBACK = [
 export default function NewProductPage() {
   const router = useRouter();
   const qc = useQueryClient();
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
 
   const [form, setForm] = useState({
     categoryId: '',
@@ -38,11 +41,15 @@ export default function NewProductPage() {
     description: '',
     note: '',
     attributesJson: '{}',
+    initialStock: '',
+    costPrice: '',
+    warrantyDurationValue: '',
+    warrantyDurationUnit: 'MONTHS',
   });
 
   const [variantCombinations, setVariantCombinations] = useState<Record<string, string>[]>([{}]);
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
-  const [error, setError] = useState('');
+  const [showMarketPrice, setShowMarketPrice] = useState(false);
 
   const { data: categories = [] } = useQuery({ queryKey: ['categories'], queryFn: getCategories });
   const { data: units = UNITS_FALLBACK } = useQuery({ queryKey: ['units'], queryFn: getUnits });
@@ -67,10 +74,7 @@ export default function NewProductPage() {
       qc.invalidateQueries({ queryKey: ['products'] });
       router.push(`/products/${product.id}`);
     },
-    onError: (err: unknown) => {
-      const e = err as { response?: { data?: { message?: string } } };
-      setError(e.response?.data?.message ?? t('products.failedCreate'));
-    },
+    onError: (err: unknown) => toastError(err, t('products.failedCreate')),
   });
 
   const variantFields = selectedCategory?.fields.filter((f) => f.isVariant) ?? [];
@@ -78,10 +82,9 @@ export default function NewProductPage() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
-    if (!form.categoryId) { setError(t('products.categoryRequired')); return; }
-    if (!form.name.trim()) { setError(t('products.nameRequired')); return; }
-    if (!form.imageUrl) { setError(t('products.imageRequired')); return; }
+    if (!form.categoryId) { useToastStore.getState().show(t('products.categoryRequired'), 'error'); return; }
+    if (!form.name.trim()) { useToastStore.getState().show(t('products.nameRequired'), 'error'); return; }
+    if (!form.imageUrl) { useToastStore.getState().show(t('products.imageRequired'), 'error'); return; }
 
     mutation.mutate({
       categoryId: form.categoryId,
@@ -95,6 +98,10 @@ export default function NewProductPage() {
       description: form.description || null,
       note: form.note || null,
       variantCombinations: variantCombinations.filter((c) => Object.values(c).some((v) => v.trim())),
+      initialStock: variantCombinations.length === 1 && form.initialStock ? parseFloat(form.initialStock) : null,
+      costPrice: variantCombinations.length === 1 && form.costPrice ? parseFloat(form.costPrice) : null,
+      warrantyDurationValue: form.warrantyDurationValue ? parseInt(form.warrantyDurationValue) : null,
+      warrantyDurationUnit: form.warrantyDurationValue ? form.warrantyDurationUnit : null,
     });
   };
 
@@ -135,9 +142,19 @@ export default function NewProductPage() {
             required
           >
             <option value="">{t('products.selectCategory')}</option>
-            {categories.map((c) => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
+            {categories.filter((c) => !c.parentCategoryId).map((top) => {
+              const subs = categories.filter((c) => c.parentCategoryId === top.id);
+              const topName = categoryDisplayName(top, lang);
+              if (subs.length === 0) return <option key={top.id} value={top.id}>{topName}</option>;
+              return (
+                <optgroup key={top.id} label={topName}>
+                  <option value={top.id}>{topName}</option>
+                  {subs.map((sub) => (
+                    <option key={sub.id} value={sub.id}>{'— '}{categoryDisplayName(sub, lang)}</option>
+                  ))}
+                </optgroup>
+              );
+            })}
           </select>
         </div>
 
@@ -192,8 +209,30 @@ export default function NewProductPage() {
           </div>
         </div>
 
-        {/* Market Price + Packaging Cost */}
-        <div className="grid grid-cols-2 gap-3">
+        {/* Packaging Cost */}
+        <div>
+          <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">{t('products.packagingCostLabel')}</label>
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm"
+            placeholder="0.00"
+            value={form.packagingCostPerUnit}
+            onChange={(e) => setForm((f) => ({ ...f, packagingCostPerUnit: e.target.value }))}
+          />
+        </div>
+
+        {/* Market Price — hidden by default, only needed when advertising a discount */}
+        {!showMarketPrice ? (
+          <button
+            type="button"
+            onClick={() => setShowMarketPrice(true)}
+            className="text-xs text-indigo-600 font-medium"
+          >
+            {t('products.addDiscountPrice')}
+          </button>
+        ) : (
           <div>
             <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">{t('products.marketPriceLabel')}</label>
             <input
@@ -205,20 +244,9 @@ export default function NewProductPage() {
               value={form.marketPrice}
               onChange={(e) => setForm((f) => ({ ...f, marketPrice: e.target.value }))}
             />
+            <p className="text-xs text-gray-400 mt-1">{t('products.marketPriceHint')}</p>
           </div>
-          <div>
-            <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">{t('products.packagingCostLabel')}</label>
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm"
-              placeholder="0.00"
-              value={form.packagingCostPerUnit}
-              onChange={(e) => setForm((f) => ({ ...f, packagingCostPerUnit: e.target.value }))}
-            />
-          </div>
-        </div>
+        )}
 
         {/* Low stock threshold */}
         <div>
@@ -230,6 +258,68 @@ export default function NewProductPage() {
             value={form.lowStockThreshold}
             onChange={(e) => setForm((f) => ({ ...f, lowStockThreshold: e.target.value }))}
           />
+        </div>
+
+        {/* Current stock + cost price — "I already own some of these", not a new purchase.
+            Only meaningful for a single-variant product; hidden once more than one variant row
+            exists, since a single quantity/cost can't be split across multiple variants here. */}
+        {variantCombinations.length === 1 && (
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">{t('products.initialStockLabel')}</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm"
+                placeholder={t('products.optional')}
+                value={form.initialStock}
+                onChange={(e) => setForm((f) => ({ ...f, initialStock: e.target.value }))}
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">{t('products.costPriceLabel')}</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm"
+                placeholder={t('products.optional')}
+                value={form.costPrice}
+                onChange={(e) => setForm((f) => ({ ...f, costPrice: e.target.value }))}
+              />
+            </div>
+            {form.initialStock && !form.costPrice && (
+              <p className="col-span-2 text-xs text-amber-600">{t('products.costPriceHint')}</p>
+            )}
+          </div>
+        )}
+
+        {/* Warranty */}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">{t('products.warrantyLabel')}</label>
+            <input
+              type="number"
+              min="0"
+              className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm"
+              placeholder={t('products.optional')}
+              value={form.warrantyDurationValue}
+              onChange={(e) => setForm((f) => ({ ...f, warrantyDurationValue: e.target.value }))}
+            />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">&nbsp;</label>
+            <select
+              className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm"
+              value={form.warrantyDurationUnit}
+              onChange={(e) => setForm((f) => ({ ...f, warrantyDurationUnit: e.target.value }))}
+            >
+              <option value="DAYS">{t('products.warrantyDays')}</option>
+              <option value="MONTHS">{t('products.warrantyMonths')}</option>
+              <option value="YEARS">{t('products.warrantyYears')}</option>
+            </select>
+          </div>
         </div>
 
         {/* Non-variant custom fields */}
@@ -305,10 +395,6 @@ export default function NewProductPage() {
           />
         </div>
 
-        {/* Error */}
-        {error && (
-          <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>
-        )}
       </form>
 
       {/* Submit bar — sits above the fixed bottom tab bar (h-16), not behind it */}

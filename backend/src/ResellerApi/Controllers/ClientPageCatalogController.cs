@@ -29,8 +29,9 @@ public class ClientPageCatalogController : ControllerBase
 
     [HttpGet("products")]
     public async Task<IActionResult> Products(
-        [FromQuery] string? q, [FromQuery] Guid? categoryId, [FromQuery] bool onlyInStock = false)
-        => Ok(await _svc.SearchAsync(_shopContext, q, categoryId, onlyInStock));
+        [FromQuery] string? q, [FromQuery] Guid? categoryId, [FromQuery] bool onlyInStock = false,
+        [FromQuery] string sort = "default", [FromQuery] int page = 1, [FromQuery] int pageSize = 60)
+        => Ok(await _svc.SearchAsync(_shopContext, q, categoryId, onlyInStock, sort, page, pageSize));
 
     [HttpGet("products/{id:guid}")]
     public async Task<IActionResult> ProductDetail(Guid id)
@@ -38,4 +39,8 @@ public class ClientPageCatalogController : ControllerBase
         var product = await _svc.GetProductDetailAsync(_shopContext, id);
         return product == null ? NotFound() : Ok(product);
     }
+
+    [HttpGet("products/{id:guid}/related")]
+    public async Task<IActionResult> RelatedProducts(Guid id, [FromQuery] int take = 8)
+        => Ok(await _svc.GetRelatedProductsAsync(_shopContext, id, take));
 }

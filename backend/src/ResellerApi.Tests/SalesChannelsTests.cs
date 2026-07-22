@@ -36,4 +36,44 @@ public class SalesChannelsTests
         var json = SalesChannels.ToJson(new[] { SalesChannels.Pos });
         Assert.Equal(new[] { SalesChannels.Pos }, SalesChannels.ParseJson(json));
     }
+
+    // ── IsValidCombination ──────────────────────────────────────────────────
+    // A business is either a full-barcode-scanner setup (Pos) or a lightweight one (Hawker),
+    // never both — Online is freely combinable with either.
+
+    [Fact]
+    public void IsValidCombination_PosAndHawker_ReturnsFalse()
+    {
+        Assert.False(SalesChannels.IsValidCombination(new[] { SalesChannels.Pos, SalesChannels.Hawker }));
+    }
+
+    [Fact]
+    public void IsValidCombination_AllThree_ReturnsFalse()
+    {
+        Assert.False(SalesChannels.IsValidCombination(new[] { SalesChannels.Pos, SalesChannels.Hawker, SalesChannels.Online }));
+    }
+
+    [Fact]
+    public void IsValidCombination_PosAndOnline_ReturnsTrue()
+    {
+        Assert.True(SalesChannels.IsValidCombination(new[] { SalesChannels.Pos, SalesChannels.Online }));
+    }
+
+    [Fact]
+    public void IsValidCombination_HawkerAndOnline_ReturnsTrue()
+    {
+        Assert.True(SalesChannels.IsValidCombination(new[] { SalesChannels.Hawker, SalesChannels.Online }));
+    }
+
+    [Fact]
+    public void IsValidCombination_PosAlone_ReturnsTrue()
+    {
+        Assert.True(SalesChannels.IsValidCombination(new[] { SalesChannels.Pos }));
+    }
+
+    [Fact]
+    public void IsValidCombination_HawkerAlone_ReturnsTrue()
+    {
+        Assert.True(SalesChannels.IsValidCombination(new[] { SalesChannels.Hawker }));
+    }
 }

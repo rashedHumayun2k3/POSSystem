@@ -41,11 +41,11 @@ export default function BottomTabBar() {
     IconActive: typeof HomeIconSolid;
     center?: boolean;
   }[] = [
-    { href: "/dashboard", labelKey: "nav.home",     Icon: HomeIcon,                   IconActive: HomeIconSolid },
-    { href: "/orders",    labelKey: "nav.orders",   Icon: ClipboardDocumentListIcon,   IconActive: OrdersSolid },
+    { href: "/dashboard",    labelKey: "nav.home",        Icon: HomeIcon,                  IconActive: HomeIconSolid },
+    { href: "/orders",       labelKey: "nav.orders",      Icon: ClipboardDocumentListIcon, IconActive: OrdersSolid },
     sellTab,
-    { href: "/products",  labelKey: "nav.products", Icon: ArchiveBoxIcon,              IconActive: ProductsSolid },
-    { href: "/more",      labelKey: "nav.more",     Icon: Bars3Icon,                   IconActive: MoreSolid },
+    { href: "/products",     labelKey: "nav.products",    Icon: ArchiveBoxIcon,            IconActive: ProductsSolid },
+    { href: "/more",         labelKey: "nav.more",        Icon: Bars3Icon,                 IconActive: MoreSolid },
   ];
 
   return (

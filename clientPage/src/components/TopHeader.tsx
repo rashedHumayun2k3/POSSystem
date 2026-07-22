@@ -3,9 +3,18 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useShopContext } from "@/context/ShopContext";
 import { useCartCount } from "@/store/cartStore";
+import { resolveMediaUrl } from "@/lib/media";
+import { searchProducts } from "@/lib/clientPageApi";
+import { buildProductHref } from "@/lib/slug";
+
+const SUGGESTION_MIN_CHARS = 2;
+const SUGGESTION_DEBOUNCE_MS = 300;
+const SUGGESTION_LIMIT = 6;
+const FRONTEND_URL = process.env.NEXT_PUBLIC_FRONTEND_URL ?? "http://localhost:3000";
 
 const SearchIcon = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -23,37 +32,104 @@ const CartIcon = () => (
 );
 
 export default function TopHeader({ initialQuery }: { initialQuery?: string }) {
-  const { mode, shopName, logoUrl } = useShopContext();
+  const { mode, shopName, logoUrl, shopSlug } = useShopContext();
   const router = useRouter();
   const [q, setQ] = useState(initialQuery ?? "");
   const [logoFailed, setLogoFailed] = useState(false);
   const cartCount = useCartCount();
 
+  const [debouncedQ, setDebouncedQ] = useState("");
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const searchBoxRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const trimmed = q.trim();
+    if (trimmed.length < SUGGESTION_MIN_CHARS) {
+      setDebouncedQ("");
+      return;
+    }
+    const id = setTimeout(() => setDebouncedQ(trimmed), SUGGESTION_DEBOUNCE_MS);
+    return () => clearTimeout(id);
+  }, [q]);
+
+  const { data: suggestions } = useQuery({
+    queryKey: ["search-suggestions", shopSlug, debouncedQ],
+    queryFn: () => searchProducts(shopSlug, { q: debouncedQ }),
+    enabled: debouncedQ.length >= SUGGESTION_MIN_CHARS,
+  });
+
+  // Close the dropdown on outside click — a plain onBlur would also fire when clicking a
+  // suggestion itself, closing it before the click/navigation registers.
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (searchBoxRef.current && !searchBoxRef.current.contains(e.target as Node)) {
+        setShowSuggestions(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const visibleSuggestions = showSuggestions && q.trim().length >= SUGGESTION_MIN_CHARS
+    ? (suggestions?.items ?? []).slice(0, SUGGESTION_LIMIT)
+    : [];
+
   return (
     <header className="sticky top-0 z-30 bg-indigo-600 text-white">
+      {mode !== "shop" && (
+        <div className="flex justify-end items-center gap-3 lg:gap-4 px-2 lg:px-4 py-1 text-[11px] lg:text-xs bg-indigo-800/60">
+          <Link href="/account" className="hover:text-white/80">
+            Sign In
+          </Link>
+          <Link href="/account" className="hover:text-white/80">
+            Sign Up
+          </Link>
+          <span className="w-px h-3 bg-white/20" />
+          <a href={`${FRONTEND_URL}/signup`} className="hover:text-white/80">
+            Become a Seller
+          </a>
+          <Link href="/seller/login" className="hover:text-white/80">
+            Seller Login
+          </Link>
+        </div>
+      )}
       {/* Below lg: stacked brand row + search row (current mobile layout). At lg+: one row —
           brand, search (grows to fill space), then text nav links replacing the bottom tab bar
           that disappears at this breakpoint. */}
-      <div className="flex flex-col lg:flex-row lg:items-center gap-2 lg:gap-6 px-4 lg:px-8 pt-3 pb-2 lg:py-3">
+      <div className="flex flex-col lg:grid lg:grid-cols-[auto_1fr_auto] lg:items-center gap-2 lg:gap-6 px-2 lg:px-4 pt-1 pb-1 lg:py-1 min-h-14 justify-center">
         <div className="flex items-center gap-2">
-          {mode === "shop" && logoUrl && !logoFailed ? (
-            <Image
-              src={logoUrl}
-              alt={shopName ?? "Shop"}
-              width={28}
-              height={28}
-              className="rounded-full object-cover shrink-0 bg-white/20"
-              unoptimized
-              onError={() => setLogoFailed(true)}
-            />
+          {mode === "shop" ? (
+            // A bare "/" always resets to the marketplace (see proxy.ts) — the shop's own home is
+            // always reachable at /shop/{slug}, on-domain or not, so link there instead.
+            <Link href={shopSlug ? `/shop/${shopSlug}` : "/"} className="flex items-center gap-2 shrink-0">
+              {logoUrl && !logoFailed ? (
+                <Image
+                  src={resolveMediaUrl(logoUrl) ?? ''}
+                  alt={shopName ?? "Shop"}
+                  width={28}
+                  height={28}
+                  className="rounded-full object-cover shrink-0 bg-white/20"
+                  unoptimized
+                  onError={() => setLogoFailed(true)}
+                />
+              ) : (
+                <div className="w-7 h-7 rounded-full bg-white/20 flex items-center justify-center text-sm font-semibold shrink-0">
+                  {shopName?.[0] ?? "S"}
+                </div>
+              )}
+              <span className="text-base lg:text-lg font-semibold truncate">{shopName ?? "Shop"}</span>
+            </Link>
           ) : (
-            <div className="w-7 h-7 rounded-full bg-white/20 flex items-center justify-center text-sm font-semibold shrink-0">
-              {mode === "shop" ? (shopName?.[0] ?? "S") : "M"}
-            </div>
+            <Link href="/" className="shrink-0">
+              <Image
+                src="/logo.png"
+                alt="LavLokshan"
+                width={224}
+                height={224}
+                className="object-contain"
+              />
+            </Link>
           )}
-          <Link href="/" className="text-base lg:text-lg font-semibold truncate">
-            {mode === "shop" ? shopName ?? "Shop" : "Marketplace"}
-          </Link>
           <Link href="/cart" aria-label="Cart" className="lg:hidden ml-auto relative p-1.5 rounded-full hover:bg-white/10 shrink-0">
             <CartIcon />
             {cartCount > 0 && (
@@ -64,25 +140,53 @@ export default function TopHeader({ initialQuery }: { initialQuery?: string }) {
           </Link>
         </div>
 
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (q.trim()) router.push(`/search?q=${encodeURIComponent(q.trim())}`);
-          }}
-          className="lg:flex-1 lg:max-w-xl"
-        >
-          <div className="flex items-center gap-2 bg-white rounded-full px-3.5 py-2 text-gray-500">
-            <SearchIcon />
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder={mode === "shop" ? `Search in ${shopName ?? "shop"}…` : "Search products…"}
-              className="flex-1 text-sm text-gray-900 outline-none placeholder:text-gray-400"
-            />
-          </div>
-        </form>
+        <div ref={searchBoxRef} className="relative lg:w-full lg:max-w-xl lg:justify-self-center">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              setShowSuggestions(false);
+              const trimmed = q.trim();
+              router.push(trimmed ? `/search?q=${encodeURIComponent(trimmed)}` : "/search");
+            }}
+          >
+            <div className="flex items-center gap-2 bg-white rounded-full px-3.5 py-2 text-gray-500">
+              <SearchIcon />
+              <input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                onFocus={() => setShowSuggestions(true)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") setShowSuggestions(false);
+                }}
+                placeholder={mode === "shop" ? `Search in ${shopName ?? "shop"}…` : "Search products…"}
+                className="flex-1 text-sm text-gray-900 outline-none placeholder:text-gray-400"
+              />
+            </div>
+          </form>
 
-        <nav className="hidden lg:flex items-center gap-6 text-sm font-medium shrink-0">
+          {visibleSuggestions.length > 0 && (
+            <div className="absolute left-0 right-0 top-full mt-1.5 bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden z-40 text-gray-900">
+              {visibleSuggestions.map((s) => (
+                <Link
+                  key={s.variantId}
+                  href={buildProductHref(s.productId, s.name)}
+                  onClick={() => setShowSuggestions(false)}
+                  className="flex items-center gap-3 px-3.5 py-2 hover:bg-gray-50 border-b border-gray-50 last:border-b-0"
+                >
+                  <div className="relative w-9 h-9 rounded-lg bg-gray-100 overflow-hidden shrink-0">
+                    {s.imageUrl && (
+                      <Image src={resolveMediaUrl(s.imageUrl) ?? ""} alt="" fill className="object-cover" unoptimized />
+                    )}
+                  </div>
+                  <span className="text-sm text-gray-800 truncate">{s.name}</span>
+                  <span className="ml-auto text-sm font-semibold text-orange-600 shrink-0">৳{s.price.toFixed(2)}</span>
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <nav className="hidden lg:flex items-center gap-6 text-sm font-medium shrink-0 lg:justify-self-end">
           <Link href="/categories" className="hover:text-white/80">Categories</Link>
           <Link href="/cart" className="relative flex items-center gap-1.5 hover:text-white/80">
             <CartIcon /> Cart

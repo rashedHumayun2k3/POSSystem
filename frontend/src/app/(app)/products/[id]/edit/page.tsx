@@ -6,6 +6,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getProduct, getCategories, getUnits, updateProduct } from '@/lib/catalogApi';
 import { useLanguage } from '@/i18n/LanguageContext';
 import ImageUploadField from '@/components/ui/ImageUploadField';
+import { useToastStore } from '@/store/toastStore';
 
 const UNITS_FALLBACK = [
   { code: 'pcs', name: 'Pieces' },
@@ -46,7 +47,6 @@ export default function EditProductPage() {
     description: '',
     note: '',
   });
-  const [error, setError] = useState('');
   const [loaded, setLoaded] = useState(false);
 
   // Pre-fill once the product arrives — guarded by `loaded` so it doesn't stomp on the user's
@@ -98,19 +98,15 @@ export default function EditProductPage() {
     },
     onError: (err: unknown) => {
       const e = err as { response?: { status?: number; data?: { message?: string } } };
-      if (e.response?.status === 409) {
-        setError(t('products.editConflict'));
-      } else {
-        setError(e.response?.data?.message ?? t('products.failedUpdate'));
-      }
+      const message = e.response?.status === 409 ? t('products.editConflict') : e.response?.data?.message ?? t('products.failedUpdate');
+      useToastStore.getState().show(message, 'error');
     },
   });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
-    if (!form.categoryId) { setError(t('products.categoryRequired')); return; }
-    if (!form.name.trim()) { setError(t('products.nameRequired')); return; }
+    if (!form.categoryId) { useToastStore.getState().show(t('products.categoryRequired'), 'error'); return; }
+    if (!form.name.trim()) { useToastStore.getState().show(t('products.nameRequired'), 'error'); return; }
     mutation.mutate();
   };
 
@@ -261,10 +257,6 @@ export default function EditProductPage() {
           />
         </div>
 
-        {/* Error */}
-        {error && (
-          <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>
-        )}
       </form>
 
       {/* Submit bar — sits above the fixed bottom tab bar (h-16), not behind it */}

@@ -2,7 +2,7 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { User, Business } from "@/types/auth";
+import type { User, Business, SalesChannel } from "@/types/auth";
 import type { Branch } from "@/types/branch";
 
 function authStoreDebug(message: string, details?: Record<string, unknown>) {
@@ -23,6 +23,7 @@ interface AuthState {
   setHasHydrated: (hasHydrated: boolean) => void;
   setAuth: (user: User, businesses: Business[], access: string, refresh: string) => void;
   updateUserPhoto: (photoUrl: string | null) => void;
+  updateCurrentBusinessSalesChannels: (salesChannels: SalesChannel[]) => void;
   switchBusiness: (id: string) => void;
   setBranches: (branches: Branch[]) => void;
   switchBranch: (id: string) => void;
@@ -70,6 +71,15 @@ export const useAuthStore = create<AuthState>()(
         const current = get().user;
         if (!current) return;
         set({ user: { ...current, photoUrl } });
+      },
+
+      updateCurrentBusinessSalesChannels: (salesChannels) => {
+        const { businesses, currentBusinessId } = get();
+        set({
+          businesses: businesses.map((b) =>
+            b.id === currentBusinessId ? { ...b, salesChannels } : b
+          ),
+        });
       },
 
       switchBusiness: (id) => {

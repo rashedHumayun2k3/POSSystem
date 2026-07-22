@@ -7,6 +7,8 @@ import { getExpenseCategories } from '@/lib/settingsApi';
 import { createExpense } from '@/lib/expensesApi';
 import { useLanguage } from '@/i18n/LanguageContext';
 import type { ExpenseCategoryDto } from '@/types/expenses';
+import { toastError } from '@/lib/toastError';
+import { useToastStore } from '@/store/toastStore';
 
 // ── Step identifiers ─────────────────────────────────────────────────────────
 type Step = 'category' | 'subtype' | 'amount' | 'date' | 'note';
@@ -49,7 +51,6 @@ export default function NewExpensePage() {
   const [amount, setAmount] = useState('');
   const [date, setDate] = useState(todayStr());
   const [note, setNote] = useState('');
-  const [error, setError] = useState('');
 
   const { data: cats = [], isLoading: catsLoading } = useQuery({
     queryKey: ['expense-categories'],
@@ -66,7 +67,7 @@ export default function NewExpensePage() {
       note: note.trim() || null,
     }),
     onSuccess: () => router.back(),
-    onError: () => setError(t('expenses.failedCreate')),
+    onError: (err: unknown) => toastError(err, t('expenses.failedCreate')),
   });
 
   const stepIndex = STEPS.indexOf(step);
@@ -74,23 +75,21 @@ export default function NewExpensePage() {
   function goBack() {
     if (stepIndex === 0) { router.back(); return; }
     setStep(STEPS[stepIndex - 1]);
-    setError('');
   }
 
   function goNext() {
-    setError('');
     if (step === 'category') {
-      if (!categoryId) { setError(t('expenses.selectCategory')); return; }
+      if (!categoryId) { useToastStore.getState().show(t('expenses.selectCategory'), 'error'); return; }
       setStep('subtype');
     } else if (step === 'subtype') {
-      if (!subType.trim()) { setError(t('expenses.enterSubtype')); return; }
+      if (!subType.trim()) { useToastStore.getState().show(t('expenses.enterSubtype'), 'error'); return; }
       setStep('amount');
     } else if (step === 'amount') {
       const n = parseFloat(amount);
-      if (!amount || isNaN(n) || n <= 0) { setError(t('expenses.enterAmount')); return; }
+      if (!amount || isNaN(n) || n <= 0) { useToastStore.getState().show(t('expenses.enterAmount'), 'error'); return; }
       setStep('date');
     } else if (step === 'date') {
-      if (!date) { setError(t('expenses.selectDate')); return; }
+      if (!date) { useToastStore.getState().show(t('expenses.selectDate'), 'error'); return; }
       setStep('note');
     } else if (step === 'note') {
       mutation.mutate();
@@ -290,7 +289,6 @@ export default function NewExpensePage() {
           </>
         )}
 
-        {error && <p className="text-sm text-red-600">{error}</p>}
       </div>
 
       {/* Bottom CTA */}

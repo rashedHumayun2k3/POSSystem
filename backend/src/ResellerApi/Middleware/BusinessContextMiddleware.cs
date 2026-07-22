@@ -15,11 +15,21 @@ public class BusinessContextMiddleware
     {
         var path = context.Request.Path.Value ?? "";
 
-        // Skip auth endpoints — they don't need a business context. Skip the SignalR hub too —
-        // it authenticates via JWT same as everything else, but scopes itself per-business via
-        // the JoinBusiness(businessId) RPC (Hubs/LiveHub.cs) after connecting, not an X-Business-Id
-        // header — SignalR's own negotiate/connect requests never carry that header.
+        // Skip auth endpoints — they don't need a business context. Skip platform-admin routes too —
+        // that JWT is cross-tenant by design (no company_id/business membership at all), so it can
+        // never satisfy the BusinessUsers check below. Skip ClientPage routes too — a logged-in
+        // CLIENTPAGE_CUSTOMER JWT (product reviews) is also cross-tenant (one shopper reviews
+        // products across many shops) and, once authenticated, would otherwise trip the
+        // X-Business-Id requirement below even though the ClientPage frontend never sends that
+        // header (it resolves its own per-request shop via ClientPageShopContextMiddleware
+        // instead). Skip the SignalR hub too — it authenticates via JWT same as everything else,
+        // but scopes itself per-business via the JoinBusiness(businessId) RPC (Hubs/LiveHub.cs)
+        // after connecting, not an X-Business-Id header — SignalR's own negotiate/connect
+        // requests never carry that header.
         if (path.StartsWith("/api/v1/auth", StringComparison.OrdinalIgnoreCase) ||
+            path.StartsWith("/api/v1/health", StringComparison.OrdinalIgnoreCase) ||
+            path.StartsWith("/api/v1/platform-admin", StringComparison.OrdinalIgnoreCase) ||
+            path.StartsWith("/api/v1/clientpage", StringComparison.OrdinalIgnoreCase) ||
             path.StartsWith("/hubs", StringComparison.OrdinalIgnoreCase))
         {
             await _next(context);

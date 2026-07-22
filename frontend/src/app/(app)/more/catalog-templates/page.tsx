@@ -10,12 +10,15 @@ import {
 } from "@/lib/catalogTemplatesApi";
 import ProductSuggestionsPicker from "@/components/catalog/ProductSuggestionsPicker";
 import { useLanguage } from "@/i18n/LanguageContext";
+import { getCategoryEmoji, getBusinessTypeEmoji } from "@/lib/categoryEmoji";
+import { suggestedCategoryDisplayName } from "@/lib/suggestedCategoryBn";
+import { useToastStore } from "@/store/toastStore";
 
 export default function CatalogTemplatesPage() {
   const router = useRouter();
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const qc = useQueryClient();
-  const [selectedCategoryIds, setSelectedCategoryIds] = useState<Set<string>>(new Set());
+  const [addingId, setAddingId] = useState<string | null>(null);
 
   const { data: suggestedCategories = [], isLoading: loadingCategories } = useQuery({
     queryKey: ["catalog-templates-suggested-categories"],
@@ -27,22 +30,20 @@ export default function CatalogTemplatesPage() {
     queryFn: listCategoriesWithSuggestions,
   });
 
-  const addCategoriesMutation = useMutation({
-    mutationFn: () => addSuggestedCategories([...selectedCategoryIds]),
+  const addOneMutation = useMutation({
+    mutationFn: (id: string) => addSuggestedCategories([id]),
     onSuccess: () => {
-      setSelectedCategoryIds(new Set());
+      setAddingId(null);
       qc.invalidateQueries({ queryKey: ["catalog-templates-suggested-categories"] });
       qc.invalidateQueries({ queryKey: ["catalog-templates-categories"] });
+      useToastStore.getState().show(t("catalogTemplates.categoryAdded"));
     },
+    onError: () => setAddingId(null),
   });
 
-  const toggleCategory = (id: string) => {
-    setSelectedCategoryIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+  const handleAdd = (id: string) => {
+    setAddingId(id);
+    addOneMutation.mutate(id);
   };
 
   const notYetAdded = suggestedCategories.filter((c) => !c.alreadyAdded);
@@ -63,63 +64,6 @@ export default function CatalogTemplatesPage() {
       </div>
 
       <div className="px-4 pt-4 space-y-6">
-        {/* Section A: add more categories */}
-        <div>
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
-            {t("catalogTemplates.addCategoriesTitle")}
-          </p>
-          {loadingCategories ? (
-            <div className="h-24 bg-gray-100 rounded-xl animate-pulse" />
-          ) : notYetAdded.length === 0 ? (
-            <p className="text-sm text-gray-400 py-2">{t("catalogTemplates.allCategoriesAdded")}</p>
-          ) : (
-            <div className="space-y-3">
-              {Object.entries(groupedByType).map(([typeCode, cats]) => (
-                <div key={typeCode}>
-                  <p className="text-[11px] text-gray-400 mb-1">{typeCode.replaceAll("_", " ")}</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {cats.map((cat) => {
-                      const isSelected = selectedCategoryIds.has(cat.id);
-                      return (
-                        <label
-                          key={cat.id}
-                          className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-sm font-medium transition-colors ${
-                            isSelected
-                              ? "border-indigo-500 bg-indigo-50 text-indigo-700"
-                              : "border-gray-100 bg-white text-gray-700"
-                          }`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            onChange={() => toggleCategory(cat.id)}
-                            className="w-4 h-4 rounded accent-indigo-600"
-                          />
-                          <span className="flex-1">{cat.name}</span>
-                          {isSelected && (
-                            <svg className="w-4 h-4 text-indigo-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                            </svg>
-                          )}
-                        </label>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-              <button
-                onClick={() => addCategoriesMutation.mutate()}
-                disabled={selectedCategoryIds.size === 0 || addCategoriesMutation.isPending}
-                className="w-full h-11 rounded-xl bg-indigo-600 text-white font-semibold text-sm disabled:opacity-40"
-              >
-                {addCategoriesMutation.isPending
-                  ? t("common.saving")
-                  : t("catalogTemplates.addSelectedCategories", { count: selectedCategoryIds.size })}
-              </button>
-            </div>
-          )}
-        </div>
-
         {/* Section B: add products to existing categories */}
         <div>
           <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
@@ -130,7 +74,55 @@ export default function CatalogTemplatesPage() {
           ) : categoriesWithSuggestions.length === 0 ? (
             <p className="text-sm text-gray-400 py-2">{t("catalogTemplates.noCategoriesYet")}</p>
           ) : (
-            <ProductSuggestionsPicker categories={categoriesWithSuggestions} />
+            <>
+              <p className="flex items-start gap-1.5 text-xs text-indigo-700 bg-indigo-50 rounded-lg px-3 py-2 mb-3">
+                <span>💡</span>
+                <span>{t("catalogTemplates.addProductsTip")}</span>
+              </p>
+              <ProductSuggestionsPicker categories={categoriesWithSuggestions} />
+            </>
+          )}
+        </div>
+
+        {/* Section A: add more categories */}
+        <div>
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+            {t("catalogTemplates.addCategoriesTitle")}
+          </p>
+          {loadingCategories ? (
+            <div className="h-24 bg-gray-100 rounded-xl animate-pulse" />
+          ) : notYetAdded.length === 0 ? (
+            <p className="text-sm text-gray-400 py-2">{t("catalogTemplates.allCategoriesAdded")}</p>
+          ) : (
+            <div className="space-y-4">
+              {Object.entries(groupedByType).map(([typeCode, cats]) => (
+                <div key={typeCode}>
+                  <p className="text-[11px] text-gray-400 mb-1.5">
+                    {getBusinessTypeEmoji(typeCode)} {t(`onboarding.type.${typeCode}`)}
+                  </p>
+                  <div className="space-y-2">
+                    {cats.map((cat) => (
+                      <div
+                        key={cat.id}
+                        className="flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl border border-gray-100 bg-white"
+                      >
+                        <span className="text-sm font-medium text-gray-700">
+                          {getCategoryEmoji(cat.name, cat.businessTypeCode)} {suggestedCategoryDisplayName(cat.name, lang)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleAdd(cat.id)}
+                          disabled={addingId === cat.id}
+                          className="shrink-0 text-xs font-semibold text-indigo-600 border border-indigo-200 px-3 py-1.5 rounded-lg disabled:opacity-40"
+                        >
+                          {addingId === cat.id ? t("common.adding") : t("catalogTemplates.addToMyBusiness")}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
           )}
         </div>
       </div>

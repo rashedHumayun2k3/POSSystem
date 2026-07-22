@@ -13,6 +13,8 @@ import {
   BanknotesIcon,
   BuildingStorefrontIcon,
   CreditCardIcon,
+  GlobeAltIcon,
+  QrCodeIcon,
 } from "@heroicons/react/24/outline";
 
 export default function SettingsPage() {
@@ -49,6 +51,18 @@ export default function SettingsPage() {
       title: t("settings.businessConfig"),
       desc: t("settings.businessConfigDesc"),
     },
+    // Business-wide, owner-only (same rationale as Branches/Partners/Subscription/Storefront below)
+    ...(isOwner
+      ? [
+          {
+            href: "/more/settings/shop-type",
+            icon: QrCodeIcon,
+            color: "bg-orange-100 text-orange-600",
+            title: t("settings.shopType"),
+            desc: t("settings.shopTypeDesc"),
+          },
+        ]
+      : []),
     // Owner-only: branch create/edit/toggle-active are OWNER-only actions server-side
     ...(isOwner
       ? [
@@ -82,6 +96,18 @@ export default function SettingsPage() {
             color: "bg-violet-100 text-violet-600",
             title: t("settings.subscription"),
             desc: t("settings.subscriptionDesc"),
+          },
+        ]
+      : []),
+    // Marketplace visibility is a business-wide decision, owner-only (same rationale as above)
+    ...(isOwner
+      ? [
+          {
+            href: "/more/settings/storefront",
+            icon: GlobeAltIcon,
+            color: "bg-sky-100 text-sky-600",
+            title: t("settings.storefront"),
+            desc: t("settings.storefrontDesc"),
           },
         ]
       : []),

@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ResellerApi.DTOs.Catalog;
+using ResellerApi.DTOs.ClientPage;
 using ResellerApi.Infrastructure;
 using ResellerApi.Services;
 using ResellerApi.Services.Interfaces;
@@ -16,15 +17,21 @@ public class ProductsController : ControllerBase
     private readonly IPriceHistoryService _priceSvc;
     private readonly IPriceSlotService _slotSvc;
     private readonly IOrderService _orderSvc;
+    private readonly IStockAdjustmentService _stockAdjSvc;
+    private readonly IProductReviewService _reviewSvc;
     private readonly ICurrentUserService _user;
+    private readonly IBusinessContext _business;
 
-    public ProductsController(IProductService svc, IPriceHistoryService priceSvc, IPriceSlotService slotSvc, IOrderService orderSvc, ICurrentUserService user)
+    public ProductsController(IProductService svc, IPriceHistoryService priceSvc, IPriceSlotService slotSvc, IOrderService orderSvc, IStockAdjustmentService stockAdjSvc, IProductReviewService reviewSvc, ICurrentUserService user, IBusinessContext business)
     {
         _svc = svc;
         _priceSvc = priceSvc;
         _slotSvc = slotSvc;
         _orderSvc = orderSvc;
+        _stockAdjSvc = stockAdjSvc;
+        _reviewSvc = reviewSvc;
         _user = user;
+        _business = business;
     }
 
     [HttpGet]
@@ -39,7 +46,7 @@ public class ProductsController : ControllerBase
             return Ok(products.Select(p => new
             {
                 p.Id, p.Name, p.Sku, p.ImageUrl, p.UnitCode,
-                p.SellingPrice, p.MarketPrice, p.Status,
+                p.SellingPrice, p.MarketPrice, p.MarketplacePrice, p.Status,
                 p.CategoryName, p.VariantCount, p.TotalStock
             }));
         }
@@ -95,8 +102,12 @@ public class ProductsController : ControllerBase
     [Authorize(Roles = "OWNER")]
     public async Task<IActionResult> Create([FromBody] CreateProductRequest request)
     {
-        var product = await _svc.CreateAsync(request, _user.UserId);
-        return CreatedAtAction(nameof(Get), new { id = product.Id }, product);
+        try
+        {
+            var product = await _svc.CreateAsync(request, _user.UserId);
+            return CreatedAtAction(nameof(Get), new { id = product.Id }, product);
+        }
+        catch (ArgumentException ex) { return BadRequest(new { message = ex.Message }); }
     }
 
     [HttpPut("{id:guid}")]
@@ -110,6 +121,57 @@ public class ProductsController : ControllerBase
     {
         await _svc.ArchiveAsync(id, _user.UserId);
         return NoContent();
+    }
+
+    [HttpPatch("{id:guid}/marketplace-visibility")]
+    [Authorize(Roles = "OWNER")]
+    public async Task<IActionResult> SetMarketplaceVisibility(Guid id, [FromBody] SetProductMarketplaceVisibilityRequest request)
+    {
+        var showOnMarketplace = await _svc.SetShowOnMarketplaceAsync(id, request.Show, _user.UserId);
+        return Ok(new { showOnMarketplace });
+    }
+
+    [HttpPut("{id:guid}/marketplace-details")]
+    [Authorize(Roles = "OWNER")]
+    public async Task<IActionResult> UpdateMarketplaceDetails(Guid id, [FromBody] UpdateMarketplaceDetailsRequest request)
+    {
+        try
+        {
+            await _svc.SetMarketplaceDetailsAsync(id, request, _user.UserId);
+            return NoContent();
+        }
+        catch (ArgumentException ex) { return BadRequest(new { message = ex.Message }); }
+        catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
+    }
+
+    [HttpGet("marketplace-detail-templates")]
+    [Authorize(Roles = "OWNER")]
+    public async Task<IActionResult> GetMarketplaceDetailTemplates()
+        => Ok(await _svc.GetMarketplaceDetailTemplatesAsync());
+
+    [HttpPost("{id:guid}/images")]
+    [Authorize(Roles = "OWNER")]
+    public async Task<IActionResult> AddImage(Guid id, [FromBody] AddProductImageRequest request)
+    {
+        try { return Ok(await _svc.AddImageAsync(id, request, _user.UserId)); }
+        catch (ArgumentException ex) { return BadRequest(new { message = ex.Message }); }
+        catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
+    }
+
+    [HttpDelete("{id:guid}/images/{imageId:guid}")]
+    [Authorize(Roles = "OWNER")]
+    public async Task<IActionResult> RemoveImage(Guid id, Guid imageId)
+    {
+        try { await _svc.RemoveImageAsync(id, imageId, _user.UserId); return NoContent(); }
+        catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
+    }
+
+    [HttpPut("{id:guid}/images/reorder")]
+    [Authorize(Roles = "OWNER")]
+    public async Task<IActionResult> ReorderImages(Guid id, [FromBody] ReorderProductImagesRequest request)
+    {
+        try { await _svc.ReorderImagesAsync(id, request, _user.UserId); return NoContent(); }
+        catch (ArgumentException ex) { return BadRequest(new { message = ex.Message }); }
     }
 
     // ── Variants ───────────────────────────────────────────────────────────────
@@ -164,7 +226,64 @@ public class ProductsController : ControllerBase
     public async Task<IActionResult> GetSlotHistory(Guid variantId)
         => Ok(await _slotSvc.GetActivationHistoryAsync(variantId));
 
+    // ── Stock adjustments ──────────────────────────────────────────────────────
+
+    [HttpGet("variants/{variantId:guid}/stock-adjustments")]
+    [Authorize(Roles = Roles.OwnerOrManager)]
+    public async Task<IActionResult> GetStockAdjustments(Guid variantId)
+        => Ok(await _stockAdjSvc.GetHistoryAsync(variantId));
+
+    [HttpPost("variants/{variantId:guid}/stock-adjustments")]
+    [Authorize(Roles = Roles.OwnerOrManager)]
+    public async Task<IActionResult> AdjustStock(Guid variantId, [FromBody] AdjustStockRequest request)
+    {
+        try { return Ok(await _stockAdjSvc.AdjustAsync(variantId, request, _user.UserId)); }
+        catch (ArgumentException ex) { return BadRequest(new { message = ex.Message }); }
+        catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
+    }
+
     [HttpGet("{id:guid}/orders")]
     public async Task<IActionResult> OrdersByProduct(Guid id)
         => Ok(await _orderSvc.ListByProductAsync(id, _user.CanSeeCosts));
+
+    [HttpGet("{id:guid}/reviews")]
+    public async Task<IActionResult> ReviewsByProduct(Guid id)
+        => Ok(await _reviewSvc.GetReviewsForStaffAsync(_business.CurrentBusinessId, id));
+
+    [HttpPost("{id:guid}/reviews/{reviewId:guid}/reply")]
+    [Authorize(Roles = Roles.OwnerOrManager)]
+    public async Task<IActionResult> ReplyToReview(Guid id, Guid reviewId, [FromBody] ReplyToReviewRequest request)
+    {
+        try
+        {
+            await _reviewSvc.ReplyAsync(_business.CurrentBusinessId, reviewId, _user.UserId, request);
+            return NoContent();
+        }
+        catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
+        catch (ArgumentException ex) { return BadRequest(new { message = ex.Message }); }
+    }
+
+    [HttpDelete("{id:guid}/reviews/{reviewId:guid}/reply")]
+    [Authorize(Roles = Roles.OwnerOrManager)]
+    public async Task<IActionResult> DeleteReviewReply(Guid id, Guid reviewId)
+    {
+        try
+        {
+            await _reviewSvc.DeleteReplyAsync(_business.CurrentBusinessId, reviewId);
+            return NoContent();
+        }
+        catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
+    }
+
+    [HttpPatch("{id:guid}/reviews/{reviewId:guid}/hide")]
+    [Authorize(Roles = Roles.OwnerOrManager)]
+    public async Task<IActionResult> SetReviewHidden(Guid id, Guid reviewId, [FromBody] bool hidden)
+    {
+        try
+        {
+            await _reviewSvc.SetHiddenAsync(_business.CurrentBusinessId, reviewId, hidden);
+            return NoContent();
+        }
+        catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
+    }
 }

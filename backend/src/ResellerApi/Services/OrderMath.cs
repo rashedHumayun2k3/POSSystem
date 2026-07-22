@@ -25,4 +25,11 @@ public static class OrderMath
         if (unitPrice <= 0) return 0;
         return Math.Round((1m - unitCost / unitPrice) * 100m, 2);
     }
+
+    /// <summary>
+    /// How much a customer has overpaid after an order is revised down (e.g. an item's qty was
+    /// reduced or removed). Zero when the existing payment still covers the new total.
+    /// </summary>
+    public static decimal ComputeOverpaymentExcess(decimal totalPaid, decimal newTotal) =>
+        Math.Max(0, Math.Round(totalPaid - newTotal, 2));
 }

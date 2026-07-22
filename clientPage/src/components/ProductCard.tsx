@@ -8,6 +8,8 @@ import { formatVariantLabel } from "@/lib/variantLabel";
 import { buildProductHref } from "@/lib/slug";
 import { useShopContext } from "@/context/ShopContext";
 import { useCartStore } from "@/store/cartStore";
+import { resolveMediaUrl } from "@/lib/media";
+import { getDiscountPercent } from "@/lib/discount";
 
 const PlusIcon = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
@@ -26,6 +28,7 @@ export default function ProductCard({ product }: { product: ProductCardDto }) {
   const addItem = useCartStore((s) => s.addItem);
   const [added, setAdded] = useState(false);
   const variantLabel = formatVariantLabel(product.variantValuesJson);
+  const discountPercent = getDiscountPercent(product);
 
   return (
     <Link
@@ -34,13 +37,18 @@ export default function ProductCard({ product }: { product: ProductCardDto }) {
     >
       <div className="relative aspect-square bg-gray-100">
         {product.imageUrl ? (
-          <Image src={product.imageUrl} alt={product.name} fill className="object-cover" unoptimized />
+          <Image src={resolveMediaUrl(product.imageUrl) ?? ''} alt={product.name} fill className="object-cover" unoptimized />
         ) : (
           <div className="flex items-center justify-center h-full text-gray-300 text-xs">No image</div>
         )}
         {!product.inStock && (
           <span className="absolute top-1.5 left-1.5 bg-gray-900/80 text-white text-[10px] px-1.5 py-0.5 rounded">
             Out of stock
+          </span>
+        )}
+        {product.inStock && discountPercent > 0 && (
+          <span className="absolute top-1.5 left-1.5 bg-red-600 text-white text-[10px] font-semibold px-1.5 py-0.5 rounded">
+            -{discountPercent}%
           </span>
         )}
         {product.inStock && (
@@ -70,12 +78,32 @@ export default function ProductCard({ product }: { product: ProductCardDto }) {
           </button>
         )}
       </div>
-      <div className="p-2.5 flex flex-col gap-0.5">
+      <div className="p-2.5 flex flex-col gap-0.5 flex-1">
         <span className="text-sm font-medium text-gray-900 line-clamp-2 min-h-[2.5em]">{product.name}</span>
         {variantLabel && <span className="text-xs text-gray-500">{variantLabel}</span>}
-        <span className="text-sm font-semibold text-indigo-600">৳{product.price.toFixed(2)}</span>
+        <span className="flex items-baseline gap-1.5">
+          <span className="text-lg font-bold text-orange-600">৳{product.price.toFixed(2)}</span>
+          {discountPercent > 0 && (
+            <span className="text-xs text-gray-400 line-through">৳{product.marketPrice!.toFixed(2)}</span>
+          )}
+        </span>
+        {product.reviewCount > 0 ? (
+          <span className="flex items-center gap-1 text-xs text-gray-500">
+            <span className="text-amber-400">★</span>
+            {product.averageRating?.toFixed(1)}
+            <span className="text-gray-400">({product.reviewCount})</span>
+          </span>
+        ) : (
+          // Always render something here rather than leaving this slot empty — an empty slot
+          // makes cards in the same row look inconsistently sized, and "0 reviews" reads as
+          // discouraging. A soft invitation instead nudges buyers toward reviewing and signals
+          // an active product to the shop owner.
+          <span className="text-[11px] text-gray-400 italic">Be the first to review</span>
+        )}
         {mode === "marketplace" && (
-          <span className="text-[11px] text-gray-400 truncate">{product.shopName}</span>
+          <span className="block w-full text-center mt-auto pt-0.5 px-2 py-0.5 rounded-md bg-gray-100 text-[11px] text-gray-500 truncate">
+            {product.shopName}
+          </span>
         )}
       </div>
     </Link>

@@ -126,6 +126,32 @@ public class RemittanceService : IRemittanceService
         {
             order.RemittanceId = remittance.Id;
             order.CodRemittanceStatus = "REMITTED";
+
+            // The customer already paid the courier the full COD amount at delivery — the
+            // courier may deduct their own fee before remitting the net cash to us, but that's
+            // a separate business-expense concern, not a reason to under-record what the
+            // customer paid. So each order gets its own full outstanding due recorded here, same
+            // "recompute payment status" pattern as AddPaymentAsync — not a share of
+            // request.Amount, which may already be net of the courier's fee.
+            var due = ComputeTotal(order) - order.Payments.Sum(p => p.Amount);
+            if (due <= 0) continue;
+
+            _db.OrderPayments.Add(new OrderPayment
+            {
+                OrderId = order.Id,
+                Method = "COD",
+                Amount = due,
+                ReceivedAt = request.RemittedAt,
+                UserId = userId
+            });
+
+            var totalPaid = order.Payments.Sum(p => p.Amount) + due;
+            var total = ComputeTotal(order);
+            var prevPayment = order.PaymentStatus;
+            order.PaymentStatus = totalPaid >= total ? "PAID" : totalPaid > 0 ? "PARTIALLY_PAID" : "UNPAID";
+
+            if (prevPayment != order.PaymentStatus)
+                _db.OrderStatusHistories.Add(new OrderStatusHistory { OrderId = order.Id, Track = "PAYMENT", FromStatus = prevPayment, ToStatus = order.PaymentStatus, UserId = userId });
         }
         await _db.SaveChangesAsync();
 

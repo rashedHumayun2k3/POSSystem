@@ -5,10 +5,11 @@ namespace ResellerApi.Services.Interfaces;
 public interface IOrderService
 {
     Task<OrderDetailDto> CreateAsync(CreateOrderRequest request, Guid userId);
-    Task<List<OrderListDto>> ListAsync(string? orderStatus, string? fulfillmentStatus, string? channel, string? q, DateTime? from, DateTime? to, bool canSeeCosts);
+    Task<List<OrderListDto>> ListAsync(string? orderStatus, string? fulfillmentStatus, string? paymentStatus, string? channel, string? q, DateTime? from, DateTime? to, bool canSeeCosts);
     Task<List<OrderListDto>> ListByProductAsync(Guid productId, bool canSeeCosts);
     Task<OrderDetailDto> GetAsync(Guid id, bool isOwner);
     Task<OrderDetailDto> UpdateAsync(Guid id, UpdateOrderRequest request, Guid userId);
+    Task<OrderDetailDto> ReviseAsync(Guid id, ReviseOrderRequest request, Guid userId);
     Task DeleteAsync(Guid id, string reason, Guid userId);
     Task<OrderDetailDto> ConfirmAsync(Guid id, Guid userId);
     Task<OrderDetailDto> PackAsync(Guid id, Guid userId);

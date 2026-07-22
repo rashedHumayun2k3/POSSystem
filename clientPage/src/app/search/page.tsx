@@ -14,7 +14,7 @@ export default function SearchPage() {
       <TopHeader initialQuery={q} />
       <div className="px-4 lg:px-8 py-3">
         <h1 className="text-base lg:text-xl font-semibold text-gray-900">
-          {q ? `Results for "${q}"` : "Search"}
+          {q ? `Results for "${q}"` : "All Products"}
         </h1>
       </div>
       <ProductGrid q={q} />

@@ -3,20 +3,22 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import { ChevronDownIcon } from "@heroicons/react/24/outline";
 import { listOrders } from "@/lib/ordersApi";
-import { useLanguage, type Lang } from "@/i18n/LanguageContext";
+import { useLanguage } from "@/i18n/LanguageContext";
 import { useAuthStore } from "@/store/authStore";
 import StatusBadge from "@/components/ui/StatusBadge";
-import type { FulfillmentStatus, OrderListItem, OrderListItemSummary } from "@/types/orders";
+import { itemsSummaryText } from "@/lib/orderListHelpers";
 
+// "New Orders" first and selected by default — for online-orders-only staff, that's the queue
+// that matters most (see conversation: literal label beats status jargon like "Open" for
+// less tech-savvy staff, and it's what they should land on without extra taps).
 const FULFILLMENT_TABS: Array<{ key: string; labelKey: string }> = [
-  { key: "", labelKey: "orders.all" },
-  { key: "UNFULFILLED", labelKey: "orders.open" },
+  { key: "UNFULFILLED", labelKey: "orders.newOrders" },
   { key: "PACKED", labelKey: "orders.packed" },
   { key: "IN_TRANSIT", labelKey: "orders.inTransit" },
   { key: "DELIVERED", labelKey: "orders.delivered" },
   { key: "RETURNED", labelKey: "orders.returned" },
+  { key: "", labelKey: "orders.all" },
 ];
 
 const CHANNEL_ICONS: Record<string, string> = {
@@ -29,96 +31,19 @@ const CHANNEL_ICONS: Record<string, string> = {
   OTHER: "•",
 };
 
-type ChannelFilter = "" | "SHOP" | "ONLINE";
-
-interface DateGroup {
-  businessDate: string;
-  orders: OrderListItem[];
-  total: number;
-  profit?: number; // undefined if any order in the group is missing profit (i.e. STAFF viewer)
-}
-
-// Orders already arrive sorted by BusinessDate desc (server-side), so a single pass groups
-// consecutive same-date rows without needing to re-sort client-side.
-function groupByBusinessDate(orders: OrderListItem[]): DateGroup[] {
-  const groups: DateGroup[] = [];
-  for (const order of orders) {
-    const last = groups[groups.length - 1];
-    if (last && last.businessDate === order.businessDate) {
-      last.orders.push(order);
-      last.total += order.totalAmount;
-      last.profit = last.profit === undefined || order.profit === undefined
-        ? undefined
-        : last.profit + order.profit;
-    } else {
-      groups.push({ businessDate: order.businessDate, orders: [order], total: order.totalAmount, profit: order.profit });
-    }
-  }
-  return groups;
-}
-
-const MONTH_NAMES: Record<Lang, string[]> = {
-  en: ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"],
-  bn: ["জানুয়ারি", "ফেব্রুয়ারি", "মার্চ", "এপ্রিল", "মে", "জুন", "জুলাই", "আগস্ট", "সেপ্টেম্বর", "অক্টোবর", "নভেম্বর", "ডিসেম্বর"],
-};
-
-function formatBusinessDate(dateStr: string, lang: Lang): string {
-  const [y, m, d] = dateStr.split("-").map(Number);
-  return `${d} ${MONTH_NAMES[lang][m - 1]} ${y}`;
-}
-
-// One fixed color per day of the week (Sun=0 .. Sat=6) — a quick visual cue for spotting
-// weekly patterns (e.g. Friday/Saturday weekend sales) while scanning a long order history.
-const WEEKDAY_STYLES = [
-  { bg: "bg-rose-50",    border: "border-rose-100",    text: "text-rose-700",    icon: "text-rose-500" },    // Sunday
-  { bg: "bg-indigo-50",  border: "border-indigo-100",  text: "text-indigo-700",  icon: "text-indigo-500" },  // Monday
-  { bg: "bg-sky-50",     border: "border-sky-100",     text: "text-sky-700",     icon: "text-sky-500" },     // Tuesday
-  { bg: "bg-emerald-50", border: "border-emerald-100", text: "text-emerald-700", icon: "text-emerald-500" }, // Wednesday
-  { bg: "bg-amber-50",   border: "border-amber-100",   text: "text-amber-700",   icon: "text-amber-500" },   // Thursday
-  { bg: "bg-fuchsia-50", border: "border-fuchsia-100", text: "text-fuchsia-700", icon: "text-fuchsia-500" }, // Friday
-  { bg: "bg-orange-50",  border: "border-orange-100",  text: "text-orange-700",  icon: "text-orange-500" },  // Saturday
-];
-
-// getUTCDay (not getDay) — businessDate is a plain date string with no time component, so
-// reading it in UTC avoids the weekday shifting based on the viewer's local timezone.
-function weekdayIndex(dateStr: string): number {
-  return new Date(`${dateStr}T00:00:00Z`).getUTCDay();
-}
-
-function weekdayStyle(dateStr: string) {
-  return WEEKDAY_STYLES[weekdayIndex(dateStr)];
-}
-
-const DAY_NAMES: Record<Lang, string[]> = {
-  en: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
-  bn: ["রবিবার", "সোমবার", "মঙ্গলবার", "বুধবার", "বৃহস্পতিবার", "শুক্রবার", "শনিবার"],
-};
-
-function dayName(dateStr: string, lang: Lang): string {
-  return DAY_NAMES[lang][weekdayIndex(dateStr)];
-}
-
-function itemsSummaryText(items: OrderListItemSummary[]): string {
-  if (items.length === 0) return "";
-  const first = items[0];
-  const label = `${first.productName}${first.variantSku ? ` (${first.variantSku})` : ""}`;
-  return items.length > 1 ? `${label} +${items.length - 1} more` : label;
-}
-
 export default function OrdersPage() {
-  const { t, lang } = useLanguage();
-  const [activeTab, setActiveTab] = useState("");
+  const { t } = useLanguage();
+  const [activeTab, setActiveTab] = useState("UNFULFILLED");
   const [search, setSearch] = useState("");
-  const [channelFilter, setChannelFilter] = useState<ChannelFilter>("");
-  const [collapsedDates, setCollapsedDates] = useState<Set<string>>(new Set());
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const currentBranchId = useAuthStore((s) => s.currentBranchId);
 
-  // Neither "Shop" nor "Online" is a single Channel value on the backend — Hawker night-entry
-  // sales are walk-in/counter sales just like Shop, so "Shop" means SHOP+HAWKER and "Online" is
-  // everything else. The list endpoint only filters on one exact Channel, so both tabs filter
-  // client-side instead; "All" fetches unfiltered as normal.
+  // This page is online-orders-only now — Shop/Hawker counter sales are instant, auto-confirmed,
+  // auto-paid walk-in transactions (see PaymentModal.tsx / hawker/night-entry/page.tsx) that
+  // never need this "still needs staff action" queue; they show up directly in Sales Record
+  // instead. The list endpoint only filters on one exact Channel, so Shop/Hawker are excluded
+  // client-side rather than via a toggle.
   // currentBranchId is in the key purely to force a refetch on branch switch — Order is
   // branch-scoped server-side already (via X-Branch-Id + EF's global query filter), but
   // React Query has no way to know that unless the key changes too (same pattern as
@@ -136,22 +61,11 @@ export default function OrdersPage() {
     staleTime: 15_000,
   });
 
-  const visibleOrders =
-    channelFilter === "SHOP"
-      ? orders.filter((o) => o.channel === "SHOP" || o.channel === "HAWKER")
-      : channelFilter === "ONLINE"
-      ? orders.filter((o) => o.channel !== "SHOP" && o.channel !== "HAWKER")
-      : orders;
-  const dateGroups = groupByBusinessDate(visibleOrders);
-
-  const toggleDate = (date: string) => {
-    setCollapsedDates((prev) => {
-      const next = new Set(prev);
-      if (next.has(date)) next.delete(date);
-      else next.add(date);
-      return next;
-    });
-  };
+  // Flat, newest-first — no date grouping here (that's Sales Record's job for daily revenue
+  // totals). Orders is a "what needs my attention right now" queue; grouping by day just adds a
+  // tap-to-expand step in front of the one thing staff actually came here to see. The list
+  // endpoint already sorts BusinessDate/CreatedAt desc, so no client-side re-sort is needed.
+  const visibleOrders = orders.filter((o) => o.channel !== "SHOP" && o.channel !== "HAWKER");
 
   return (
     <div className="flex flex-col h-full">
@@ -173,27 +87,6 @@ export default function OrdersPage() {
             }`}
           >
             {t(tab.labelKey)}
-          </button>
-        ))}
-      </div>
-
-      {/* Shop vs Online filter */}
-      <div className="flex gap-1 px-3 pb-1 overflow-x-auto no-scrollbar">
-        {([
-          { key: "", label: t("orders.channelAll") },
-          { key: "SHOP", label: `🏪 ${t("orders.channelShop")}` },
-          { key: "ONLINE", label: t("orders.channelOnline") },
-        ] as { key: ChannelFilter; label: string }[]).map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => setChannelFilter(tab.key)}
-            className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-              channelFilter === tab.key
-                ? "bg-indigo-100 text-indigo-700 border border-indigo-200"
-                : "bg-white text-gray-500 border border-gray-200"
-            }`}
-          >
-            {tab.label}
           </button>
         ))}
       </div>
@@ -248,91 +141,70 @@ export default function OrdersPage() {
         {!isLoading && visibleOrders.length === 0 && (
           <div className="text-center py-12 text-gray-400 text-sm">{t("common.noData")}</div>
         )}
-        {dateGroups.map((group) => {
-          const collapsed = collapsedDates.has(group.businessDate);
-          const style = weekdayStyle(group.businessDate);
-          return (
-          <div key={group.businessDate} className={`rounded-xl border ${style.border} overflow-hidden`}>
-            <button
-              onClick={() => toggleDate(group.businessDate)}
-              className={`w-full flex items-center justify-between px-4 py-3.5 ${style.bg} active:brightness-95 transition-all`}
-            >
-              <div className="flex items-center gap-2">
-                <ChevronDownIcon
-                  className={`w-5 h-5 ${style.icon} transition-transform ${collapsed ? "-rotate-90" : ""}`}
-                />
-                <div className="flex flex-col items-start leading-tight">
-                  <span className={`text-base font-bold ${style.text}`}>
-                    {formatBusinessDate(group.businessDate, lang)}
+        {!isLoading && visibleOrders.length > 0 && (
+          <div className="rounded-xl border border-gray-100 overflow-hidden divide-y divide-gray-100 bg-white">
+            {visibleOrders.map((order) => {
+              // Not-yet-packed orders (draft awaiting confirmation, or confirmed but unpacked):
+              // FulfillmentStatus/PaymentStatus/due-amount are always the same three values for
+              // every order in this state (UNFULFILLED/UNPAID/full amount due) — not information,
+              // just noise. What actually helps decide confirm-vs-cancel is whether there's
+              // enough stock, so that replaces the status badges here. Once an order moves past
+              // this stage the badges become meaningful again and come back.
+              const isNew = order.fulfillmentStatus === "UNFULFILLED";
+              return (
+              <Link
+                key={order.id}
+                href={`/orders/${order.id}`}
+                className="block p-3 active:bg-gray-50"
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-xs text-gray-400 font-mono">{order.orderNo}</span>
+                  <span className="text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded font-mono">
+                    {CHANNEL_ICONS[order.channel] ?? order.channel}
                   </span>
-                  <span className={`text-xs font-medium opacity-70 ${style.text}`}>
-                    {dayName(group.businessDate, lang)}
+                  {order.isDraft && (
+                    <span className="text-xs bg-amber-100 text-amber-700 font-semibold px-1.5 py-0.5 rounded">
+                      {t("orders.newBadge")}
+                    </span>
+                  )}
+                  {order.isRevised && (
+                    <span className="text-xs bg-amber-100 text-amber-700 font-semibold px-1.5 py-0.5 rounded">
+                      🔄 {t("orders.revisedBadge")}
+                    </span>
+                  )}
+                  <span className="text-sm font-semibold text-gray-900 shrink-0 ml-auto">
+                    ৳{order.totalAmount.toLocaleString()}
                   </span>
                 </div>
-              </div>
-              <div className="flex flex-col items-end leading-tight">
-                <span className={`text-sm font-bold ${style.text}`}>
-                  {t("orders.dayTotal")}: ৳{group.total.toLocaleString()}
-                </span>
-                {group.profit !== undefined && (
-                  <span className={`text-xs font-medium opacity-70 ${style.text}`}>
-                    {t("orders.dayProfit")}: ৳{group.profit.toLocaleString()}
-                  </span>
+
+                {/* Non-new orders (Packed/In Transit/Delivered/...) don't get the full per-item
+                    breakdown below (status badges are the useful info at that stage), so this is
+                    the only place product info shows for them — keep it there. New orders get
+                    the full breakdown instead, so this line would just repeat it. */}
+                {!isNew && (
+                  <p className="font-semibold text-sm text-gray-900 truncate mb-1">
+                    {itemsSummaryText(order.items)}
+                  </p>
                 )}
-              </div>
-            </button>
 
-            {!collapsed && (
-            <div className="divide-y divide-gray-100 bg-white">
-              {group.orders.map((order) => (
-                <Link
-                  key={order.id}
-                  href={`/orders/${order.id}`}
-                  className="block p-3 active:bg-gray-50"
-                >
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="font-semibold text-sm text-gray-900 truncate mr-2">
-                      {itemsSummaryText(order.items)}
-                    </span>
-                    <span className="text-sm font-semibold text-gray-900 shrink-0">
-                      ৳{order.totalAmount.toLocaleString()}
-                    </span>
+                {isNew ? (
+                  <div className="space-y-0.5">
+                    {order.items.map((item, idx) => {
+                      const short = item.availableStock < item.qty;
+                      return (
+                        <p key={idx} className="text-xs truncate">
+                          <span className="text-gray-700 font-medium">{item.productName}</span>{" "}
+                          <span className={short ? "text-red-600 font-semibold" : "text-gray-500"}>
+                            ({t("orders.qty")}: {item.qty} | {t("orders.stock")}: {item.availableStock})
+                          </span>
+                        </p>
+                      );
+                    })}
                   </div>
-
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-xs text-gray-400 font-mono">{order.orderNo}</span>
-                    <span className="text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded font-mono">
-                      {CHANNEL_ICONS[order.channel] ?? order.channel}
-                    </span>
-                    {order.isDraft && (
-                      <span className="text-xs bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded">
-                        {t("orders.draft")}
-                      </span>
-                    )}
-                  </div>
-
-                  {/* The generic Walk-in/00000000000 placeholder (Shop/Hawker sales with no
-                      customer picked) carries no information — hide it. A real customer
-                      attached to a Shop sale (e.g. for baki tracking) still shows normally. */}
-                  {order.customerPhone !== "00000000000" && (
-                    <div className="text-sm text-gray-700 mb-1">
-                      {order.customerName}{" "}
-                      <span className="text-gray-400 text-xs">{order.customerPhone}</span>
-                    </div>
-                  )}
-
+                ) : (
                   <div className="flex flex-wrap gap-1 items-center">
-                    {/* Shop and Hawker sales are already-settled walk-in/counter cash sales —
-                        FulfillmentStatus (always UNFULFILLED) and PaymentStatus (always PAID)
-                        never carry any real information for these two channels, so they're just
-                        noise here. Delivery channels (Facebook/WhatsApp/Instagram/Phone) actually
-                        progress through real fulfillment states, so they still show both tags. */}
-                    {order.channel !== "HAWKER" && order.channel !== "SHOP" && (
-                      <StatusBadge status={order.fulfillmentStatus} />
-                    )}
-                    {order.channel !== "HAWKER" && order.channel !== "SHOP" && (
-                      <StatusBadge status={order.paymentStatus} />
-                    )}
+                    <StatusBadge status={order.fulfillmentStatus} />
+                    <StatusBadge status={order.paymentStatus} />
                     {order.dueAmount > 0 && (
                       <span className="text-xs text-red-600 font-medium">
                         বাকি ৳{order.dueAmount.toLocaleString()}
@@ -347,13 +219,12 @@ export default function OrdersPage() {
                       <span className="text-xs text-indigo-600">{order.trackingNo}</span>
                     )}
                   </div>
-                </Link>
-              ))}
-            </div>
-            )}
+                )}
+              </Link>
+              );
+            })}
           </div>
-          );
-        })}
+        )}
       </div>
     </div>
   );

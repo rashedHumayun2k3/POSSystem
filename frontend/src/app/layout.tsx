@@ -11,10 +11,10 @@ const hindSiliguri = Hind_Siliguri({
 });
 
 export const metadata: Metadata = {
-  title: "Reseller Manager",
+  title: "LavLokshan",
   description: "Business management for resellers",
   manifest: "/manifest.json",
-  appleWebApp: { capable: true, statusBarStyle: "default", title: "Reseller" },
+  appleWebApp: { capable: true, statusBarStyle: "default", title: "LavLokshan" },
 };
 
 export const viewport: Viewport = {
@@ -28,9 +28,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="bn" className={`${inter.variable} ${hindSiliguri.variable} h-full antialiased`}>
       <body className="min-h-full bg-gray-50 font-sans" suppressHydrationWarning>
-        <div className="max-w-[768px] mx-auto min-h-full bg-white shadow-sm">
-          <Providers>{children}</Providers>
-        </div>
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

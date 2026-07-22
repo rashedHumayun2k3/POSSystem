@@ -1,8 +1,9 @@
 "use client";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { ShopContextProvider } from "@/context/ShopContext";
+import { hydrateClientPageAuth } from "@/store/clientPageAuthStore";
 
 export default function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
@@ -13,6 +14,10 @@ export default function Providers({ children }: { children: React.ReactNode }) {
         },
       })
   );
+
+  useEffect(() => {
+    hydrateClientPageAuth();
+  }, []);
 
   return (
     <QueryClientProvider client={queryClient}>

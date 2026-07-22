@@ -15,7 +15,7 @@ out/
 *.db-wal
 
 # Locally uploaded media (dev-time local disk storage)
-/backend/src/ResellerApi/wwwroot/uploads/
+/backend/src/ResellerApi.MediaService/App_Data/uploads/
 
 # Misc logs
 *.log

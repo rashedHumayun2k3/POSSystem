@@ -60,10 +60,11 @@ public class CategoryPresetService : ICategoryPresetService
             if (fields.Count > 0) await _db.SaveChangesAsync();
 
             created.Add(new CategoryDto(
-                cat.Id, cat.Name, cat.DefaultUnit,
+                cat.Id, cat.Name, cat.NameBn, cat.DefaultUnit,
                 fields.Select(f => new CategoryFieldDto(
                     f.Id, f.Name, f.FieldType, f.OptionsJson, f.IsRequired, f.IsVariant, f.IsPerLot, f.SortOrder
-                )).ToList()
+                )).ToList(),
+                null, null, null
             ));
         }
 

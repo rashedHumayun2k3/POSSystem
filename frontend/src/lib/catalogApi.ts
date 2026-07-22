@@ -9,6 +9,12 @@ import type {
   PriceActivationLog,
   CreateSlotPayload,
   CreateProductPayload,
+  Variant,
+  StockAdjustment,
+  StockAdjustReason,
+  AdminProductReview,
+  MarketplaceDetailSection,
+  ProductImage,
 } from '@/types/catalog';
 
 // ── Categories ────────────────────────────────────────────────────────────────
@@ -23,12 +29,12 @@ export const getCategory = async (id: string): Promise<Category> => {
   return data;
 };
 
-export const createCategory = async (payload: { name: string; defaultUnit?: string }): Promise<Category> => {
+export const createCategory = async (payload: { name: string; nameBn?: string | null; defaultUnit?: string; parentCategoryId?: string | null }): Promise<Category> => {
   const { data } = await api.post('/categories', payload);
   return data;
 };
 
-export const updateCategory = async (id: string, payload: { name: string; defaultUnit?: string }): Promise<Category> => {
+export const updateCategory = async (id: string, payload: { name: string; nameBn?: string | null; defaultUnit?: string; parentCategoryId?: string | null }): Promise<Category> => {
   const { data } = await api.put(`/categories/${id}`, payload);
   return data;
 };
@@ -150,6 +156,95 @@ export const updateProduct = async (
 
 export const archiveProduct = async (id: string): Promise<void> => {
   await api.patch(`/products/${id}/archive`);
+};
+
+export const setProductMarketplaceVisibility = async (id: string, show: boolean): Promise<{ showOnMarketplace: boolean }> => {
+  const { data } = await api.patch(`/products/${id}/marketplace-visibility`, { show });
+  return data;
+};
+
+export const updateMarketplaceDetails = async (
+  id: string,
+  payload: {
+    youtubeUrl: string | null;
+    details: { section: MarketplaceDetailSection; label: string; value: string; sortOrder: number }[];
+    marketplacePrice: number | null;
+  }
+): Promise<void> => {
+  await api.put(`/products/${id}/marketplace-details`, payload);
+};
+
+export const getMarketplaceDetailTemplates = async (): Promise<{ section: MarketplaceDetailSection; label: string }[]> => {
+  const { data } = await api.get('/products/marketplace-detail-templates');
+  return data;
+};
+
+// ── Gallery images ───────────────────────────────────────────────────────────
+
+export const addProductImage = async (id: string, imageUrl: string): Promise<ProductImage> => {
+  const { data } = await api.post(`/products/${id}/images`, { imageUrl });
+  return data;
+};
+
+export const removeProductImage = async (id: string, imageId: string): Promise<void> => {
+  await api.delete(`/products/${id}/images/${imageId}`);
+};
+
+export const reorderProductImages = async (id: string, imageIdsInOrder: string[]): Promise<void> => {
+  await api.put(`/products/${id}/images/reorder`, { imageIdsInOrder });
+};
+
+// ── Variants ──────────────────────────────────────────────────────────────────
+
+export const addVariant = async (
+  productId: string,
+  payload: { variantValuesJson: string; barcode: string | null; imageUrl: string | null; note: string | null; priceOverride: number | null; isDefault: boolean }
+): Promise<Variant> => {
+  const { data } = await api.post(`/products/${productId}/variants`, payload);
+  return data;
+};
+
+export const updateVariant = async (
+  productId: string,
+  variantId: string,
+  payload: { imageUrl: string | null; note: string | null; priceOverride: number | null; isDefault: boolean; rowVer: number[] }
+): Promise<Variant> => {
+  const { data } = await api.put(`/products/${productId}/variants/${variantId}`, payload);
+  return data;
+};
+
+// ── Stock adjustments ──────────────────────────────────────────────────────────
+
+export const getStockAdjustments = async (variantId: string): Promise<StockAdjustment[]> => {
+  const { data } = await api.get(`/products/variants/${variantId}/stock-adjustments`);
+  return data;
+};
+
+export const adjustStock = async (
+  variantId: string,
+  payload: { reason: StockAdjustReason; mode: 'SET' | 'DELTA'; value: number; note: string | null }
+): Promise<StockAdjustment> => {
+  const { data } = await api.post(`/products/variants/${variantId}/stock-adjustments`, payload);
+  return data;
+};
+
+// ── Reviews ───────────────────────────────────────────────────────────────────
+
+export const getProductReviews = async (productId: string): Promise<AdminProductReview[]> => {
+  const { data } = await api.get(`/products/${productId}/reviews`);
+  return data;
+};
+
+export const replyToReview = async (productId: string, reviewId: string, body: string): Promise<void> => {
+  await api.post(`/products/${productId}/reviews/${reviewId}/reply`, { body });
+};
+
+export const deleteReviewReply = async (productId: string, reviewId: string): Promise<void> => {
+  await api.delete(`/products/${productId}/reviews/${reviewId}/reply`);
+};
+
+export const setReviewHidden = async (productId: string, reviewId: string, hidden: boolean): Promise<void> => {
+  await api.patch(`/products/${productId}/reviews/${reviewId}/hide`, hidden);
 };
 
 // ── Price slots ───────────────────────────────────────────────────────────────

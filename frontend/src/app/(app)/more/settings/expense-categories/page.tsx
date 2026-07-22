@@ -7,6 +7,7 @@ import { getExpenseCategories, createExpenseCategory, updateExpenseCategory, del
 import type { ExpenseCategory } from "@/types/settings";
 import { useLanguage } from "@/i18n/LanguageContext";
 import { PencilIcon, TrashIcon } from "@heroicons/react/24/outline";
+import { useToastStore } from "@/store/toastStore";
 
 type FormMode = "add" | "edit" | null;
 const EMPTY_FORM = { name: "", isDefault: false };
@@ -19,19 +20,18 @@ export default function ExpenseCategoriesPage() {
   const [mode, setMode] = useState<FormMode>(null);
   const [editTarget, setEditTarget] = useState<ExpenseCategory | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
-  const [error, setError] = useState("");
 
   const { data: cats = [], isLoading } = useQuery({
     queryKey: ["expense-categories"],
     queryFn: getExpenseCategories,
   });
 
-  const openAdd = () => { setForm(EMPTY_FORM); setEditTarget(null); setError(""); setMode("add"); };
+  const openAdd = () => { setForm(EMPTY_FORM); setEditTarget(null); setMode("add"); };
   const openEdit = (c: ExpenseCategory) => {
     setForm({ name: c.name, isDefault: c.isDefault });
-    setEditTarget(c); setError(""); setMode("edit");
+    setEditTarget(c); setMode("edit");
   };
-  const close = () => { setMode(null); setEditTarget(null); setError(""); };
+  const close = () => { setMode(null); setEditTarget(null); };
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -39,7 +39,7 @@ export default function ExpenseCategoriesPage() {
       else if (editTarget) await updateExpenseCategory(editTarget.id, form);
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["expense-categories"] }); close(); },
-    onError: () => setError(t("settings.failedSaveExpCat")),
+    onError: () => useToastStore.getState().show(t("settings.failedSaveExpCat"), "error"),
   });
 
   const deleteMutation = useMutation({
@@ -108,7 +108,6 @@ export default function ExpenseCategoriesPage() {
                 className="w-4 h-4 rounded accent-indigo-600" />
               <span className="text-sm text-gray-700">{t("settings.isDefault")}</span>
             </label>
-            {error && <p className="text-xs text-red-600">{error}</p>}
             <button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending || !form.name}
               className="w-full h-12 rounded-xl bg-indigo-600 text-white font-semibold text-sm disabled:opacity-40">
               {saveMutation.isPending ? t("common.saving") : t("common.save")}

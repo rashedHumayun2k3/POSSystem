@@ -11,6 +11,14 @@ public static class SalesChannels
 
     public static readonly IReadOnlySet<string> All = new HashSet<string> { Pos, Hawker, Online };
 
+    // A business is either a full-barcode-scanner setup (Pos) or a lightweight one (Hawker) —
+    // never both at once. Online is freely combinable with either.
+    public static bool IsValidCombination(IEnumerable<string> channels)
+    {
+        var set = channels as ICollection<string> ?? channels.ToList();
+        return !(set.Contains(Pos) && set.Contains(Hawker));
+    }
+
     public static string[] ParseJson(string? json) =>
         string.IsNullOrWhiteSpace(json) ? [] : JsonSerializer.Deserialize<string[]>(json) ?? [];
 
