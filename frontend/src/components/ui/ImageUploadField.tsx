@@ -2,6 +2,7 @@
 
 import { useRef, useState } from 'react';
 import { resolveMediaUrl, uploadImage } from '@/lib/media';
+import ImageLightbox from './ImageLightbox';
 
 interface Props {
   value: string | null;
@@ -16,6 +17,7 @@ export default function ImageUploadField({ value, onChange, label, uploadingLabe
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState(false);
+  const [viewerOpen, setViewerOpen] = useState(false);
 
   const handleFile = async (file: File | undefined) => {
     if (!file) return;
@@ -35,16 +37,16 @@ export default function ImageUploadField({ value, onChange, label, uploadingLabe
   return (
     <div>
       <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">{label}</label>
-      <div className="mt-1 flex items-center gap-3">
+      <div className="mt-1">
         <button
           type="button"
-          onClick={() => inputRef.current?.click()}
-          className="w-20 h-20 rounded-xl bg-gray-100 border border-gray-200 flex items-center justify-center shrink-0 overflow-hidden active:bg-gray-200"
+          onClick={() => (value ? setViewerOpen(true) : inputRef.current?.click())}
+          className="w-full h-48 rounded-xl bg-gray-100 border border-gray-200 flex items-center justify-center overflow-hidden active:bg-gray-200"
         >
           {value ? (
             <img src={resolveMediaUrl(value) ?? ''} alt="" className="w-full h-full object-cover" />
           ) : (
-            <svg className="w-6 h-6 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg className="w-10 h-10 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path
                 strokeLinecap="round"
                 strokeLinejoin="round"
@@ -54,7 +56,7 @@ export default function ImageUploadField({ value, onChange, label, uploadingLabe
             </svg>
           )}
         </button>
-        <div className="flex-1">
+        <div className="flex items-center gap-4 mt-2">
           <button
             type="button"
             onClick={() => inputRef.current?.click()}
@@ -67,13 +69,13 @@ export default function ImageUploadField({ value, onChange, label, uploadingLabe
             <button
               type="button"
               onClick={() => onChange(null)}
-              className="block text-sm text-red-500 mt-1"
+              className="text-sm text-red-500"
             >
               {removeLabel}
             </button>
           )}
-          {error && <p className="text-xs text-red-600 mt-1">{errorLabel}</p>}
         </div>
+        {error && <p className="text-xs text-red-600 mt-1">{errorLabel}</p>}
       </div>
       <input
         ref={inputRef}
@@ -82,6 +84,9 @@ export default function ImageUploadField({ value, onChange, label, uploadingLabe
         className="hidden"
         onChange={(e) => handleFile(e.target.files?.[0])}
       />
+      {value && (
+        <ImageLightbox open={viewerOpen} onClose={() => setViewerOpen(false)} url={value} title={label} />
+      )}
     </div>
   );
 }

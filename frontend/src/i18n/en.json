@@ -147,7 +147,11 @@
     "addCustomName": "Add a product not listed",
     "addSelected": "Add {count} selected",
     "saveFailed": "Could not save. Please try again.",
-    "alreadyAdded": "Added"
+    "alreadyAdded": "Added",
+    "tabChooseCategories": "Choose Categories",
+    "tabMySelectedCategories": "My Selected Categories",
+    "tabMyAddedProducts": "My Added Products",
+    "noAddedProductsYet": "No products yet — add some from your selected categories."
   },
   "common": {
     "scrollRight": "Scroll right",
@@ -455,6 +459,7 @@
     "imageUploading": "Uploading…",
     "imageUploadFailed": "Upload failed. Try again.",
     "imageRemove": "Remove",
+    "noImage": "No photo yet",
     "variantImageLabel": "Photo for this variant",
     "variantImageHint": "Optional — falls back to the product photo if not set",
     "addVariantBtn": "+ Add Variant",

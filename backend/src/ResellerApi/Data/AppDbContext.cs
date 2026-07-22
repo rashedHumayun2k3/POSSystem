@@ -385,7 +385,10 @@ public class AppDbContext : DbContext
             e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
             e.Property(x => x.Section).HasMaxLength(30).IsRequired();
             e.Property(x => x.Label).HasMaxLength(200).IsRequired();
-            e.HasIndex(x => new { x.BusinessId, x.Section, x.Label }).IsUnique();
+            e.Property(x => x.ValuePlaceholder).HasMaxLength(200);
+            e.HasOne(x => x.Category).WithMany()
+                .HasForeignKey(x => x.CategoryId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(x => new { x.CategoryId, x.Section, x.Label }).IsUnique();
         });
 
         // ── ProductImage ───────────────────────────────────────────────────

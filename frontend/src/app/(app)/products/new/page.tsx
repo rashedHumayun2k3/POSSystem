@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getCategories, getUnits, createProduct } from '@/lib/catalogApi';
+import { getAppSettings } from '@/lib/settingsApi';
 import type { Category, CategoryField } from '@/types/catalog';
 import { useLanguage } from '@/i18n/LanguageContext';
 import ImageUploadField from '@/components/ui/ImageUploadField';
@@ -53,6 +54,20 @@ export default function NewProductPage() {
 
   const { data: categories = [] } = useQuery({ queryKey: ['categories'], queryFn: getCategories });
   const { data: units = UNITS_FALLBACK } = useQuery({ queryKey: ['units'], queryFn: getUnits });
+  const { data: appSettings } = useQuery({ queryKey: ['app-settings'], queryFn: getAppSettings });
+
+  // Pre-fills the low-stock threshold from the business's global default (Settings > Low Stock
+  // Alert) instead of a hardcoded 5 — still fully editable per product before saving. Applied
+  // once, whenever the setting first arrives, so it doesn't stomp on an in-progress edit later.
+  const appliedLowStockDefault = useRef(false);
+  useEffect(() => {
+    if (appliedLowStockDefault.current || !appSettings) return;
+    const def = appSettings.low_stock_default;
+    if (def) {
+      setForm((f) => ({ ...f, lowStockThreshold: def }));
+    }
+    appliedLowStockDefault.current = true;
+  }, [appSettings]);
 
   useEffect(() => {
     const cat = categories.find((c) => c.id === form.categoryId) ?? null;

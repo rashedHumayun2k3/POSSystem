@@ -1,10 +1,10 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
-import { getProduct, archiveProduct, setProductMarketplaceVisibility, getPriceSlots, createPriceSlot, activatePriceSlot, getPriceSlotHistory, downloadBarcodeLabels, updateProduct, updateVariant, addVariant, getCategory, getStockAdjustments, adjustStock, getProductReviews, replyToReview, deleteReviewReply, setReviewHidden, updateMarketplaceDetails, addProductImage, removeProductImage, reorderProductImages, getMarketplaceDetailTemplates } from '@/lib/catalogApi';
+import { getProduct, archiveProduct, setProductMarketplaceVisibility, getPriceSlots, createPriceSlot, activatePriceSlot, getPriceSlotHistory, downloadBarcodeLabels, updateProduct, updateVariant, addVariant, getCategory, getCategories, getUnits, getStockAdjustments, adjustStock, getProductReviews, replyToReview, deleteReviewReply, setReviewHidden, updateMarketplaceDetails, addProductImage, removeProductImage, reorderProductImages, getMarketplaceDetailTemplates } from '@/lib/catalogApi';
 import { listOrdersByProduct } from '@/lib/ordersApi';
 import { useAuthStore } from '@/store/authStore';
 import { useToastStore } from '@/store/toastStore';
@@ -16,6 +16,7 @@ import { useLanguage } from '@/i18n/LanguageContext';
 import StatusBadge from '@/components/ui/StatusBadge';
 import { resolveMediaUrl } from '@/lib/media';
 import ImageUploadField from '@/components/ui/ImageUploadField';
+import ImageLightbox from '@/components/ui/ImageLightbox';
 
 type TabKey = 'info' | 'variants' | 'prices' | 'stock' | 'orders' | 'reviews' | 'marketplace';
 
@@ -55,33 +56,6 @@ export default function ProductDetailPage() {
     },
   });
 
-  // Lets the Info tab set Product.ImageUrl directly — no need to enter Edit mode just to change
-  // the one field that actually controls marketplace visibility/the card image everywhere. The
-  // update endpoint is a full replace (UpdateProductRequest requires every field), so the rest of
-  // the payload is carried over unchanged from the currently-loaded product.
-  const productImageMutation = useMutation({
-    mutationFn: (imageUrl: string | null) =>
-      updateProduct(id, {
-        categoryId: product!.categoryId,
-        name: product!.name,
-        imageUrl,
-        description: product!.description,
-        defectNotes: product!.defectNotes,
-        unitCode: product!.unitCode,
-        sellingPrice: product!.sellingPrice,
-        marketPrice: product!.marketPrice,
-        packagingCostPerUnit: product!.packagingCostPerUnit ?? 0,
-        lowStockThreshold: product!.lowStockThreshold,
-        attributesJson: product!.attributesJson,
-        note: product!.note,
-        status: product!.status,
-        rowVer: product!.rowVer!,
-        warrantyDurationValue: product!.warrantyDurationValue,
-        warrantyDurationUnit: product!.warrantyDurationUnit,
-      }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['product', id] }),
-  });
-
   if (isLoading) {
     return (
       <div className="px-4 pt-4 pb-20">
@@ -119,14 +93,6 @@ export default function ProductDetailPage() {
             <h1 className="text-base font-semibold text-gray-900 truncate">{product.name}</h1>
             <p className="text-xs text-gray-400">{product.sku} · {product.categoryName}</p>
           </div>
-          {isOwner && (
-            <Link
-              href={`/products/${id}/edit`}
-              className="text-xs text-indigo-600 font-medium border border-indigo-200 px-2 py-1 rounded-lg"
-            >
-              {t('products.edit')}
-            </Link>
-          )}
           {isOwner && product.status === 'ACTIVE' && (
             <button
               onClick={() => setShowDeleteConfirm(true)}
@@ -177,7 +143,6 @@ export default function ProductDetailPage() {
             t={t}
             onToggleMarketplaceVisibility={(show) => marketplaceVisibilityMutation.mutate(show)}
             marketplaceVisibilityPending={marketplaceVisibilityMutation.isPending}
-            onChangeImage={(url) => productImageMutation.mutate(url)}
           />
         )}
         {activeTab === 'variants' && (
@@ -258,123 +223,387 @@ export default function ProductDetailPage() {
 
 // ── Info Tab ──────────────────────────────────────────────────────────────────
 
+const UNITS_FALLBACK = [
+  { code: 'pcs', name: 'Pieces' },
+  { code: 'pair', name: 'Pair' },
+  { code: 'set', name: 'Set' },
+  { code: 'dozen', name: 'Dozen' },
+  { code: 'kg', name: 'Kilogram' },
+  { code: 'gm', name: 'Gram' },
+  { code: 'liter', name: 'Liter' },
+  { code: 'ml', name: 'Milliliter' },
+  { code: 'meter', name: 'Meter' },
+  { code: 'box', name: 'Box' },
+];
+
 function InfoTab({
   product,
   isOwner,
   t,
   onToggleMarketplaceVisibility,
   marketplaceVisibilityPending,
-  onChangeImage,
 }: {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  product: any;
+  product: ProductDetail;
   isOwner: boolean;
   t: (key: string) => string;
   onToggleMarketplaceVisibility: (show: boolean) => void;
   marketplaceVisibilityPending: boolean;
-  onChangeImage: (url: string | null) => void;
 }) {
-  return (
-    <div className="space-y-4">
-      {/* Photo — this is Product.ImageUrl, the field the public marketplace/shop listing
-          actually reads for the card image and requires to be set at all. Owner can set/replace
-          it directly here; staff (non-owner) just see it read-only, same visibility rule as the
-          rest of this tab. */}
-      {isOwner ? (
-        <ImageUploadField
-          value={product.imageUrl}
-          onChange={onChangeImage}
-          label={t('products.imageLabel')}
-          uploadingLabel={t('products.imageUploading')}
-          errorLabel={t('products.imageUploadFailed')}
-          removeLabel={t('products.imageRemove')}
-        />
-      ) : (
-        product.imageUrl && (
-          <div className="w-full h-48 rounded-xl bg-gray-100 overflow-hidden">
-            <img
-              src={resolveMediaUrl(product.imageUrl) ?? ''}
-              alt={product.name}
-              className="w-full h-full object-cover"
-            />
-          </div>
-        )
-      )}
+  const qc = useQueryClient();
+  const [viewerOpen, setViewerOpen] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const { data: categories = [] } = useQuery({ queryKey: ['categories'], queryFn: getCategories, enabled: isOwner });
+  const { data: units = UNITS_FALLBACK } = useQuery({ queryKey: ['units'], queryFn: getUnits, enabled: isOwner });
 
-      {/* Price block */}
-      <div className="bg-indigo-50 rounded-xl p-4 space-y-1.5">
-        {product.marketPrice ? (
-          <>
-            <div className="flex justify-between items-center">
-              <span className="text-xs text-gray-500">{t('products.marketPrice')}</span>
-              <span className="text-sm font-semibold text-gray-600 line-through">৳{product.marketPrice.toLocaleString()}</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-xs text-indigo-500 font-medium">{t('products.priceAfterDiscount')}</span>
-              <span className="text-lg font-bold text-indigo-700">
-                ৳{product.sellingPrice.toLocaleString()}
-                {product.marketPrice > product.sellingPrice && (
-                  <span className="text-xs font-medium text-green-600 ml-1.5">
-                    ({t('products.discountLabel')}: {Math.round(((product.marketPrice - product.sellingPrice) / product.marketPrice) * 100)}%)
-                  </span>
-                )}
-              </span>
-            </div>
-          </>
-        ) : (
-          // No Product Price set — just the plain price, no discount framing.
-          <div className="flex justify-between items-center">
-            <span className="text-xs text-gray-500">{t('products.sellingPrice')}</span>
-            <span className="text-lg font-bold text-indigo-700">৳{product.sellingPrice.toLocaleString()}</span>
+  const [form, setForm] = useState(() => buildFormFromProduct(product));
+
+  const saveMutation = useMutation({
+    mutationFn: () => {
+      if (!product.rowVer) throw new Error('Missing rowVer');
+      return updateProduct(product.id, {
+        categoryId: form.categoryId,
+        name: form.name.trim(),
+        imageUrl: form.imageUrl,
+        unitCode: form.unitCode,
+        sellingPrice: parseFloat(form.sellingPrice),
+        marketPrice: form.marketPrice ? parseFloat(form.marketPrice) : null,
+        packagingCostPerUnit: parseFloat(form.packagingCostPerUnit) || 0,
+        lowStockThreshold: parseInt(form.lowStockThreshold) || 5,
+        description: form.description || null,
+        note: form.note || null,
+        warrantyDurationValue: form.warrantyDurationValue ? parseInt(form.warrantyDurationValue) : null,
+        warrantyDurationUnit: form.warrantyDurationValue ? form.warrantyDurationUnit : null,
+        defectNotes: product.defectNotes,
+        attributesJson: product.attributesJson,
+        status: product.status,
+        rowVer: product.rowVer,
+      });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['products'] });
+      qc.invalidateQueries({ queryKey: ['product', product.id] });
+      useToastStore.getState().show(t('common.saved'));
+      setIsEditing(false);
+    },
+    onError: (err: unknown) => {
+      const e = err as { response?: { status?: number; data?: { message?: string } } };
+      const message = e.response?.status === 409 ? t('products.editConflict') : e.response?.data?.message ?? t('products.failedUpdate');
+      useToastStore.getState().show(message, 'error');
+    },
+  });
+
+  const handleSave = () => {
+    if (!form.categoryId) { useToastStore.getState().show(t('products.categoryRequired'), 'error'); return; }
+    if (!form.name.trim()) { useToastStore.getState().show(t('products.nameRequired'), 'error'); return; }
+    saveMutation.mutate();
+  };
+
+  const handleStartEdit = () => {
+    setForm(buildFormFromProduct(product));
+    setIsEditing(true);
+  };
+
+  const handleCancel = () => {
+    setForm(buildFormFromProduct(product));
+    setIsEditing(false);
+  };
+
+  if (!isOwner || !isEditing) {
+    return (
+      <div className="space-y-4">
+        {isOwner && (
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={handleStartEdit}
+              className="text-xs text-indigo-600 font-medium border border-indigo-200 px-2 py-1 rounded-lg"
+            >
+              {t('products.edit')}
+            </button>
           </div>
         )}
+
+        {product.imageUrl ? (
+          <button type="button" onClick={() => setViewerOpen(true)} className="w-full h-48 rounded-xl bg-gray-100 overflow-hidden block">
+            <img src={resolveMediaUrl(product.imageUrl) ?? ''} alt={product.name} className="w-full h-full object-cover" />
+          </button>
+        ) : (
+          <div className="w-full h-48 rounded-xl bg-gray-100 border border-gray-200 flex flex-col items-center justify-center gap-1.5">
+            <svg className="w-10 h-10 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={1.5}
+                d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10"
+              />
+            </svg>
+            <span className="text-xs text-gray-400">{t('products.noImage')}</span>
+          </div>
+        )}
+        {product.imageUrl && (
+          <ImageLightbox open={viewerOpen} onClose={() => setViewerOpen(false)} url={product.imageUrl} title={product.name} />
+        )}
+
+        <div className="bg-indigo-50 rounded-xl p-4 space-y-1.5">
+          {product.marketPrice ? (
+            <>
+              <div className="flex justify-between items-center">
+                <span className="text-xs text-gray-500">{t('products.marketPrice')}</span>
+                <span className="text-sm font-semibold text-gray-600 line-through">৳{product.marketPrice.toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-xs text-indigo-500 font-medium">{t('products.priceAfterDiscount')}</span>
+                <span className="text-lg font-bold text-indigo-700">
+                  ৳{product.sellingPrice.toLocaleString()}
+                  {product.marketPrice > product.sellingPrice && (
+                    <span className="text-xs font-medium text-green-600 ml-1.5">
+                      ({t('products.discountLabel')}: {Math.round(((product.marketPrice - product.sellingPrice) / product.marketPrice) * 100)}%)
+                    </span>
+                  )}
+                </span>
+              </div>
+            </>
+          ) : (
+            <div className="flex justify-between items-center">
+              <span className="text-xs text-gray-500">{t('products.sellingPrice')}</span>
+              <span className="text-lg font-bold text-indigo-700">৳{product.sellingPrice.toLocaleString()}</span>
+            </div>
+          )}
+        </div>
+
+        {isOwner && (
+          <div className="grid grid-cols-2 gap-3">
+            <InfoTile label={t('products.packagingCostInfo')} value={`৳${product.packagingCostPerUnit ?? 0}`} />
+            <InfoTile label={t('products.lowStockInfo')} value={`${product.lowStockThreshold} ${product.unitCode}`} />
+          </div>
+        )}
+
+        {isOwner && (
+          <div className="bg-white border border-gray-100 rounded-xl px-4 py-4 flex items-center gap-4">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-gray-900">{t('products.showOnMarketplace')}</p>
+              <p className="text-xs text-gray-400 mt-1">{t('products.showOnMarketplaceDesc')}</p>
+            </div>
+            <ToggleSwitch
+              checked={product.showOnMarketplace ?? true}
+              disabled={marketplaceVisibilityPending}
+              onChange={() => onToggleMarketplaceVisibility(!(product.showOnMarketplace ?? true))}
+            />
+          </div>
+        )}
+
+        {product.description && (
+          <div className="bg-gray-50 rounded-xl p-3">
+            <p className="text-xs text-gray-500 font-medium mb-1">{t('products.description')}</p>
+            <p className="text-sm text-gray-700">{product.description}</p>
+          </div>
+        )}
+
+        {product.warrantyDurationValue != null && product.warrantyDurationUnit && (
+          <div className="bg-blue-50 rounded-xl p-3">
+            <p className="text-xs text-blue-600 font-medium mb-1">{t('products.warrantyLabel')}</p>
+            <p className="text-sm text-gray-700">
+              {product.warrantyDurationValue} {warrantyUnitLabel(product.warrantyDurationUnit, t)}
+            </p>
+          </div>
+        )}
+
+        {product.note && (
+          <div className="bg-yellow-50 rounded-xl p-3">
+            <p className="text-xs text-yellow-600 font-medium mb-1">{t('products.note')}</p>
+            <p className="text-sm text-gray-700">{product.note}</p>
+          </div>
+        )}
+
+        <div className="flex gap-2">
+          <span className={`text-xs font-medium px-2 py-1 rounded-full ${
+            product.status === 'ACTIVE' ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'
+          }`}>
+            {product.status === 'ACTIVE' ? t('products.active') : t('products.archived')}
+          </span>
+          <span className="text-xs text-gray-400 py-1">{t('products.unitInfo')}: {product.unitCode}</span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4 pb-4">
+      <ImageUploadField
+        value={form.imageUrl}
+        onChange={(url) => setForm((f) => ({ ...f, imageUrl: url }))}
+        label={t('products.imageLabel')}
+        uploadingLabel={t('products.imageUploading')}
+        errorLabel={t('products.imageUploadFailed')}
+        removeLabel={t('products.imageRemove')}
+      />
+
+      <div>
+        <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">{t('products.categoryLabel')}</label>
+        <select
+          className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm"
+          value={form.categoryId}
+          onChange={(e) => setForm((f) => ({ ...f, categoryId: e.target.value }))}
+        >
+          {categories.map((c) => (
+            <option key={c.id} value={c.id}>{c.name}</option>
+          ))}
+        </select>
       </div>
 
-      {isOwner && (
-        <div className="grid grid-cols-2 gap-3">
-          <InfoTile label={t('products.packagingCostInfo')} value={`৳${product.packagingCostPerUnit ?? 0}`} />
-          <InfoTile label={t('products.lowStockInfo')} value={`${product.lowStockThreshold} ${product.unitCode}`} />
-        </div>
-      )}
+      <div>
+        <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">{t('products.nameLabel')}</label>
+        <input
+          className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm"
+          value={form.name}
+          onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+        />
+      </div>
 
-      {isOwner && (
-        <div className="bg-white border border-gray-100 rounded-xl px-4 py-4 flex items-center gap-4">
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-gray-900">{t('products.showOnMarketplace')}</p>
-            <p className="text-xs text-gray-400 mt-1">{t('products.showOnMarketplaceDesc')}</p>
-          </div>
-          <ToggleSwitch
-            checked={product.showOnMarketplace ?? true}
-            disabled={marketplaceVisibilityPending}
-            onChange={() => onToggleMarketplaceVisibility(!(product.showOnMarketplace ?? true))}
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">{t('products.unitLabel')}</label>
+          <select
+            className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm"
+            value={form.unitCode}
+            onChange={(e) => setForm((f) => ({ ...f, unitCode: e.target.value }))}
+          >
+            {units.map((u) => (
+              <option key={u.code} value={u.code}>{u.name}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">{t('products.sellingPriceLabel')}</label>
+          <input
+            type="number" min="0" step="0.01"
+            className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm"
+            value={form.sellingPrice}
+            onChange={(e) => setForm((f) => ({ ...f, sellingPrice: e.target.value }))}
           />
         </div>
-      )}
+      </div>
 
-      {product.description && (
-        <div className="bg-gray-50 rounded-xl p-3">
-          <p className="text-xs text-gray-500 font-medium mb-1">{t('products.description')}</p>
-          <p className="text-sm text-gray-700">{product.description}</p>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">{t('products.marketPriceLabel')}</label>
+          <input
+            type="number" min="0" step="0.01"
+            className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm"
+            placeholder={t('products.optional')}
+            value={form.marketPrice}
+            onChange={(e) => setForm((f) => ({ ...f, marketPrice: e.target.value }))}
+          />
         </div>
-      )}
+        <div>
+          <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">{t('products.packagingCostLabel')}</label>
+          <input
+            type="number" min="0" step="0.01"
+            className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm"
+            value={form.packagingCostPerUnit}
+            onChange={(e) => setForm((f) => ({ ...f, packagingCostPerUnit: e.target.value }))}
+          />
+        </div>
+      </div>
 
-      {product.note && (
-        <div className="bg-yellow-50 rounded-xl p-3">
-          <p className="text-xs text-yellow-600 font-medium mb-1">{t('products.note')}</p>
-          <p className="text-sm text-gray-700">{product.note}</p>
+      <div>
+        <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">{t('products.lowStockLabel')}</label>
+        <input
+          type="number" min="0"
+          className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm"
+          value={form.lowStockThreshold}
+          onChange={(e) => setForm((f) => ({ ...f, lowStockThreshold: e.target.value }))}
+        />
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">{t('products.warrantyLabel')}</label>
+          <input
+            type="number" min="0"
+            className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm"
+            placeholder={t('products.optional')}
+            value={form.warrantyDurationValue}
+            onChange={(e) => setForm((f) => ({ ...f, warrantyDurationValue: e.target.value }))}
+          />
         </div>
-      )}
+        <div>
+          <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">&nbsp;</label>
+          <select
+            className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm"
+            value={form.warrantyDurationUnit}
+            onChange={(e) => setForm((f) => ({ ...f, warrantyDurationUnit: e.target.value }))}
+          >
+            <option value="DAYS">{t('products.warrantyDays')}</option>
+            <option value="MONTHS">{t('products.warrantyMonths')}</option>
+            <option value="YEARS">{t('products.warrantyYears')}</option>
+          </select>
+        </div>
+      </div>
+
+      <div>
+        <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">{t('products.descriptionLabel')}</label>
+        <textarea
+          className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm resize-none"
+          rows={2}
+          value={form.description}
+          onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+        />
+      </div>
+
+      <div>
+        <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">{t('products.note')}</label>
+        <textarea
+          className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm resize-none"
+          rows={2}
+          value={form.note}
+          onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))}
+        />
+      </div>
 
       <div className="flex gap-2">
-        <span className={`text-xs font-medium px-2 py-1 rounded-full ${
-          product.status === 'ACTIVE' ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'
-        }`}>
-          {product.status === 'ACTIVE' ? t('products.active') : t('products.archived')}
-        </span>
-        <span className="text-xs text-gray-400 py-1">{t('products.unitInfo')}: {product.unitCode}</span>
+        <button
+          onClick={handleCancel}
+          disabled={saveMutation.isPending}
+          className="flex-1 py-2.5 rounded-xl bg-gray-100 text-gray-700 text-sm font-medium disabled:opacity-50"
+        >
+          {t('common.cancel')}
+        </button>
+        <button
+          onClick={handleSave}
+          disabled={saveMutation.isPending}
+          className="flex-1 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-medium disabled:opacity-50"
+        >
+          {saveMutation.isPending ? t('common.saving') : t('common.save')}
+        </button>
       </div>
     </div>
   );
+}
+
+function buildFormFromProduct(product: ProductDetail) {
+  return {
+    categoryId: product.categoryId,
+    name: product.name,
+    imageUrl: product.imageUrl,
+    unitCode: product.unitCode,
+    sellingPrice: String(product.sellingPrice),
+    marketPrice: product.marketPrice != null ? String(product.marketPrice) : '',
+    packagingCostPerUnit: String(product.packagingCostPerUnit ?? 0),
+    lowStockThreshold: String(product.lowStockThreshold),
+    description: product.description ?? '',
+    note: product.note ?? '',
+    warrantyDurationValue: product.warrantyDurationValue != null ? String(product.warrantyDurationValue) : '',
+    warrantyDurationUnit: product.warrantyDurationUnit ?? 'MONTHS',
+  };
+}
+
+function warrantyUnitLabel(unit: string, t: (key: string) => string): string {
+  switch (unit) {
+    case 'DAYS': return t('products.warrantyDays');
+    case 'YEARS': return t('products.warrantyYears');
+    default: return t('products.warrantyMonths');
+  }
 }
 
 function InfoTile({ label, value }: { label: string; value: string }) {
@@ -1112,9 +1341,16 @@ function StockAdjustmentTab({
       )}
 
       {/* Current stock */}
-      <div className="bg-indigo-50 rounded-xl p-4 flex justify-between items-center">
-        <p className="text-xs text-indigo-500 font-medium uppercase tracking-wide">{t('products.stockCurrentLabel')}</p>
-        <p className="text-2xl font-bold text-indigo-700">{active?.stock ?? 0}</p>
+      <div className="bg-indigo-50 rounded-xl p-4">
+        <div className="flex justify-between items-center">
+          <p className="text-xs text-indigo-500 font-medium uppercase tracking-wide">{t('products.stockCurrentLabel')}</p>
+          <p className={`text-2xl font-bold ${(active?.stock ?? 0) <= 0 ? 'text-red-600' : 'text-indigo-700'}`}>
+            {active?.stock ?? 0}
+          </p>
+        </div>
+        {(active?.stock ?? 0) <= 0 && (
+          <p className="text-xs font-medium text-red-600 mt-1 text-right">{t('products.outOfStockMessage')}</p>
+        )}
       </div>
 
       {/* Adjust Stock trigger — form stays collapsed until asked for, so the tab doesn't open
@@ -1456,7 +1692,7 @@ function ReviewsTab({ productId, t }: { productId: string; t: (key: string) => s
 // the public ClientPage product page. No predefined schema (unlike Amazon's per-category
 // taxonomy) — the seller just types label/value rows directly.
 
-type DetailRow = { label: string; value: string };
+type DetailRow = { label: string; value: string; placeholder?: string };
 
 const MARKETPLACE_SECTIONS: { key: MarketplaceDetailSection; labelKey: string }[] = [
   { key: 'STYLE', labelKey: 'products.sectionStyle' },
@@ -1483,9 +1719,31 @@ function MarketplaceTab({ product, t }: { product: ProductDetail; t: (key: strin
   });
 
   const { data: templates = [] } = useQuery({
-    queryKey: ['marketplace-detail-templates'],
-    queryFn: getMarketplaceDetailTemplates,
+    queryKey: ['marketplace-detail-templates', product.categoryId],
+    queryFn: () => getMarketplaceDetailTemplates(product.categoryId),
   });
+
+  // First time this product's Marketplace tab is opened (no details saved yet), pre-populate
+  // each section with the category's curated rows instead of leaving them empty — the seller
+  // just fills in values or deletes rows they don't need.
+  const prefilledRef = useRef(false);
+  useEffect(() => {
+    if (prefilledRef.current) return;
+    if (product.marketplaceDetails.length > 0) { prefilledRef.current = true; return; }
+    if (templates.length === 0) return;
+
+    setRows((prev) => {
+      const stillEmpty = (Object.keys(prev) as MarketplaceDetailSection[]).every((s) => prev[s].length === 0);
+      if (!stillEmpty) return prev;
+
+      const grouped: Record<MarketplaceDetailSection, DetailRow[]> = { STYLE: [], FEATURES_SPECS: [], ITEM_DETAILS: [] };
+      for (const tp of [...templates].sort((a, b) => a.sortOrder - b.sortOrder)) {
+        grouped[tp.section].push({ label: tp.label, value: '', placeholder: tp.valuePlaceholder ?? undefined });
+      }
+      return grouped;
+    });
+    prefilledRef.current = true;
+  }, [templates, product.marketplaceDetails.length]);
 
   const saveMutation = useMutation({
     mutationFn: () => {
@@ -1518,8 +1776,11 @@ function MarketplaceTab({ product, t }: { product: ProductDetail; t: (key: strin
     });
   }
 
-  function addRow(section: MarketplaceDetailSection, presetLabel?: string) {
-    setRows((prev) => ({ ...prev, [section]: [...prev[section], { label: presetLabel ?? '', value: '' }] }));
+  function addRow(section: MarketplaceDetailSection, presetLabel?: string, presetPlaceholder?: string | null) {
+    setRows((prev) => ({
+      ...prev,
+      [section]: [...prev[section], { label: presetLabel ?? '', value: '', placeholder: presetPlaceholder ?? undefined }],
+    }));
   }
 
   function removeRow(section: MarketplaceDetailSection, index: number) {
@@ -1577,7 +1838,7 @@ function MarketplaceTab({ product, t }: { product: ProductDetail; t: (key: strin
                         key={tp.label}
                         type="button"
                         disabled={alreadyAdded}
-                        onClick={() => addRow(section.key, tp.label)}
+                        onClick={() => addRow(section.key, tp.label, tp.valuePlaceholder)}
                         className={`text-xs px-2.5 py-1 rounded-full border ${
                           alreadyAdded
                             ? 'bg-gray-100 text-gray-400 border-gray-200'
@@ -1604,7 +1865,7 @@ function MarketplaceTab({ product, t }: { product: ProductDetail; t: (key: strin
                 <input
                   value={row.value}
                   onChange={(e) => updateRow(section.key, i, 'value', e.target.value)}
-                  placeholder={t('products.detailValuePlaceholder')}
+                  placeholder={row.placeholder || t('products.detailValuePlaceholder')}
                   className="flex-1 min-w-0 border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm"
                 />
                 <button

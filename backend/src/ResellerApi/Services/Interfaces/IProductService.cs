@@ -6,6 +6,7 @@ namespace ResellerApi.Services.Interfaces;
 public interface IProductService
 {
     Task<List<ProductSummaryDto>> ListAsync(string? status, Guid? categoryId, string? q);
+    Task<List<ProductSummaryDto>> ListFromSuggestedCategoriesAsync();
     Task<object> GetAsync(Guid id, bool isOwner);
     Task<List<ProductSearchResultDto>> SearchAsync(string q, bool onlyInStock = false);
     Task<ProductSearchResultDto?> GetByBarcodeAsync(string barcode);
@@ -17,7 +18,7 @@ public interface IProductService
     Task ArchiveAsync(Guid id, Guid userId);
     Task<bool> SetShowOnMarketplaceAsync(Guid id, bool show, Guid userId);
     Task SetMarketplaceDetailsAsync(Guid productId, UpdateMarketplaceDetailsRequest request, Guid userId);
-    Task<List<MarketplaceDetailTemplateLabelDto>> GetMarketplaceDetailTemplatesAsync();
+    Task<List<MarketplaceDetailTemplateLabelDto>> GetMarketplaceDetailTemplatesAsync(Guid categoryId);
     Task<ProductImageDto> AddImageAsync(Guid productId, AddProductImageRequest request, Guid userId);
     Task RemoveImageAsync(Guid productId, Guid imageId, Guid userId);
     Task ReorderImagesAsync(Guid productId, ReorderProductImagesRequest request, Guid userId);

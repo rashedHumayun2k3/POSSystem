@@ -146,8 +146,14 @@ public class ProductsController : ControllerBase
 
     [HttpGet("marketplace-detail-templates")]
     [Authorize(Roles = "OWNER")]
-    public async Task<IActionResult> GetMarketplaceDetailTemplates()
-        => Ok(await _svc.GetMarketplaceDetailTemplatesAsync());
+    public async Task<IActionResult> GetMarketplaceDetailTemplates([FromQuery] Guid categoryId)
+    {
+        try
+        {
+            return Ok(await _svc.GetMarketplaceDetailTemplatesAsync(categoryId));
+        }
+        catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
+    }
 
     [HttpPost("{id:guid}/images")]
     [Authorize(Roles = "OWNER")]
