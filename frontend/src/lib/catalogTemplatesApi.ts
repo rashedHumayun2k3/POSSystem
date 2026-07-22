@@ -6,6 +6,7 @@ import type {
   QuickAddProductItem,
   AddSuggestedProductsResult,
 } from "@/types/catalogTemplates";
+import type { ProductSummary } from "@/types/catalog";
 
 export const listSuggestedCategories = async (): Promise<SuggestedCategory[]> => {
   const { data } = await api.get("/catalog-templates/categories");
@@ -34,5 +35,10 @@ export const addSuggestedProducts = async (payload: {
   items: QuickAddProductItem[];
 }): Promise<AddSuggestedProductsResult[]> => {
   const { data } = await api.post("/catalog-templates/products", payload);
+  return data;
+};
+
+export const listAddedProducts = async (): Promise<ProductSummary[]> => {
+  const { data } = await api.get("/catalog-templates/added-products");
   return data;
 };

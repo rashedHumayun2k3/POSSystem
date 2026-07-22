@@ -147,7 +147,11 @@
     "addCustomName": "তালিকায় নেই এমন প্রোডাক্ট যোগ করুন",
     "addSelected": "{count} টি নির্বাচিত যোগ করুন",
     "saveFailed": "সেভ করা যায়নি। আবার চেষ্টা করুন।",
-    "alreadyAdded": "যোগ করা হয়েছে"
+    "alreadyAdded": "যোগ করা হয়েছে",
+    "tabChooseCategories": "ক্যাটাগরি বাছাই করুন",
+    "tabMySelectedCategories": "আমার নির্বাচিত ক্যাটাগরি",
+    "tabMyAddedProducts": "আমার যোগ করা প্রোডাক্ট",
+    "noAddedProductsYet": "এখনো কোনো প্রোডাক্ট নেই — আপনার নির্বাচিত ক্যাটাগরি থেকে যোগ করুন।"
   },
   "common": {
     "scrollRight": "ডানদিকে স্ক্রল করুন",
@@ -455,6 +459,7 @@
     "imageUploading": "আপলোড হচ্ছে…",
     "imageUploadFailed": "আপলোড ব্যর্থ হয়েছে। আবার চেষ্টা করুন।",
     "imageRemove": "সরান",
+    "noImage": "এখনো কোনো ছবি নেই",
     "variantImageLabel": "এই ভ্যারিয়েন্টের ছবি",
     "variantImageHint": "ঐচ্ছিক — না দিলে প্রোডাক্টের ছবি দেখাবে",
     "addVariantBtn": "+ নতুন ভ্যারিয়েন্ট যোগ করুন",

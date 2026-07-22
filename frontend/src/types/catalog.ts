@@ -86,6 +86,13 @@ export interface ProductSummary {
 
 export type MarketplaceDetailSection = 'STYLE' | 'FEATURES_SPECS' | 'ITEM_DETAILS';
 
+export interface MarketplaceDetailTemplateLabel {
+  section: MarketplaceDetailSection;
+  label: string;
+  valuePlaceholder: string | null;
+  sortOrder: number;
+}
+
 export interface MarketplaceDetailItem {
   id: string;
   section: MarketplaceDetailSection;

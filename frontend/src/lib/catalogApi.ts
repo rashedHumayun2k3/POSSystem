@@ -14,6 +14,7 @@ import type {
   StockAdjustReason,
   AdminProductReview,
   MarketplaceDetailSection,
+  MarketplaceDetailTemplateLabel,
   ProductImage,
 } from '@/types/catalog';
 
@@ -174,8 +175,8 @@ export const updateMarketplaceDetails = async (
   await api.put(`/products/${id}/marketplace-details`, payload);
 };
 
-export const getMarketplaceDetailTemplates = async (): Promise<{ section: MarketplaceDetailSection; label: string }[]> => {
-  const { data } = await api.get('/products/marketplace-detail-templates');
+export const getMarketplaceDetailTemplates = async (categoryId: string): Promise<MarketplaceDetailTemplateLabel[]> => {
+  const { data } = await api.get('/products/marketplace-detail-templates', { params: { categoryId } });
   return data;
 };
 

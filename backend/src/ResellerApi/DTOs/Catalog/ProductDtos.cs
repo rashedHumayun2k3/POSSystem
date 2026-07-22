@@ -50,7 +50,7 @@ public record ProductSummaryDto(
 
 public record ProductMarketplaceDetailDto(Guid Id, string Section, string Label, string Value, int SortOrder);
 
-public record MarketplaceDetailTemplateLabelDto(string Section, string Label);
+public record MarketplaceDetailTemplateLabelDto(string Section, string Label, string? ValuePlaceholder, int SortOrder);
 
 public record ProductImageDto(Guid Id, string ImageUrl, int SortOrder);
 

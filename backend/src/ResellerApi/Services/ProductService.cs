@@ -47,6 +47,25 @@ public class ProductService : IProductService
         return products.Select(p => MapSummary(p, inv)).ToList();
     }
 
+    // Backs the "My Added Products" tab on the catalog-templates page — every product under a
+    // curated category (SuggestedCategoryId set), regardless of whether it was added via the
+    // suggestion picker or created manually afterward under that same category.
+    public async Task<List<ProductSummaryDto>> ListFromSuggestedCategoriesAsync()
+    {
+        var products = await _db.Products
+            .AsNoTracking()
+            .Include(p => p.Category)
+            .Include(p => p.Variants)
+            .Where(p => p.Category.SuggestedCategoryId != null)
+            .OrderByDescending(p => p.CreatedAt)
+            .ToListAsync();
+
+        var variantIds = products.SelectMany(p => p.Variants).Select(v => v.Id);
+        var inv = await LoadInventoryAsync(variantIds);
+
+        return products.Select(p => MapSummary(p, inv)).ToList();
+    }
+
     public async Task<object> GetAsync(Guid id, bool isOwner)
     {
         var p = await _db.Products
@@ -134,44 +153,51 @@ public class ProductService : IProductService
             });
         }
 
-        await AddNewTemplateLabelsAsync(request.Details.Select(d => (d.Section, d.Label.Trim())));
+        await AddNewTemplateLabelsAsync(product.CategoryId, request.Details.Select(d => (d.Section, d.Label.Trim())));
 
         await _db.SaveChangesAsync();
         await _log.LogAsync(_business.CurrentBusinessId, userId, "UPDATE", "ProductMarketplaceDetails", productId);
     }
 
-    // Grows the reusable label picker organically — any label a seller actually uses that isn't
-    // already in the business's template library gets added to it, no separate management screen
-    // needed. Values are deliberately never captured here (they're product-specific), only labels.
-    private async Task AddNewTemplateLabelsAsync(IEnumerable<(string Section, string Label)> used)
+    // Grows the reusable label picker organically — any label a seller actually uses on a product
+    // in this category that isn't already in the category's template library gets added to it, no
+    // separate management screen needed. Values are deliberately never captured here (they're
+    // product-specific), only labels.
+    private async Task AddNewTemplateLabelsAsync(Guid categoryId, IEnumerable<(string Section, string Label)> used)
     {
         var distinctUsed = used.Where(x => x.Label.Length > 0).Distinct().ToList();
         if (distinctUsed.Count == 0) return;
 
         var existing = await _db.MarketplaceDetailTemplateLabels
-            .Where(t => t.BusinessId == _business.CurrentBusinessId)
-            .Select(t => new { t.Section, t.Label })
+            .Where(t => t.CategoryId == categoryId)
+            .Select(t => new { t.Section, t.Label, t.SortOrder })
             .ToListAsync();
         var existingSet = existing.Select(e => (e.Section, e.Label)).ToHashSet();
+        var nextSortOrder = existing.Count == 0 ? 0 : existing.Max(e => e.SortOrder) + 1;
 
         foreach (var (section, label) in distinctUsed)
         {
             if (existingSet.Contains((section, label))) continue;
             _db.MarketplaceDetailTemplateLabels.Add(new MarketplaceDetailTemplateLabel
             {
-                BusinessId = _business.CurrentBusinessId,
+                CategoryId = categoryId,
                 Section = section,
-                Label = label
+                Label = label,
+                SortOrder = nextSortOrder++
             });
         }
     }
 
-    public async Task<List<MarketplaceDetailTemplateLabelDto>> GetMarketplaceDetailTemplatesAsync()
+    public async Task<List<MarketplaceDetailTemplateLabelDto>> GetMarketplaceDetailTemplatesAsync(Guid categoryId)
     {
+        var categoryExists = await _db.Categories.AnyAsync(c => c.Id == categoryId);
+        if (!categoryExists) throw new KeyNotFoundException("Category not found.");
+
         return await _db.MarketplaceDetailTemplateLabels
             .AsNoTracking()
-            .OrderBy(t => t.Section).ThenBy(t => t.Label)
-            .Select(t => new MarketplaceDetailTemplateLabelDto(t.Section, t.Label))
+            .Where(t => t.CategoryId == categoryId)
+            .OrderBy(t => t.Section).ThenBy(t => t.SortOrder)
+            .Select(t => new MarketplaceDetailTemplateLabelDto(t.Section, t.Label, t.ValuePlaceholder, t.SortOrder))
             .ToListAsync();
     }
 

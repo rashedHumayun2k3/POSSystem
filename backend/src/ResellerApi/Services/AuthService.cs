@@ -21,7 +21,7 @@ public class AuthService : IAuthService
 
     private static readonly (string Key, string Value)[] DefaultAppSettings =
     {
-        ("low_stock_threshold", "5"),
+        ("low_stock_default", "5"),
         ("overhead_mode", "\"AUTO\""),
         ("return_window_days", "7"),
         ("target_margin_pct", "40"),

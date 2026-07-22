@@ -102,10 +102,15 @@ export default function ProductSuggestionsPicker({ categories }: Props) {
             className="w-full flex items-center justify-between bg-green-50 border border-green-200 rounded-xl px-4 py-3 disabled:opacity-40"
           >
             <span className="text-sm font-medium text-green-900">{getCategoryEmoji(cat.name)} {suggestedCategoryDisplayName(cat.name, lang)}</span>
-            <span className="text-xs text-green-600">
-              {cat.availableSuggestionCount > 0
-                ? t("catalogTemplates.suggestionsAvailable", { count: cat.availableSuggestionCount })
-                : t("catalogTemplates.noMoreSuggestions")}
+            <span className="flex items-center gap-1 shrink-0">
+              <span className="text-xs text-green-600">
+                {cat.availableSuggestionCount > 0
+                  ? t("catalogTemplates.suggestionsAvailable", { count: cat.availableSuggestionCount })
+                  : t("catalogTemplates.noMoreSuggestions")}
+              </span>
+              <svg className="w-4 h-4 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
             </span>
           </button>
         ))}
