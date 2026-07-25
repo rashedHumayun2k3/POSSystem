@@ -1078,7 +1078,8 @@ public class OrderService : IOrderService
         var items = o.Items.Where(i => i.DeletedAt == null)
             .Select(i => new OrderListItemSummaryDto(
                 i.Variant?.Product?.Name ?? "Unknown", i.Variant?.Sku ?? "", i.Qty,
-                o.BranchId.HasValue ? stock.GetValueOrDefault((o.BranchId.Value, i.VariantId)) : 0
+                o.BranchId.HasValue ? stock.GetValueOrDefault((o.BranchId.Value, i.VariantId)) : 0,
+                i.Variant?.Product?.Id ?? Guid.Empty
             ))
             .ToList();
 

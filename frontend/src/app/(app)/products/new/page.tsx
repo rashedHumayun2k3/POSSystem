@@ -12,6 +12,8 @@ import { categoryDisplayName } from '@/lib/categoryDisplay';
 import { toastError } from '@/lib/toastError';
 import { useToastStore } from '@/store/toastStore';
 
+type VariantRow = { values: Record<string, string>; qty: string; costPrice: string };
+
 const UNITS_FALLBACK = [
   { code: 'pcs', name: 'Pieces' },
   { code: 'pair', name: 'Pair' },
@@ -42,13 +44,11 @@ export default function NewProductPage() {
     description: '',
     note: '',
     attributesJson: '{}',
-    initialStock: '',
-    costPrice: '',
     warrantyDurationValue: '',
     warrantyDurationUnit: 'MONTHS',
   });
 
-  const [variantCombinations, setVariantCombinations] = useState<Record<string, string>[]>([{}]);
+  const [variantCombinations, setVariantCombinations] = useState<VariantRow[]>([{ values: {}, qty: '', costPrice: '' }]);
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
   const [showMarketPrice, setShowMarketPrice] = useState(false);
 
@@ -76,9 +76,9 @@ export default function NewProductPage() {
       setForm((f) => ({ ...f, unitCode: cat.defaultUnit ?? 'pcs' }));
       const variantFields = cat.fields.filter((f) => f.isVariant);
       if (variantFields.length > 0) {
-        setVariantCombinations([Object.fromEntries(variantFields.map((f) => [f.name, '']))]);
+        setVariantCombinations([{ values: Object.fromEntries(variantFields.map((f) => [f.name, ''])), qty: '', costPrice: '' }]);
       } else {
-        setVariantCombinations([{}]);
+        setVariantCombinations([{ values: {}, qty: '', costPrice: '' }]);
       }
     }
   }, [form.categoryId, categories]);
@@ -100,6 +100,10 @@ export default function NewProductPage() {
     if (!form.categoryId) { useToastStore.getState().show(t('products.categoryRequired'), 'error'); return; }
     if (!form.name.trim()) { useToastStore.getState().show(t('products.nameRequired'), 'error'); return; }
     if (!form.imageUrl) { useToastStore.getState().show(t('products.imageRequired'), 'error'); return; }
+    for (const row of variantCombinations) {
+      if (!row.qty || parseFloat(row.qty) <= 0) { useToastStore.getState().show(t('products.stockValueRequired'), 'error'); return; }
+      if (row.costPrice === '' || parseFloat(row.costPrice) < 0) { useToastStore.getState().show(t('products.costRequired'), 'error'); return; }
+    }
 
     mutation.mutate({
       categoryId: form.categoryId,
@@ -112,22 +116,35 @@ export default function NewProductPage() {
       lowStockThreshold: parseInt(form.lowStockThreshold) || 5,
       description: form.description || null,
       note: form.note || null,
-      variantCombinations: variantCombinations.filter((c) => Object.values(c).some((v) => v.trim())),
-      initialStock: variantCombinations.length === 1 && form.initialStock ? parseFloat(form.initialStock) : null,
-      costPrice: variantCombinations.length === 1 && form.costPrice ? parseFloat(form.costPrice) : null,
+      variantCombinations: variantCombinations.map((row) => ({
+        values: row.values,
+        qty: parseFloat(row.qty),
+        costPrice: parseFloat(row.costPrice),
+      })),
       warrantyDurationValue: form.warrantyDurationValue ? parseInt(form.warrantyDurationValue) : null,
       warrantyDurationUnit: form.warrantyDurationValue ? form.warrantyDurationUnit : null,
     });
   };
 
   const addVariantRow = () => {
-    setVariantCombinations([...variantCombinations, Object.fromEntries(variantFields.map((f) => [f.name, '']))]);
+    setVariantCombinations([
+      ...variantCombinations,
+      { values: Object.fromEntries(variantFields.map((f) => [f.name, ''])), qty: '', costPrice: '' },
+    ]);
   };
 
   const updateVariantField = (rowIdx: number, fieldName: string, value: string) => {
     setVariantCombinations((prev) =>
-      prev.map((row, i) => (i === rowIdx ? { ...row, [fieldName]: value } : row))
+      prev.map((row, i) => (i === rowIdx ? { ...row, values: { ...row.values, [fieldName]: value } } : row))
     );
+  };
+
+  const updateVariantQty = (rowIdx: number, value: string) => {
+    setVariantCombinations((prev) => prev.map((row, i) => (i === rowIdx ? { ...row, qty: value } : row)));
+  };
+
+  const updateVariantCost = (rowIdx: number, value: string) => {
+    setVariantCombinations((prev) => prev.map((row, i) => (i === rowIdx ? { ...row, costPrice: value } : row)));
   };
 
   const removeVariantRow = (idx: number) => {
@@ -275,10 +292,11 @@ export default function NewProductPage() {
           />
         </div>
 
-        {/* Current stock + cost price — "I already own some of these", not a new purchase.
-            Only meaningful for a single-variant product; hidden once more than one variant row
-            exists, since a single quantity/cost can't be split across multiple variants here. */}
-        {variantCombinations.length === 1 && (
+        {/* Opening stock + buy price — required for every variant, so a product can never exist
+            without a cost basis. For a product with no variant matrix, this is the single
+            implicit variant's qty/cost; for a multi-variant product these move inline into each
+            row below instead. */}
+        {variantFields.length === 0 && (
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">{t('products.initialStockLabel')}</label>
@@ -287,26 +305,23 @@ export default function NewProductPage() {
                 min="0"
                 step="0.01"
                 className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm"
-                placeholder={t('products.optional')}
-                value={form.initialStock}
-                onChange={(e) => setForm((f) => ({ ...f, initialStock: e.target.value }))}
+                value={variantCombinations[0]?.qty ?? ''}
+                onChange={(e) => updateVariantQty(0, e.target.value)}
+                required
               />
             </div>
             <div>
-              <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">{t('products.costPriceLabel')}</label>
+              <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">{t('products.buyPrice')}</label>
               <input
                 type="number"
                 min="0"
                 step="0.01"
                 className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm"
-                placeholder={t('products.optional')}
-                value={form.costPrice}
-                onChange={(e) => setForm((f) => ({ ...f, costPrice: e.target.value }))}
+                value={variantCombinations[0]?.costPrice ?? ''}
+                onChange={(e) => updateVariantCost(0, e.target.value)}
+                required
               />
             </div>
-            {form.initialStock && !form.costPrice && (
-              <p className="col-span-2 text-xs text-amber-600">{t('products.costPriceHint')}</p>
-            )}
           </div>
         )}
 
@@ -372,26 +387,50 @@ export default function NewProductPage() {
           </div>
           {variantFields.length > 0 && (
             <div className="mt-2 space-y-2">
-              {variantCombinations.map((combo, rowIdx) => (
-                <div key={rowIdx} className="flex gap-2 items-center">
-                  {variantFields.map((field) => (
-                    <div key={field.id} className="flex-1">
-                      <VariantFieldInput
-                        field={field}
-                        value={combo[field.name] ?? ''}
-                        onChange={(v) => updateVariantField(rowIdx, field.name, v)}
-                      />
-                    </div>
-                  ))}
-                  {variantCombinations.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() => removeVariantRow(rowIdx)}
-                      className="text-red-400 shrink-0"
-                    >
-                      ×
-                    </button>
-                  )}
+              {variantCombinations.map((row, rowIdx) => (
+                <div key={rowIdx} className="border border-gray-100 rounded-xl p-2.5 space-y-2">
+                  <div className="flex gap-2 items-center">
+                    {variantFields.map((field) => (
+                      <div key={field.id} className="flex-1">
+                        <VariantFieldInput
+                          field={field}
+                          value={row.values[field.name] ?? ''}
+                          onChange={(v) => updateVariantField(rowIdx, field.name, v)}
+                        />
+                      </div>
+                    ))}
+                    {variantCombinations.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeVariantRow(rowIdx)}
+                        className="text-red-400 shrink-0"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm"
+                      placeholder={t('products.initialStockLabel')}
+                      value={row.qty}
+                      onChange={(e) => updateVariantQty(rowIdx, e.target.value)}
+                      required
+                    />
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm"
+                      placeholder={t('products.buyPrice')}
+                      value={row.costPrice}
+                      onChange={(e) => updateVariantCost(rowIdx, e.target.value)}
+                      required
+                    />
+                  </div>
                 </div>
               ))}
             </div>

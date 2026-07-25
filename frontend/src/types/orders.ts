@@ -98,6 +98,7 @@ export interface OrderListItemSummary {
   variantSku: string;
   qty: number;
   availableStock: number;
+  productId: string;
 }
 
 export interface OrderListItem {

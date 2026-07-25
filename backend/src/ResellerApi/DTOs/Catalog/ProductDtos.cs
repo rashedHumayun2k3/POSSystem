@@ -45,7 +45,13 @@ public record ProductSummaryDto(
     string CategoryName,
     int VariantCount,
     int TotalStock,
-    int LowStockThreshold
+    int LowStockThreshold,
+    decimal BuyPrice,              // OWNER only — default variant's landed cost
+    decimal? AverageRating,
+    int ReviewCount,
+    int OrderCount,
+    decimal TotalProfit,           // OWNER only
+    bool ShowOnMarketplace
 );
 
 public record ProductMarketplaceDetailDto(Guid Id, string Section, string Label, string Value, int SortOrder);
@@ -79,7 +85,9 @@ public record ProductDetailDto(
     List<ProductMarketplaceDetailDto> MarketplaceDetails,
     List<ProductImageDto> Images,
     int? WarrantyDurationValue,
-    string? WarrantyDurationUnit
+    string? WarrantyDurationUnit,
+    decimal? AverageRating,
+    int ReviewCount
 );
 
 public record ProductDetailStaffDto(
@@ -104,7 +112,9 @@ public record ProductDetailStaffDto(
     List<ProductMarketplaceDetailDto> MarketplaceDetails,
     List<ProductImageDto> Images,
     int? WarrantyDurationValue,
-    string? WarrantyDurationUnit
+    string? WarrantyDurationUnit,
+    decimal? AverageRating,
+    int ReviewCount
 );
 
 public record ProductSearchResultDto(
@@ -122,6 +132,14 @@ public record ProductSearchResultDto(
     decimal? MarketPrice
 );
 
+// Variant field values (marked IsVariant) plus the opening quantity + cost owned for that
+// specific combination — every variant a product starts with gets its own cost basis up front.
+public record VariantCombinationInput(
+    Dictionary<string, string> Values,
+    decimal Qty,
+    decimal CostPrice
+);
+
 public record CreateProductRequest(
     Guid CategoryId,
     string Name,
@@ -135,17 +153,24 @@ public record CreateProductRequest(
     int LowStockThreshold,
     string? AttributesJson,
     string? Note,
-    // variant field values that are marked IsVariant — generate combinations
-    List<Dictionary<string, string>>? VariantCombinations,
-    // Optional "I already own this" entry — only applied when the product has exactly one
-    // variant (no VariantCombinations); ignored for multi-variant products, where per-variant
-    // stock must go through the normal Stock Adjustment flow instead. Silently records an
-    // OPENING_BALANCE purchase trip behind the scenes — see ProductService.CreateAsync.
-    decimal? InitialStock,
-    decimal? CostPrice,
+    // Null → a single bare variant with no stock/cost yet — used only by internal bulk-add
+    // flows (e.g. Quick Add from suggested categories) that have their own separate opening-
+    // stock path. Non-null → the normal New Product screen path: one entry per variant, each
+    // with a required opening quantity + cost, validated in ProductService.CreateAsync.
+    List<VariantCombinationInput>? VariantCombinations,
     Guid? BranchId,
     int? WarrantyDurationValue,
     string? WarrantyDurationUnit
+);
+
+// "I already have this stock" — for a variant that has never had any real purchase cost
+// recorded (AvgLandedCost == 0). Only usable once per variant in that state; once real cost
+// exists, restocking goes through the normal Purchases flow instead. See
+// ProductService.RecordExistingStockCostAsync.
+public record RecordExistingStockCostRequest(
+    decimal Qty,
+    decimal CostPerUnit,
+    Guid? BranchId
 );
 
 public record UpdateProductRequest(
@@ -183,7 +208,24 @@ public record CreateVariantRequest(
     string? ImageUrl,
     string? Note,
     decimal? PriceOverride,
-    bool IsDefault
+    bool IsDefault,
+    // A new variant always needs its own opening quantity + cost, same as at product creation —
+    // it can never be added with an unknown cost basis.
+    decimal Qty,
+    decimal CostPrice,
+    Guid? BranchId
+);
+
+// Redistributes a single variant's existing on-hand stock into several new variants — no new
+// cost entry, since it's the same physical batch just being recategorized (e.g. a product added
+// without a size/color matrix, now being split into real variants). See
+// ProductService.SplitStockIntoVariantsAsync.
+public record SplitVariantItem(Dictionary<string, string> Values, decimal Qty);
+
+public record SplitStockIntoVariantsRequest(
+    Guid SourceVariantId,
+    List<SplitVariantItem> Items,
+    Guid? BranchId
 );
 
 public record UpdateVariantRequest(

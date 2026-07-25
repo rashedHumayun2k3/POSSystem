@@ -97,7 +97,13 @@
       "Bash(sqlcmd -S localhost -d ResellerDb -E -C -Q \"SELECT b.Id AS BusinessId, b.Name AS Business, br.Id AS BranchId, br.Name AS Branch FROM businesses b LEFT JOIN branches br ON br.BusinessId=b.Id WHERE b.Name IN \\('CR7 Fashon','My Shop'\\)\" -W)",
       "Bash(sqlcmd -S localhost -d ResellerDb -E -C -Q \"SELECT p.BusinessId, p.Name, p.SellingPrice, v.Id AS VariantId FROM products p JOIN product_variants v ON v.ProductId=p.Id WHERE p.BusinessId IN \\('93093EAD-4F6A-47BE-B731-3AF93A20F432','21046168-E229-4A4E-AD8C-8663058CD777'\\) AND p.DeletedAt IS NULL AND v.DeletedAt IS NULL\" -W)",
       "PowerShell(Stop-Process -Id 29768 -Force -Confirm:$false)",
-      "PowerShell(cd D:\\\\Personal\\\\ShoppingApplication\\\\frontend; $env:npm_config_loglevel='error'; npx tsc --noEmit; Write-Output \"EXITCODE=$LASTEXITCODE\")"
+      "PowerShell(cd D:\\\\Personal\\\\ShoppingApplication\\\\frontend; $env:npm_config_loglevel='error'; npx tsc --noEmit; Write-Output \"EXITCODE=$LASTEXITCODE\")",
+      "Bash(rm \"e:/LavLokshan/backend/src/ResellerApi/Data/Migrations/20260725083053_AddOrdersStatusCreatedAtIndex.cs\" \"e:/LavLokshan/backend/src/ResellerApi/Data/Migrations/20260725083053_AddOrdersStatusCreatedAtIndex.Designer.cs\")",
+      "Bash(taskkill //PID 34604 //F)",
+      "Bash(echo \"EXIT:$?\")"
+    ],
+    "additionalDirectories": [
+      "e:\\LavLokshan\\backend\\src\\ResellerApi\\Data\\Migrations"
     ]
   }
 }

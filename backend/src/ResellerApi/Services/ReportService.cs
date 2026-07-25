@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using ResellerApi.Data;
 using ResellerApi.DTOs.Reports;
+using ResellerApi.Entities;
+using ResellerApi.Infrastructure;
 using ResellerApi.Services.Interfaces;
 
 namespace ResellerApi.Services;
@@ -23,7 +25,7 @@ public class ReportService : IReportService
 
         // Today's orders (non-cancelled)
         var todayOrders = await _db.Orders.AsNoTracking()
-            .Where(o => o.CreatedAt >= todayUtc && o.CreatedAt < tomorrowUtc && o.OrderStatus != "CANCELLED" && !o.IsDraft)
+            .Where(OrderFinancials.SoldOrderFilter(todayUtc, tomorrowUtc))
             .Include(o => o.Items.Where(i => i.DeletedAt == null))
             .Include(o => o.Payments)
             .ToListAsync();
@@ -35,16 +37,11 @@ public class ReportService : IReportService
 
         foreach (var o in todayOrders)
         {
-            var sub = o.Items.Sum(i => i.Qty * i.UnitPrice);
-            var disc = ComputeDiscount(o, sub);
-            var total = sub - disc + o.DeliveryChargeCustomer;
+            var total = OrderFinancials.ComputeOrderRevenue(o);
             todaySales += total;
 
             if (canSeeCosts)
-            {
-                var cogs = o.Items.Sum(i => i.UnitCostSnapshot.GetValueOrDefault() * i.Qty) + o.DeliveryCostActual;
-                todayProfit += total - cogs;
-            }
+                todayProfit += total - OrderFinancials.ComputeOrderCogs(o);
 
             productsSold += o.Items.Sum(i => i.Qty);
             if (!string.IsNullOrEmpty(o.CustomerPhone))
@@ -180,7 +177,7 @@ public class ReportService : IReportService
         var toExclusive = to.Date.AddDays(1);
 
         var orders = await _db.Orders.AsNoTracking()
-            .Where(o => o.CreatedAt >= from.Date && o.CreatedAt < toExclusive && o.OrderStatus != "CANCELLED" && !o.IsDraft)
+            .Where(OrderFinancials.SoldOrderFilter(from.Date, toExclusive))
             .Include(o => o.Items.Where(i => i.DeletedAt == null))
             .Include(o => o.Payments)
             .ToListAsync();
@@ -191,7 +188,7 @@ public class ReportService : IReportService
         foreach (var o in orders)
         {
             var sub = o.Items.Sum(i => i.Qty * i.UnitPrice);
-            var disc = ComputeDiscount(o, sub);
+            var disc = OrderFinancials.ComputeDiscount(o, sub);
             totalRevenue += sub - disc + o.DeliveryChargeCustomer;
             totalDiscount += disc;
         }
@@ -199,12 +196,9 @@ public class ReportService : IReportService
         var aov = orders.Count > 0 ? totalRevenue / orders.Count : 0;
 
         // Revenue by period
-        var revenueByPeriod = BuildDatePoints(orders.Select(o =>
-        {
-            var sub = o.Items.Sum(i => i.Qty * i.UnitPrice);
-            var disc = ComputeDiscount(o, sub);
-            return (o.CreatedAt.Date, sub - disc + o.DeliveryChargeCustomer);
-        }), from.Date, to.Date, groupBy);
+        var revenueByPeriod = BuildDatePoints(
+            orders.Select(o => (o.CreatedAt.Date, OrderFinancials.ComputeOrderRevenue(o))),
+            from.Date, to.Date, groupBy);
 
         // Top products
         var topProducts = orders.SelectMany(o => o.Items)
@@ -235,15 +229,7 @@ public class ReportService : IReportService
 
         var byCashier = orders
             .GroupBy(o => userNames.TryGetValue(o.HandlingUserId ?? o.CreatedBy, out var n) ? n : "Unknown")
-            .Select(g =>
-            {
-                var rev = g.Sum(o =>
-                {
-                    var sub = o.Items.Sum(i => i.Qty * i.UnitPrice);
-                    return sub - ComputeDiscount(o, sub) + o.DeliveryChargeCustomer;
-                });
-                return new NameValue(g.Key, rev);
-            })
+            .Select(g => new NameValue(g.Key, g.Sum(OrderFinancials.ComputeOrderRevenue)))
             .OrderByDescending(x => x.Value)
             .ToList();
 
@@ -375,7 +361,7 @@ public class ReportService : IReportService
         var toExclusive = to.Date.AddDays(1);
 
         var orders = await _db.Orders.AsNoTracking()
-            .Where(o => o.CreatedAt >= from.Date && o.CreatedAt < toExclusive && o.OrderStatus != "CANCELLED" && !o.IsDraft)
+            .Where(OrderFinancials.SoldOrderFilter(from.Date, toExclusive))
             .Include(o => o.Items.Where(i => i.DeletedAt == null))
             .ToListAsync();
 
@@ -383,11 +369,9 @@ public class ReportService : IReportService
         foreach (var o in orders)
         {
             var sub = o.Items.Sum(i => i.Qty * i.UnitPrice);
-            var disc = ComputeDiscount(o, sub);
-            discounts += disc;
-            var total = sub - disc + o.DeliveryChargeCustomer;
-            revenue += total;
-            cogs += o.Items.Sum(i => i.UnitCostSnapshot.GetValueOrDefault() * i.Qty) + o.DeliveryCostActual;
+            discounts += OrderFinancials.ComputeDiscount(o, sub);
+            revenue += OrderFinancials.ComputeOrderRevenue(o);
+            cogs += OrderFinancials.ComputeOrderCogs(o);
         }
 
         var grossProfit = revenue - cogs;
@@ -404,21 +388,14 @@ public class ReportService : IReportService
         var netMarginPct = revenue > 0 ? Math.Round(netProfit / revenue * 100, 1) : 0;
 
         // Revenue trend by period
-        var revenueTrend = BuildDatePoints(orders.Select(o =>
-        {
-            var sub = o.Items.Sum(i => i.Qty * i.UnitPrice);
-            return (o.CreatedAt.Date, sub - ComputeDiscount(o, sub) + o.DeliveryChargeCustomer);
-        }), from.Date, to.Date, groupBy);
+        var revenueTrend = BuildDatePoints(
+            orders.Select(o => (o.CreatedAt.Date, OrderFinancials.ComputeOrderRevenue(o))),
+            from.Date, to.Date, groupBy);
 
         // Profit trend
-        var profitTrend = BuildDatePoints(orders.Select(o =>
-        {
-            var sub = o.Items.Sum(i => i.Qty * i.UnitPrice);
-            var disc = ComputeDiscount(o, sub);
-            var total = sub - disc + o.DeliveryChargeCustomer;
-            var orderCogs = o.Items.Sum(i => i.UnitCostSnapshot.GetValueOrDefault() * i.Qty) + o.DeliveryCostActual;
-            return (o.CreatedAt.Date, total - orderCogs);
-        }), from.Date, to.Date, groupBy);
+        var profitTrend = BuildDatePoints(
+            orders.Select(o => (o.CreatedAt.Date, OrderFinancials.ComputeOrderRevenue(o) - OrderFinancials.ComputeOrderCogs(o))),
+            from.Date, to.Date, groupBy);
 
         // Expense trend — load once, reuse for trend + by-category
         var expensesByDay = await _db.Expenses.AsNoTracking()
@@ -487,15 +464,153 @@ public class ReportService : IReportService
         );
     }
 
-    // ── Helpers ────────────────────────────────────────────────────────────────
+    // ── Stock Valuation ──────────────────────────────────────────────────────────
 
-    private static decimal ComputeDiscount(ResellerApi.Entities.Order o, decimal sub)
+    // Stock-side columns (buy price, on-hand, stock value, potential profit, total bought) are
+    // always "as of now" and ignore fromUtc/toExclusiveUtc entirely — only the sales-side columns
+    // are date-filtered. See StockValuationDtos.cs for the full time-semantics contract.
+    public async Task<StockValuationResponseDto> GetStockValuationReportAsync(
+        DateTime fromUtc, DateTime toExclusiveUtc, DateTime rangeFromDate, DateTime rangeToDate, string rangeLabel,
+        Guid? categoryId)
     {
-        if (o.DiscountType == null || o.DiscountValue == null) return 0;
-        return o.DiscountType == "PERCENT"
-            ? Math.Round(sub * o.DiscountValue.Value / 100, 2)
-            : o.DiscountValue.Value;
+        var rangeDays = (toExclusiveUtc - fromUtc).TotalDays;
+        var showVelocity = ShowVelocity(rangeDays);
+        var monthsInRange = MonthsInRange(rangeDays);
+
+        var productsQuery = _db.Products.AsNoTracking()
+            .Include(p => p.Category)
+            .Include(p => p.Variants.Where(v => v.DeletedAt == null))
+            .Where(p => p.Status == "ACTIVE");
+        if (categoryId.HasValue)
+            productsQuery = productsQuery.Where(p => p.CategoryId == categoryId.Value);
+        var products = await productsQuery.ToListAsync();
+
+        var variantIds = products.SelectMany(p => p.Variants).Select(v => v.Id).ToList();
+
+        // On-hand — sums across branches when CurrentBranchId is null (OWNER/MANAGER "All
+        // Branches" view), same convention as LoadInventoryAsync elsewhere.
+        var onHandByVariant = await _db.BranchVariantInventories.AsNoTracking()
+            .Where(vi => variantIds.Contains(vi.VariantId) && (_db.CurrentBranchId == null || vi.BranchId == _db.CurrentBranchId))
+            .GroupBy(vi => vi.VariantId)
+            .Select(g => new { VariantId = g.Key, OnHand = g.Sum(x => x.OnHand) })
+            .ToDictionaryAsync(x => x.VariantId, x => x.OnHand);
+
+        // Lifetime bought qty — not date-ranged, just context for the expanded card.
+        var boughtByVariant = await _db.StockMovements.AsNoTracking()
+            .Where(m => variantIds.Contains(m.VariantId) && m.MovementType == "PURCHASE_IN")
+            .GroupBy(m => m.VariantId)
+            .Select(g => new { VariantId = g.Key, Qty = g.Sum(x => x.Qty) })
+            .ToDictionaryAsync(x => x.VariantId, x => x.Qty);
+
+        // Sold, in range — same "sold order" definition as Dashboard/Sales/P&L (OrderFinancials).
+        // NOTE: GroupBy+Sum after a double Join can't be translated by the SQL Server provider
+        // (nested TransparentIdentifier), so materialize the flat rows first and aggregate in
+        // memory — same workaround already used elsewhere in this file.
+        var productIds = products.Select(p => p.Id).ToList();
+        var soldRaw = await _db.Set<OrderItem>().AsNoTracking()
+            .Where(i => i.DeletedAt == null)
+            .Join(_db.Orders.AsNoTracking().Where(OrderFinancials.SoldOrderFilter(fromUtc, toExclusiveUtc)),
+                i => i.OrderId, o => o.Id, (i, o) => i)
+            .Join(_db.ProductVariants.AsNoTracking(), i => i.VariantId, pv => pv.Id,
+                (i, pv) => new { i.Qty, i.UnitPrice, i.UnitCostSnapshot, pv.ProductId })
+            .Where(x => productIds.Contains(x.ProductId))
+            .ToListAsync();
+
+        var soldByProduct = soldRaw
+            .GroupBy(x => x.ProductId)
+            .ToDictionary(g => g.Key, g => (
+                QtySold: g.Sum(x => x.Qty),
+                Revenue: g.Sum(x => x.Qty * x.UnitPrice),
+                RealizedProfit: g.Sum(x => x.Qty * (x.UnitPrice - x.UnitCostSnapshot.GetValueOrDefault()))
+            ));
+
+        var productDtos = new List<StockValuationProductDto>();
+        foreach (var p in products)
+        {
+            var variants = p.Variants.Where(v => v.DeletedAt == null).ToList();
+            decimal onHandQty = 0, weightedCostSum = 0, totalBought = 0;
+            foreach (var v in variants)
+            {
+                var onHand = onHandByVariant.TryGetValue(v.Id, out var oh) ? oh : 0;
+                onHandQty += onHand;
+                weightedCostSum += onHand * v.AvgLandedCost;
+                totalBought += boughtByVariant.TryGetValue(v.Id, out var b) ? b : 0;
+            }
+            var avgBuyPrice = WeightedAvgBuyPrice(onHandQty, weightedCostSum);
+            var stockValue = Math.Round(weightedCostSum, 2);
+            var potentialProfit = Math.Round((p.SellingPrice - avgBuyPrice) * onHandQty, 2);
+
+            var sold = soldByProduct.TryGetValue(p.Id, out var s) ? s : (QtySold: 0m, Revenue: 0m, RealizedProfit: 0m);
+            var avgActualSellPrice = sold.QtySold > 0 ? Math.Round(sold.Revenue / sold.QtySold, 2) : 0;
+            var soldPerMonth = SoldPerMonth(showVelocity, sold.QtySold, monthsInRange);
+            var monthsLeft = MonthsOfStockLeft(showVelocity, onHandQty, soldPerMonth);
+
+            productDtos.Add(new StockValuationProductDto(
+                p.Id, p.Name, p.CategoryId, p.Category.Name,
+                avgBuyPrice, onHandQty, stockValue, potentialProfit,
+                sold.QtySold, sold.Revenue, sold.RealizedProfit, avgActualSellPrice,
+                soldPerMonth, monthsLeft, totalBought
+            ));
+        }
+
+        var categories = productDtos
+            .GroupBy(x => (x.CategoryId, x.CategoryName))
+            .Select(g => new StockValuationCategoryDto(
+                g.Key.CategoryId, g.Key.CategoryName,
+                Math.Round(g.Sum(x => x.StockValue), 2),
+                Math.Round(g.Sum(x => x.RealizedProfit), 2),
+                g.OrderByDescending(x => x.StockValue).ToList()
+            ))
+            .OrderByDescending(c => c.StockValue)
+            .ToList();
+
+        var grandStockValue = categories.Sum(c => c.StockValue);
+        var grandPotentialProfit = productDtos.Sum(x => x.PotentialProfit);
+
+        decimal grandRevenue, grandRealizedProfit;
+        if (categoryId.HasValue)
+        {
+            // Category-filtered view — summed from the filtered per-product rows (same caveat as
+            // existing by-category breakdowns: not apportioned for discount/delivery). The
+            // Dashboard has no category filter to compare against anyway in this case.
+            grandRevenue = productDtos.Sum(x => x.Revenue);
+            grandRealizedProfit = productDtos.Sum(x => x.RealizedProfit);
+        }
+        else
+        {
+            // Whole-business view — computed properly at order level so this ties out exactly to
+            // the Dashboard/P&L for the same period, per the explicit requirement to match them.
+            var soldOrders = await _db.Orders.AsNoTracking()
+                .Where(OrderFinancials.SoldOrderFilter(fromUtc, toExclusiveUtc))
+                .Include(o => o.Items.Where(i => i.DeletedAt == null))
+                .ToListAsync();
+            grandRevenue = soldOrders.Sum(OrderFinancials.ComputeOrderRevenue);
+            grandRealizedProfit = soldOrders.Sum(o => OrderFinancials.ComputeOrderRevenue(o) - OrderFinancials.ComputeOrderCogs(o));
+        }
+
+        return new StockValuationResponseDto(
+            grandStockValue, grandPotentialProfit, grandRealizedProfit, grandRevenue,
+            rangeFromDate, rangeToDate, rangeLabel, showVelocity,
+            categories
+        );
     }
+
+    // Below ~28 days, velocity/months-left would be noise (e.g. a 3-day range extrapolated to a
+    // month is meaningless), so both are hidden entirely rather than shown misleadingly.
+    public static bool ShowVelocity(double rangeDays) => rangeDays >= 28;
+
+    public static decimal MonthsInRange(double rangeDays) => (decimal)rangeDays / 30.44m;
+
+    public static decimal WeightedAvgBuyPrice(decimal onHandQty, decimal weightedCostSum) =>
+        onHandQty > 0 ? Math.Round(weightedCostSum / onHandQty, 2) : 0;
+
+    public static decimal? SoldPerMonth(bool showVelocity, decimal qtySold, decimal monthsInRange) =>
+        showVelocity && monthsInRange > 0 ? Math.Round(qtySold / monthsInRange, 2) : null;
+
+    public static decimal? MonthsOfStockLeft(bool showVelocity, decimal onHandQty, decimal? soldPerMonth) =>
+        showVelocity && soldPerMonth is > 0 ? Math.Round(onHandQty / soldPerMonth.Value, 1) : null;
+
+    // ── Helpers ────────────────────────────────────────────────────────────────
 
     private static List<DatePoint> BuildDatePoints(
         IEnumerable<(DateTime date, decimal value)> data,

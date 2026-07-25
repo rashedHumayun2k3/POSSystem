@@ -43,8 +43,9 @@ public class ProductService : IProductService
 
         var variantIds = products.SelectMany(p => p.Variants).Select(v => v.Id);
         var inv = await LoadInventoryAsync(variantIds);
+        var orderStats = await LoadOrderStatsAsync(products.Select(p => p.Id));
 
-        return products.Select(p => MapSummary(p, inv)).ToList();
+        return products.Select(p => MapSummary(p, inv, orderStats)).ToList();
     }
 
     // Backs the "My Added Products" tab on the catalog-templates page — every product under a
@@ -62,8 +63,9 @@ public class ProductService : IProductService
 
         var variantIds = products.SelectMany(p => p.Variants).Select(v => v.Id);
         var inv = await LoadInventoryAsync(variantIds);
+        var orderStats = await LoadOrderStatsAsync(products.Select(p => p.Id));
 
-        return products.Select(p => MapSummary(p, inv)).ToList();
+        return products.Select(p => MapSummary(p, inv, orderStats)).ToList();
     }
 
     public async Task<object> GetAsync(Guid id, bool isOwner)
@@ -95,7 +97,8 @@ public class ProductService : IProductService
                 p.AttributesJson, p.Note, p.Status, p.Category.Name,
                 p.Variants.Where(v => v.DeletedAt == null).Select(v => MapVariantDto(v, inv)).ToList(),
                 p.RowVer, p.ShowOnMarketplace, p.YoutubeUrl, details, images,
-                p.WarrantyDurationValue, p.WarrantyDurationUnit
+                p.WarrantyDurationValue, p.WarrantyDurationUnit,
+                p.AverageRating, p.ReviewCount
             );
         }
 
@@ -105,7 +108,8 @@ public class ProductService : IProductService
             p.AttributesJson, p.Note, p.Status, p.Category.Name,
             p.Variants.Where(v => v.DeletedAt == null).Select(MapVariantStaffDto).ToList(),
             p.YoutubeUrl, details, images,
-            p.WarrantyDurationValue, p.WarrantyDurationUnit
+            p.WarrantyDurationValue, p.WarrantyDurationUnit,
+            p.AverageRating, p.ReviewCount
         );
     }
 
@@ -356,13 +360,20 @@ public class ProductService : IProductService
 
     public async Task<ProductDetailDto> CreateAsync(CreateProductRequest request, Guid userId)
     {
-        // Fail fast, before anything is persisted, rather than leaving a product created without
-        // its requested opening stock if branch resolution turns out to be ambiguous.
-        if (request.InitialStock is > 0 && !request.BranchId.HasValue)
+        var combinations = request.VariantCombinations;
+
+        // Fail fast, before anything is persisted, rather than leaving a product created
+        // half-finished if quantities are invalid or branch resolution turns out ambiguous.
+        Guid? branchId = null;
+        if (combinations != null)
         {
-            var activeBranchCount = await _db.Branches.CountAsync(b => b.IsActive);
-            if (activeBranchCount != 1)
-                throw new ArgumentException("This business has multiple branches — please select which branch the initial stock belongs to.");
+            if (combinations.Count == 0) throw new ArgumentException("At least one variant is required.");
+            foreach (var c in combinations)
+            {
+                if (c.Qty <= 0) throw new ArgumentException("Quantity must be greater than zero for every variant.");
+                if (c.CostPrice < 0) throw new ArgumentException("Cost cannot be negative.");
+            }
+            branchId = await ResolveSingleBranchIdAsync(request.BranchId);
         }
 
         var sku = await GenerateSkuAsync();
@@ -390,13 +401,14 @@ public class ProductService : IProductService
         _db.Products.Add(product);
         await _db.SaveChangesAsync(); // get product Id
 
-        // Generate variants
-        var combinations = request.VariantCombinations ?? new List<Dictionary<string, string>> { new() };
-        ProductVariant? soleVariant = null;
-        for (int i = 0; i < combinations.Count; i++)
+        // Bare default variant (no stock/cost) when combinations weren't supplied — internal
+        // bulk-add flows only, see CreateProductRequest.VariantCombinations.
+        var comboList = combinations ?? new List<VariantCombinationInput> { new(new Dictionary<string, string>(), 0, 0) };
+        var createdVariants = new List<(ProductVariant Variant, decimal Qty, decimal CostPrice)>();
+        for (int i = 0; i < comboList.Count; i++)
         {
-            var combo = combinations[i];
-            var variantJson = System.Text.Json.JsonSerializer.Serialize(combo);
+            var combo = comboList[i];
+            var variantJson = System.Text.Json.JsonSerializer.Serialize(combo.Values);
             var barcode = await GenerateBarcodeAsync();
             var variantSku = $"{sku}-{(i + 1):D2}";
             var variant = new ProductVariant
@@ -409,60 +421,106 @@ public class ProductService : IProductService
                 IsDefault = i == 0
             };
             _db.ProductVariants.Add(variant);
-            if (combinations.Count == 1) soleVariant = variant;
+            createdVariants.Add((variant, combo.Qty, combo.CostPrice));
         }
         await _db.SaveChangesAsync();
         await _log.LogAsync(_business.CurrentBusinessId, userId, "CREATE", "Product", product.Id);
 
-        // "I already own some of these" — only meaningful for a single-variant product; a
-        // multi-variant product (e.g. Size/Color combinations) needs per-variant quantities,
-        // which this simple pair of fields can't express — those go through the normal Stock
-        // Adjustment flow instead, same as today.
-        if (soleVariant != null && request.InitialStock is > 0)
+        if (combinations != null)
         {
-            await RecordOpeningStockAsync(soleVariant.Id, request.InitialStock.Value, request.CostPrice ?? 0, request.BranchId, userId);
+            foreach (var (variant, qty, costPrice) in createdVariants)
+                await SetVariantOpeningStockAndCostAsync(variant.Id, qty, costPrice, branchId!.Value, userId);
         }
 
         return (ProductDetailDto)(await GetAsync(product.Id, true));
     }
 
-    // Silently drives the real Purchase Trip pipeline (source type OPENING_BALANCE, already
-    // whitelisted — see PurchaseTripService) so stock entered here goes through the exact same
-    // landed-cost/weighted-average machinery as a real supplier purchase, rather than writing
-    // AvgLandedCost directly. That keeps every unit of stock in the system traceable to a real
-    // trip, so future real purchases don't get averaged against a fabricated number.
-    private async Task RecordOpeningStockAsync(Guid variantId, decimal qty, decimal costPerUnit, Guid? branchId, Guid userId)
+    // The one place every "here's the quantity and what it cost" entry point converges — new
+    // product variants, a new variant added later, and the "add cost for existing stock"
+    // retrofit all call this. A single stock_movement carries both the quantity and the cost
+    // together, so it always shows as one clear entry in Adjustment History — no separate
+    // purchase trip, no hidden receive event.
+    private async Task SetVariantOpeningStockAndCostAsync(Guid variantId, decimal qty, decimal costPerUnit, Guid branchId, Guid userId)
     {
-        var supplierId = await GetOrCreateOpeningStockSupplierAsync();
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        try
+        {
+            var inv = await _db.BranchVariantInventories
+                .FromSqlRaw("SELECT * FROM branch_variant_inventories WITH (UPDLOCK) WHERE [BranchId] = {0} AND [VariantId] = {1}", branchId, variantId)
+                .FirstOrDefaultAsync();
 
-        var trip = await _purchaseTrips.CreateAsync(
-            new CreatePurchaseTripRequest("OPENING_BALANCE", "Opening stock recorded at product creation", branchId), userId);
+            var currentOnHand = inv?.OnHand ?? 0;
+            var delta = qty - currentOnHand;
 
-        var item = await _purchaseTrips.AddItemAsync(trip.Id,
-            new AddPurchaseItemRequest(variantId, qty, costPerUnit * qty, supplierId, null, 0, 0, null), userId);
+            if (inv == null)
+            {
+                inv = new BranchVariantInventory { BranchId = branchId, VariantId = variantId, OnHand = 0, Committed = 0, Damaged = 0 };
+                _db.BranchVariantInventories.Add(inv);
+            }
+            inv.OnHand = qty;
 
-        await _purchaseTrips.CreateReceiveSessionAsync(trip.Id,
-            new CreateReceiveSessionRequest(DateTime.UtcNow, "WALK_IN", null, "Opening stock",
-                new List<SessionItemInput> { new(item.Id, qty, 0, "{}") }),
-            userId, isOwner: true);
+            _db.StockMovements.Add(new StockMovement
+            {
+                BusinessId = _business.CurrentBusinessId,
+                BranchId = branchId,
+                VariantId = variantId,
+                MovementType = "ADJUSTMENT",
+                Qty = delta,
+                ReferenceType = "ExistingStockCost",
+                UserId = userId,
+                Reason = "EXISTING_STOCK",
+                Note = $"Stock recorded at ৳{costPerUnit:0.##}/unit"
+            });
+
+            var variant = await _db.ProductVariants.FirstAsync(v => v.Id == variantId);
+            variant.AvgLandedCost = costPerUnit;
+
+            await _db.SaveChangesAsync();
+            await tx.CommitAsync();
+        }
+        catch
+        {
+            await tx.RollbackAsync();
+            throw;
+        }
+
+        await _log.LogAsync(_business.CurrentBusinessId, userId, "UPDATE", "ProductVariant", variantId);
     }
 
-    private async Task<Guid> GetOrCreateOpeningStockSupplierAsync()
+    // "I already own this" — for a variant that has never had any real purchase cost recorded
+    // (AvgLandedCost == 0). Only usable once per variant in that state; once real cost exists,
+    // restocking goes through the normal Purchases flow instead, so genuine cost history never
+    // gets silently overwritten.
+    public async Task<VariantDto> RecordExistingStockCostAsync(Guid variantId, RecordExistingStockCostRequest request, Guid userId)
     {
-        const string name = "Opening Stock";
-        var existing = await _db.Suppliers
-            .FirstOrDefaultAsync(s => s.BusinessId == _business.CurrentBusinessId && s.Name == name);
-        if (existing != null) return existing.Id;
+        if (request.Qty <= 0) throw new ArgumentException("Quantity must be greater than zero.");
+        if (request.CostPerUnit < 0) throw new ArgumentException("Cost cannot be negative.");
 
-        var supplier = new Supplier
-        {
-            BusinessId = _business.CurrentBusinessId,
-            Name = name,
-            Notes = "SYSTEM_RESERVED — auto-created to record stock owned before this product was added to the app."
-        };
-        _db.Suppliers.Add(supplier);
-        await _db.SaveChangesAsync();
-        return supplier.Id;
+        var variant = await _db.ProductVariants.FirstOrDefaultAsync(v => v.Id == variantId)
+            ?? throw new KeyNotFoundException("Variant not found.");
+
+        if (variant.AvgLandedCost > 0)
+            throw new ArgumentException("This item already has recorded purchase cost — add more stock through Purchases instead.");
+
+        var branchId = await ResolveSingleBranchIdAsync(request.BranchId);
+        await SetVariantOpeningStockAndCostAsync(variantId, request.Qty, request.CostPerUnit, branchId, userId);
+
+        var onHand = await _db.BranchVariantInventories
+            .Where(i => i.BranchId == branchId && i.VariantId == variantId)
+            .SumAsync(i => (decimal?)i.OnHand) ?? 0;
+        var updated = await _db.ProductVariants.AsNoTracking().FirstAsync(v => v.Id == variantId);
+        return MapVariantDto(updated, new Dictionary<Guid, decimal> { [variantId] = onHand });
+    }
+
+    private async Task<Guid> ResolveSingleBranchIdAsync(Guid? requestedBranchId)
+    {
+        if (requestedBranchId.HasValue) return requestedBranchId.Value;
+        if (_business.CurrentBranchId.HasValue) return _business.CurrentBranchId.Value;
+
+        var activeBranches = await _db.Branches.Where(b => b.IsActive).Select(b => b.Id).ToListAsync();
+        if (activeBranches.Count == 1) return activeBranches[0];
+        if (activeBranches.Count == 0) throw new InvalidOperationException("No active branch exists for this business.");
+        throw new ArgumentException("This business has multiple branches — please select which branch this stock belongs to.");
     }
 
     public async Task<ProductDetailDto> UpdateAsync(Guid id, UpdateProductRequest request, Guid userId)
@@ -540,8 +598,14 @@ public class ProductService : IProductService
 
     public async Task<VariantDto> AddVariantAsync(Guid productId, CreateVariantRequest request, Guid userId)
     {
+        if (request.Qty <= 0) throw new ArgumentException("Quantity must be greater than zero.");
+        if (request.CostPrice < 0) throw new ArgumentException("Cost cannot be negative.");
+
         var product = await _db.Products.FirstOrDefaultAsync(p => p.Id == productId)
             ?? throw new KeyNotFoundException("Product not found.");
+
+        // Fail fast, before anything is persisted, if branch resolution turns out ambiguous.
+        var branchId = await ResolveSingleBranchIdAsync(request.BranchId);
 
         var variantCount = await _db.ProductVariants.CountAsync(v => v.ProductId == productId);
         var sku = $"{product.Sku}-{(variantCount + 1):D2}";
@@ -569,8 +633,135 @@ public class ProductService : IProductService
         _db.ProductVariants.Add(variant);
         await _db.SaveChangesAsync();
         await _log.LogAsync(_business.CurrentBusinessId, userId, "CREATE", "ProductVariant", variant.Id);
-        // Brand new variant — no purchase trip has ever touched it, so stock is always 0.
-        return MapVariantDto(variant, new Dictionary<Guid, decimal>());
+
+        await SetVariantOpeningStockAndCostAsync(variant.Id, request.Qty, request.CostPrice, branchId, userId);
+
+        var onHand = await _db.BranchVariantInventories
+            .Where(i => i.BranchId == branchId && i.VariantId == variant.Id)
+            .SumAsync(i => (decimal?)i.OnHand) ?? 0;
+        var updated = await _db.ProductVariants.AsNoTracking().FirstAsync(v => v.Id == variant.Id);
+        return MapVariantDto(updated, new Dictionary<Guid, decimal> { [variant.Id] = onHand });
+    }
+
+    // Redistributes a single variant's existing on-hand stock into several new named variants —
+    // no new cost entry, since it's the same physical batch just being recategorized (e.g. a
+    // product added without a size/color matrix, now being split into real variants). Only
+    // supported from a single starting variant: splitting an already-multi-variant product would
+    // mean deciding which existing variant(s) to pull from, which this doesn't attempt.
+    public async Task<List<VariantDto>> SplitStockIntoVariantsAsync(Guid productId, SplitStockIntoVariantsRequest request, Guid userId)
+    {
+        if (request.Items.Count < 2) throw new ArgumentException("Split into at least 2 variants.");
+        foreach (var item in request.Items)
+            if (item.Qty <= 0) throw new ArgumentException("Quantity must be greater than zero for every variant.");
+
+        var product = await _db.Products.Include(p => p.Variants).FirstOrDefaultAsync(p => p.Id == productId)
+            ?? throw new KeyNotFoundException("Product not found.");
+
+        var activeVariants = product.Variants.Where(v => v.DeletedAt == null).ToList();
+        if (activeVariants.Count != 1)
+            throw new ArgumentException("Splitting into variants is only available while the product has a single variant.");
+
+        var sourceVariant = activeVariants.First();
+        if (sourceVariant.Id != request.SourceVariantId)
+            throw new ArgumentException("Source variant does not match the product's current variant.");
+
+        var branchId = await ResolveSingleBranchIdAsync(request.BranchId);
+
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        try
+        {
+            var inv = await _db.BranchVariantInventories
+                .FromSqlRaw("SELECT * FROM branch_variant_inventories WITH (UPDLOCK) WHERE [BranchId] = {0} AND [VariantId] = {1}", branchId, sourceVariant.Id)
+                .FirstOrDefaultAsync();
+            var currentOnHand = inv?.OnHand ?? 0;
+            var requestedTotal = request.Items.Sum(i => i.Qty);
+            if (requestedTotal != currentOnHand)
+                throw new ArgumentException($"Split quantities must add up to exactly the current stock ({currentOnHand}).");
+
+            var sourceCost = sourceVariant.AvgLandedCost;
+            var results = new List<ProductVariant> { sourceVariant };
+
+            // First item reuses the source variant's identity — same Sku/Barcode, just relabeled
+            // and its stock narrowed down to its share of the split.
+            var first = request.Items[0];
+            sourceVariant.VariantValuesJson = System.Text.Json.JsonSerializer.Serialize(first.Values);
+            if (inv == null)
+            {
+                inv = new BranchVariantInventory { BranchId = branchId, VariantId = sourceVariant.Id, OnHand = 0, Committed = 0, Damaged = 0 };
+                _db.BranchVariantInventories.Add(inv);
+            }
+            inv.OnHand = first.Qty;
+            _db.StockMovements.Add(new StockMovement
+            {
+                BusinessId = _business.CurrentBusinessId,
+                BranchId = branchId,
+                VariantId = sourceVariant.Id,
+                MovementType = "ADJUSTMENT",
+                Qty = first.Qty - currentOnHand,
+                ReferenceType = "VariantSplit",
+                UserId = userId,
+                Reason = "SPLIT",
+                Note = "Split from single stock into variants"
+            });
+
+            for (int i = 1; i < request.Items.Count; i++)
+            {
+                var item = request.Items[i];
+                var barcode = await GenerateBarcodeAsync();
+                var variantSku = $"{product.Sku}-{(activeVariants.Count + i):D2}";
+                var newVariant = new ProductVariant
+                {
+                    BusinessId = _business.CurrentBusinessId,
+                    ProductId = productId,
+                    VariantValuesJson = System.Text.Json.JsonSerializer.Serialize(item.Values),
+                    Sku = variantSku,
+                    Barcode = barcode,
+                    IsDefault = false,
+                    AvgLandedCost = sourceCost
+                };
+                _db.ProductVariants.Add(newVariant);
+                await _db.SaveChangesAsync(); // need the new variant's Id before referencing it below
+
+                _db.BranchVariantInventories.Add(new BranchVariantInventory
+                {
+                    BranchId = branchId,
+                    VariantId = newVariant.Id,
+                    OnHand = item.Qty,
+                    Committed = 0,
+                    Damaged = 0
+                });
+                _db.StockMovements.Add(new StockMovement
+                {
+                    BusinessId = _business.CurrentBusinessId,
+                    BranchId = branchId,
+                    VariantId = newVariant.Id,
+                    MovementType = "ADJUSTMENT",
+                    Qty = item.Qty,
+                    ReferenceType = "VariantSplit",
+                    UserId = userId,
+                    Reason = "SPLIT",
+                    Note = "Split from single stock into variants"
+                });
+                results.Add(newVariant);
+            }
+
+            await _db.SaveChangesAsync();
+            await tx.CommitAsync();
+        }
+        catch
+        {
+            await tx.RollbackAsync();
+            throw;
+        }
+
+        await _log.LogAsync(_business.CurrentBusinessId, userId, "UPDATE", "Product", productId);
+
+        var allVariants = await _db.ProductVariants.AsNoTracking()
+            .Where(v => v.ProductId == productId && v.DeletedAt == null)
+            .OrderBy(v => v.Sku)
+            .ToListAsync();
+        var invMap = await LoadInventoryAsync(allVariants.Select(v => v.Id));
+        return allVariants.Select(v => MapVariantDto(v, invMap)).ToList();
     }
 
     public async Task<VariantDto> UpdateVariantAsync(Guid productId, Guid variantId, UpdateVariantRequest request, Guid userId)
@@ -662,6 +853,29 @@ public class ProductService : IProductService
             .ToDictionaryAsync(x => x.VariantId, x => x.OnHand);
     }
 
+    // Order count + profit per product for the list-card stat strip — one batched query for the
+    // whole page, same convention as LoadInventoryAsync, instead of a query per card. Only
+    // COMPLETED, non-returned orders count, matching PopularityService's sales convention.
+    // PackagingCostPerUnit isn't applied here (it can change over time and isn't snapshotted per
+    // item) — it's subtracted once in MapSummary using the product's current value.
+    private async Task<Dictionary<Guid, (int OrderCount, decimal QtySold, decimal RawProfit)>> LoadOrderStatsAsync(IEnumerable<Guid> productIds)
+    {
+        var ids = productIds.ToList();
+        return await _db.OrderItems
+            .Where(oi => ids.Contains(oi.Variant.ProductId) &&
+                         oi.Order.OrderStatus == "COMPLETED" &&
+                         oi.Order.FulfillmentStatus != "RETURNED")
+            .GroupBy(oi => oi.Variant.ProductId)
+            .Select(g => new
+            {
+                ProductId = g.Key,
+                OrderCount = g.Select(x => x.OrderId).Distinct().Count(),
+                QtySold = g.Sum(x => x.Qty),
+                RawProfit = g.Sum(x => x.Qty * (x.UnitPrice - (x.UnitCostSnapshot ?? 0)))
+            })
+            .ToDictionaryAsync(x => x.ProductId, x => (x.OrderCount, x.QtySold, x.RawProfit));
+    }
+
     private static ProductSearchResultDto MapSearchResult(
         ProductVariant v,
         Dictionary<Guid, decimal> inv,
@@ -680,10 +894,24 @@ public class ProductService : IProductService
         v.Product.MarketPrice
     );
 
-    private static ProductSummaryDto MapSummary(Product p, Dictionary<Guid, decimal> inv) => new(
-        p.Id, p.Name, p.Sku, p.ImageUrl, p.UnitCode, p.SellingPrice, p.MarketPrice, p.MarketplacePrice,
-        p.PackagingCostPerUnit, p.Status, p.Category?.Name ?? "", p.Variants.Count,
-        (int)p.Variants.Sum(v => inv.TryGetValue(v.Id, out var onHand) ? onHand : 0m),
-        p.LowStockThreshold
-    );
+    private static ProductSummaryDto MapSummary(
+        Product p,
+        Dictionary<Guid, decimal> inv,
+        Dictionary<Guid, (int OrderCount, decimal QtySold, decimal RawProfit)> orderStats)
+    {
+        var defaultVariant = p.Variants.FirstOrDefault(v => v.IsDefault) ?? p.Variants.FirstOrDefault();
+        var stats = orderStats.TryGetValue(p.Id, out var s) ? s : (OrderCount: 0, QtySold: 0m, RawProfit: 0m);
+        var totalProfit = stats.RawProfit - stats.QtySold * p.PackagingCostPerUnit;
+
+        return new(
+            p.Id, p.Name, p.Sku, p.ImageUrl, p.UnitCode, p.SellingPrice, p.MarketPrice, p.MarketplacePrice,
+            p.PackagingCostPerUnit, p.Status, p.Category?.Name ?? "", p.Variants.Count,
+            (int)p.Variants.Sum(v => inv.TryGetValue(v.Id, out var onHand) ? onHand : 0m),
+            p.LowStockThreshold,
+            defaultVariant?.AvgLandedCost ?? 0,
+            p.AverageRating, p.ReviewCount,
+            stats.OrderCount, totalProfit,
+            p.ShowOnMarketplace
+        );
+    }
 }

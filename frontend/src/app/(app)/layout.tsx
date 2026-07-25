@@ -42,6 +42,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     "/more/reports/inventory":   "Inventory Reports",
     "/more/reports/financial":   "Financial Reports",
     "/more/reports/orders":      "Order Reports",
+    "/more/reports/stock-valuation": "Stock Valuation",
     "/more/settings":                    t("settings.title"),
     "/more/settings/staff":              t("settings.staff"),
     "/more/settings/couriers":           t("settings.couriers"),
@@ -63,6 +64,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     "/more/reports/inventory": "/more/reports",
     "/more/reports/financial": "/more/reports",
     "/more/reports/orders":    "/more/reports",
+    "/more/reports/stock-valuation": "/more/reports",
   };
 
   const title = titleMap[pathname] ?? "LavLokshan";

@@ -231,7 +231,10 @@ public record OrderListItemSummaryDto(
     // Current available stock (OnHand - Committed - Damaged) at the order's branch, at read
     // time — lets staff see at a glance whether a not-yet-confirmed order can actually be
     // fulfilled before they call the customer to confirm it.
-    decimal AvailableStock
+    decimal AvailableStock,
+    // Lets a product-detail page (e.g. ListByProductAsync) pick out just this order's line(s)
+    // for the specific product it's already scoped to, without matching on name.
+    Guid ProductId
 );
 
 public record OrderListDto(

@@ -1,5 +1,5 @@
 import { api } from "./api";
-import type { DashboardKpi, SalesSummary, InventoryReport, PnlReport, OrdersReport } from "@/types/reports";
+import type { DashboardKpi, SalesSummary, InventoryReport, PnlReport, OrdersReport, StockValuationResponse } from "@/types/reports";
 
 export const getDashboard = async (): Promise<DashboardKpi> => {
   const { data } = await api.get("/reports/dashboard");
@@ -39,5 +39,15 @@ export const getOrdersReport = async (params: {
   groupBy?: string;
 }): Promise<OrdersReport> => {
   const { data } = await api.get("/reports/orders", { params });
+  return data;
+};
+
+export const getStockValuationReport = async (params: {
+  preset?: string;
+  from?: string;
+  to?: string;
+  categoryId?: string;
+}): Promise<StockValuationResponse> => {
+  const { data } = await api.get("/reports/stock-valuation", { params });
   return data;
 };

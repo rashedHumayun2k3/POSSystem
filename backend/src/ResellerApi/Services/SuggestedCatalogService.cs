@@ -158,9 +158,11 @@ public class SuggestedCatalogService : ISuggestedCatalogService
             .Where(p => p.DefaultVariantId != null)
             .Select(p => p.DefaultVariantId!.Value)
             .ToList();
-        var onHandByVariant = await _db.VariantInventories
+        var onHandByVariant = await _db.BranchVariantInventories
             .Where(vi => defaultVariantIds.Contains(vi.VariantId))
-            .ToDictionaryAsync(vi => vi.VariantId, vi => vi.OnHand);
+            .GroupBy(vi => vi.VariantId)
+            .Select(g => new { VariantId = g.Key, OnHand = g.Sum(x => x.OnHand) })
+            .ToDictionaryAsync(x => x.VariantId, x => x.OnHand);
 
         var existingByName = existingProducts
             .GroupBy(p => p.Name, StringComparer.OrdinalIgnoreCase)
@@ -187,6 +189,12 @@ public class SuggestedCatalogService : ISuggestedCatalogService
         var category = await _db.Categories.FirstOrDefaultAsync(c => c.Id == request.CategoryId)
             ?? throw new KeyNotFoundException("Category not found.");
 
+        foreach (var item in request.Items)
+        {
+            if (item.Quantity <= 0) throw new ArgumentException("Quantity must be greater than zero for every item.");
+            if (item.UnitCost < 0) throw new ArgumentException("Unit cost cannot be negative.");
+        }
+
         var results = new List<AddSuggestedProductsResultItem>();
         var openingStockItems = new List<(Guid VariantId, decimal Qty, decimal UnitCost)>();
 
@@ -208,23 +216,17 @@ public class SuggestedCatalogService : ISuggestedCatalogService
                 LowStockThreshold: 5,
                 AttributesJson: null,
                 Note: null,
-                VariantCombinations: null, // single default variant, no size/color matrix
-                InitialStock: null, // this flow has its own opening-stock path — see ReceiveOpeningStockAsync below
-                CostPrice: null,
+                VariantCombinations: null, // single default variant, no stock/cost yet — this flow has its own opening-stock path, see ReceiveOpeningStockAsync below
                 BranchId: null,
                 WarrantyDurationValue: null,
                 WarrantyDurationUnit: null
             );
             var created = await _products.CreateAsync(createReq, userId);
 
-            var wantsStock = request.WithQuantity && item.Quantity is > 0;
-            if (wantsStock)
-            {
-                var defaultVariant = created.Variants.First(v => v.IsDefault);
-                openingStockItems.Add((defaultVariant.Id, item.Quantity!.Value, item.UnitCost ?? 0));
-            }
+            var defaultVariant = created.Variants.First(v => v.IsDefault);
+            openingStockItems.Add((defaultVariant.Id, item.Quantity, item.UnitCost));
 
-            results.Add(new AddSuggestedProductsResultItem(created.Id, created.Name, wantsStock));
+            results.Add(new AddSuggestedProductsResultItem(created.Id, created.Name, true));
         }
 
         if (openingStockItems.Count > 0)

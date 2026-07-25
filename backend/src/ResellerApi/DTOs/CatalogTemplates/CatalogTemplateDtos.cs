@@ -24,16 +24,17 @@ public record SuggestedProductDto(
     decimal? ExistingQuantity
 );
 
+// Quantity + UnitCost are always required — every product added through Quick Add gets a real
+// cost basis, same rule as New Product and Add Variant. SellingPrice stays optional.
 public record QuickAddProductItem(
     string Name,
     decimal? SellingPrice,
-    decimal? Quantity,
-    decimal? UnitCost
+    decimal Quantity,
+    decimal UnitCost
 );
 
 public record AddSuggestedProductsRequest(
     Guid CategoryId,
-    bool WithQuantity,
     Guid? BranchId,
     List<QuickAddProductItem> Items
 );

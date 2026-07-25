@@ -49,7 +49,12 @@ public class CatalogTemplatesController : ControllerBase
     [HttpPost("products")]
     public async Task<IActionResult> AddProducts([FromBody] AddSuggestedProductsRequest request)
     {
-        return Ok(await _catalog.AddProductsAsync(request, _currentUser.UserId, _currentUser.IsOwner));
+        try
+        {
+            return Ok(await _catalog.AddProductsAsync(request, _currentUser.UserId, _currentUser.IsOwner));
+        }
+        catch (ArgumentException ex) { return BadRequest(new { message = ex.Message }); }
+        catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
     }
 
     [HttpGet("added-products")]

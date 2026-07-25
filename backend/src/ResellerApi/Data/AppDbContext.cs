@@ -754,6 +754,9 @@ public class AppDbContext : DbContext
             e.HasIndex(x => new { x.BusinessId, x.FulfillmentStatus });
             e.HasIndex(x => new { x.BusinessId, x.CustomerPhone });
             e.HasIndex(x => new { x.BusinessId, x.BranchId, x.FulfillmentStatus });
+            // Backs every date-ranged report query (Dashboard/Sales/P&L/Stock Valuation), which all
+            // filter Orders by (OrderStatus != CANCELLED) + a CreatedAt range.
+            e.HasIndex(x => new { x.BusinessId, x.OrderStatus, x.CreatedAt });
             e.Property(x => x.BranchId).IsRequired();
             e.Property(x => x.Channel).HasMaxLength(20).IsRequired();
             e.Property(x => x.BusinessDate).IsRequired();

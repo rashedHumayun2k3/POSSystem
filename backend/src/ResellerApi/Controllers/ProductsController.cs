@@ -47,7 +47,9 @@ public class ProductsController : ControllerBase
             {
                 p.Id, p.Name, p.Sku, p.ImageUrl, p.UnitCode,
                 p.SellingPrice, p.MarketPrice, p.MarketplacePrice, p.Status,
-                p.CategoryName, p.VariantCount, p.TotalStock
+                p.CategoryName, p.VariantCount, p.TotalStock,
+                p.AverageRating, p.ReviewCount, p.ShowOnMarketplace, p.OrderCount
+                // BuyPrice/TotalProfit deliberately omitted — STAFF must never see cost/profit (rule GTR-10)
             }));
         }
         return Ok(products);
@@ -191,6 +193,32 @@ public class ProductsController : ControllerBase
     [Authorize(Roles = "OWNER")]
     public async Task<IActionResult> UpdateVariant(Guid id, Guid variantId, [FromBody] UpdateVariantRequest request)
         => Ok(await _svc.UpdateVariantAsync(id, variantId, request, _user.UserId));
+
+    [HttpPost("{id:guid}/variants/split")]
+    [Authorize(Roles = "OWNER")]
+    public async Task<IActionResult> SplitStockIntoVariants(Guid id, [FromBody] SplitStockIntoVariantsRequest request)
+    {
+        try
+        {
+            return Ok(await _svc.SplitStockIntoVariantsAsync(id, request, _user.UserId));
+        }
+        catch (ArgumentException ex) { return BadRequest(new { message = ex.Message }); }
+        catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
+        catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
+    }
+
+    [HttpPost("variants/{variantId:guid}/existing-stock-cost")]
+    [Authorize(Roles = "OWNER")]
+    public async Task<IActionResult> RecordExistingStockCost(Guid variantId, [FromBody] RecordExistingStockCostRequest request)
+    {
+        try
+        {
+            return Ok(await _svc.RecordExistingStockCostAsync(variantId, request, _user.UserId));
+        }
+        catch (ArgumentException ex) { return BadRequest(new { message = ex.Message }); }
+        catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
+        catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
+    }
 
     // ── Price history ─────────────────────────────────────────────────────────
 

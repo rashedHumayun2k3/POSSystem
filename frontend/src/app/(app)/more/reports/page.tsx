@@ -7,6 +7,7 @@ import {
   BanknotesIcon,
   ShoppingBagIcon,
   HomeIcon,
+  ScaleIcon,
 } from "@heroicons/react/24/outline";
 
 const REPORT_SECTIONS = [
@@ -44,6 +45,13 @@ const REPORT_SECTIONS = [
     color: "bg-rose-50 text-rose-600",
     title: "Order Reports",
     desc: "Status breakdown, returns, channels",
+  },
+  {
+    href: "/more/reports/stock-valuation",
+    icon: ScaleIcon,
+    color: "bg-teal-50 text-teal-600",
+    title: "Stock Valuation",
+    desc: "Stock value, potential & realized profit by category",
   },
 ];
 

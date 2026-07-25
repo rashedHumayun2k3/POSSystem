@@ -16,6 +16,7 @@ import type {
   MarketplaceDetailSection,
   MarketplaceDetailTemplateLabel,
   ProductImage,
+  SplitStockIntoVariantsPayload,
 } from '@/types/catalog';
 
 // ── Categories ────────────────────────────────────────────────────────────────
@@ -199,9 +200,20 @@ export const reorderProductImages = async (id: string, imageIdsInOrder: string[]
 
 export const addVariant = async (
   productId: string,
-  payload: { variantValuesJson: string; barcode: string | null; imageUrl: string | null; note: string | null; priceOverride: number | null; isDefault: boolean }
+  payload: {
+    variantValuesJson: string; barcode: string | null; imageUrl: string | null; note: string | null;
+    priceOverride: number | null; isDefault: boolean; qty: number; costPrice: number; branchId?: string | null;
+  }
 ): Promise<Variant> => {
   const { data } = await api.post(`/products/${productId}/variants`, payload);
+  return data;
+};
+
+export const splitStockIntoVariants = async (
+  productId: string,
+  payload: SplitStockIntoVariantsPayload
+): Promise<Variant[]> => {
+  const { data } = await api.post(`/products/${productId}/variants/split`, payload);
   return data;
 };
 
@@ -226,6 +238,14 @@ export const adjustStock = async (
   payload: { reason: StockAdjustReason; mode: 'SET' | 'DELTA'; value: number; note: string | null }
 ): Promise<StockAdjustment> => {
   const { data } = await api.post(`/products/variants/${variantId}/stock-adjustments`, payload);
+  return data;
+};
+
+export const recordExistingStockCost = async (
+  variantId: string,
+  payload: { qty: number; costPerUnit: number; branchId?: string | null }
+): Promise<Variant> => {
+  const { data } = await api.post(`/products/variants/${variantId}/existing-stock-cost`, payload);
   return data;
 };
 

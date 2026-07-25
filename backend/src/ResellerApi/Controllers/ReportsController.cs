@@ -46,7 +46,7 @@ public class ReportsController : ControllerBase
     }
 
     [HttpGet("financial")]
-    [Authorize(Roles = "Owner,Manager")]
+    [Authorize(Roles = Roles.OwnerOrManager)]
     public async Task<IActionResult> Financial(
         [FromQuery] DateTime? from,
         [FromQuery] DateTime? to,
@@ -66,5 +66,21 @@ public class ReportsController : ControllerBase
         var f = from ?? DateTime.UtcNow.Date.AddDays(-29);
         var t = to ?? DateTime.UtcNow.Date;
         return Ok(await _svc.GetOrdersReportAsync(f, t, groupBy));
+    }
+
+    // Entirely cost/profit data end to end (buy price, stock value, potential/realized profit) —
+    // restricted the same way /financial already is, rather than masking individual fields.
+    [HttpGet("stock-valuation")]
+    [Authorize(Roles = Roles.OwnerOrManager)]
+    public async Task<IActionResult> StockValuation(
+        [FromQuery] DateTime? from,
+        [FromQuery] DateTime? to,
+        [FromQuery] Guid? categoryId,
+        [FromQuery] string preset = "this_month")
+    {
+        var range = DhakaTime.ResolvePreset(preset, from, to);
+        return Ok(await _svc.GetStockValuationReportAsync(
+            range.FromUtc, range.ToExclusiveUtc, range.FromLocalDate, range.ToLocalDate, range.Label,
+            categoryId));
     }
 }

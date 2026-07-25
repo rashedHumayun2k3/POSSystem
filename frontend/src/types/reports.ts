@@ -91,3 +91,50 @@ export interface OrdersReport {
 
 export type ReportPeriod = 'today' | '7d' | '30d' | '3m';
 export type GroupBy = 'day' | 'week' | 'month';
+
+// ── Stock Valuation ───────────────────────────────────────────────────────────
+//
+// Time semantics: stock-side fields (avgBuyPrice, onHandQty, stockValue, potentialProfit,
+// totalBoughtQty) are always "as of now" — the date range never applies to them. Sales-side
+// fields (qtySold, revenue, realizedProfit, avgActualSellPrice, soldPerMonth,
+// monthsOfStockLeft) ARE filtered by the selected range.
+
+export type StockValuationPreset = 'this_month' | 'last_month' | 'last_3_months' | 'this_year' | 'custom';
+
+export interface StockValuationProduct {
+  productId: string;
+  productName: string;
+  categoryId: string;
+  categoryName: string;
+  avgBuyPrice: number;
+  onHandQty: number;
+  stockValue: number;
+  potentialProfit: number;
+  qtySold: number;
+  revenue: number;
+  realizedProfit: number;
+  avgActualSellPrice: number;
+  soldPerMonth: number | null;
+  monthsOfStockLeft: number | null;
+  totalBoughtQty: number;
+}
+
+export interface StockValuationCategory {
+  categoryId: string;
+  categoryName: string;
+  stockValue: number;
+  realizedProfit: number;
+  products: StockValuationProduct[];
+}
+
+export interface StockValuationResponse {
+  grandStockValue: number;
+  grandPotentialProfit: number;
+  grandRealizedProfit: number;
+  grandRevenue: number;
+  rangeFromDate: string;
+  rangeToDate: string;
+  rangeLabel: string;
+  showVelocity: boolean;
+  categories: StockValuationCategory[];
+}

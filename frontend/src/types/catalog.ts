@@ -82,6 +82,12 @@ export interface ProductSummary {
   variantCount: number;
   totalStock: number;
   lowStockThreshold: number;
+  buyPrice?: number; // owner only — default variant's landed cost
+  averageRating: number | null;
+  reviewCount: number;
+  orderCount: number;
+  totalProfit?: number; // owner only
+  showOnMarketplace: boolean;
 }
 
 export type MarketplaceDetailSection = 'STYLE' | 'FEATURES_SPECS' | 'ITEM_DETAILS';
@@ -133,6 +139,8 @@ export interface ProductDetail {
   images: ProductImage[];
   warrantyDurationValue: number | null;
   warrantyDurationUnit: string | null;
+  averageRating: number | null;
+  reviewCount: number;
 }
 
 export interface PriceSlot {
@@ -161,6 +169,23 @@ export interface CreateSlotPayload {
   reason?: string | null;
 }
 
+export interface VariantCombinationInput {
+  values: Record<string, string>;
+  qty: number;
+  costPrice: number;
+}
+
+export interface SplitVariantItem {
+  values: Record<string, string>;
+  qty: number;
+}
+
+export interface SplitStockIntoVariantsPayload {
+  sourceVariantId: string;
+  items: SplitVariantItem[];
+  branchId?: string | null;
+}
+
 export interface CreateProductPayload {
   categoryId: string;
   name: string;
@@ -174,9 +199,7 @@ export interface CreateProductPayload {
   lowStockThreshold: number;
   attributesJson?: string | null;
   note?: string | null;
-  variantCombinations?: Record<string, string>[] | null;
-  initialStock?: number | null;
-  costPrice?: number | null;
+  variantCombinations?: VariantCombinationInput[] | null;
   branchId?: string | null;
   warrantyDurationValue?: number | null;
   warrantyDurationUnit?: string | null;

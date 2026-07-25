@@ -22,6 +22,32 @@ export function getErrorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
+// Single-flight refresh — several parallel requests can all get a 401 at once when the access
+// token expires (e.g. the products + categories queries firing together). Without this, each one
+// would independently POST /auth/refresh with the same refresh token, and the backend's rowversion
+// concurrency check would reject all but the first, wiping out a perfectly valid session (see
+// AuthService.RefreshAsync). Concurrent callers now share one in-flight request instead.
+let refreshPromise: Promise<{ accessToken: string; refreshToken: string }> | null = null;
+
+function refreshTokens(refreshToken: string) {
+  if (!refreshPromise) {
+    apiDebug("refresh token request started", { baseURL: process.env.NEXT_PUBLIC_API_URL });
+    refreshPromise = axios
+      .post(`${process.env.NEXT_PUBLIC_API_URL}/auth/refresh`, { refreshToken })
+      .then(({ data }) => {
+        apiDebug("refresh token succeeded", {
+          hasAccessToken: Boolean(data.accessToken),
+          hasRefreshToken: Boolean(data.refreshToken),
+        });
+        return data;
+      })
+      .finally(() => {
+        refreshPromise = null;
+      });
+  }
+  return refreshPromise;
+}
+
 api.interceptors.request.use((config) => {
   let token: string | null = null;
   let businessId: string | null = null;
@@ -102,17 +128,7 @@ api.interceptors.response.use(
       try {
         const refreshToken = localStorage.getItem("refreshToken");
         if (!refreshToken) throw new Error("No refresh token");
-        apiDebug("refresh token request started", {
-          baseURL: process.env.NEXT_PUBLIC_API_URL,
-        });
-        const { data } = await axios.post(
-          `${process.env.NEXT_PUBLIC_API_URL}/auth/refresh`,
-          { refreshToken }
-        );
-        apiDebug("refresh token succeeded", {
-          hasAccessToken: Boolean(data.accessToken),
-          hasRefreshToken: Boolean(data.refreshToken),
-        });
+        const data = await refreshTokens(refreshToken);
         localStorage.setItem("accessToken", data.accessToken);
         localStorage.setItem("refreshToken", data.refreshToken);
         original.headers.Authorization = `Bearer ${data.accessToken}`;

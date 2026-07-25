@@ -23,8 +23,8 @@ export interface SuggestedProduct {
 export interface QuickAddProductItem {
   name: string;
   sellingPrice?: number;
-  quantity?: number;
-  unitCost?: number;
+  quantity: number;
+  unitCost: number;
 }
 
 export interface AddSuggestedProductsResult {

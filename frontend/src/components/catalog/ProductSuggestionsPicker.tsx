@@ -15,13 +15,10 @@ interface Props {
   categories: CategoryWithSuggestions[];
 }
 
-type Mode = "ONLY_PRODUCT" | "WITH_QUANTITY";
-
 export default function ProductSuggestionsPicker({ categories }: Props) {
   const { t, lang } = useLanguage();
   const qc = useQueryClient();
   const [activeCategory, setActiveCategory] = useState<CategoryWithSuggestions | null>(null);
-  const [mode, setMode] = useState<Mode>("ONLY_PRODUCT");
   const [selected, setSelected] = useState<Record<string, { qty: string; unitCost: string; price: string }>>({});
   const [customName, setCustomName] = useState("");
   const [customNames, setCustomNames] = useState<string[]>([]);
@@ -40,8 +37,12 @@ export default function ProductSuggestionsPicker({ categories }: Props) {
       setSelected({});
       setCustomName("");
       setCustomNames([]);
-      setMode("ONLY_PRODUCT");
-      if (branches.length === 1) setBranchId(branches[0].id);
+      // Pre-select a branch by default (the business's default branch, or just the first one)
+      // so the picker never opens with a blank required dropdown — still changeable below.
+      if (branches.length > 0) {
+        const defaultBranch = branches.find((b) => b.isDefault) ?? branches[0];
+        setBranchId(defaultBranch.id);
+      }
     }
   }, [activeCategory, branches]);
 
@@ -71,12 +72,11 @@ export default function ProductSuggestionsPicker({ categories }: Props) {
       const items = Object.entries(selected).map(([name, v]) => ({
         name,
         sellingPrice: v.price ? Number(v.price) : undefined,
-        quantity: mode === "WITH_QUANTITY" && v.qty ? Number(v.qty) : undefined,
-        unitCost: mode === "WITH_QUANTITY" && v.unitCost ? Number(v.unitCost) : undefined,
+        quantity: Number(v.qty),
+        unitCost: Number(v.unitCost),
       }));
       return addSuggestedProducts({
         categoryId: activeCategory!.categoryId,
-        withQuantity: mode === "WITH_QUANTITY",
         branchId: branchId || undefined,
         items,
       });
@@ -89,7 +89,13 @@ export default function ProductSuggestionsPicker({ categories }: Props) {
   });
 
   const selectedCount = Object.keys(selected).length;
-  const needsBranchPick = mode === "WITH_QUANTITY" && branches.length > 1 && !branchId;
+  const needsBranchPick = branches.length > 1 && !branchId;
+  // Every item needs a real quantity + buy price — same rule as New Product and Add Variant, so
+  // a product can never exist here without a cost basis either.
+  const missingRequiredFields = Object.values(selected).some(
+    (v) => !v.qty.trim() || parseFloat(v.qty) <= 0 || !v.unitCost.trim()
+  );
+  const canSave = selectedCount > 0 && !needsBranchPick && !missingRequiredFields;
 
   return (
     <>
@@ -125,9 +131,12 @@ export default function ProductSuggestionsPicker({ categories }: Props) {
             {needsBranchPick && (
               <p className="text-xs text-amber-600">{t("catalogTemplates.pickBranchFirst")}</p>
             )}
+            {!needsBranchPick && missingRequiredFields && (
+              <p className="text-xs text-amber-600">{t("catalogTemplates.qtyAndBuyPriceRequired")}</p>
+            )}
             <button
               onClick={() => saveMutation.mutate()}
-              disabled={selectedCount === 0 || saveMutation.isPending || needsBranchPick}
+              disabled={!canSave || saveMutation.isPending}
               className="w-full h-12 rounded-xl bg-indigo-600 text-white font-semibold text-sm disabled:opacity-40"
             >
               {saveMutation.isPending
@@ -143,27 +152,7 @@ export default function ProductSuggestionsPicker({ categories }: Props) {
             <span>{t("catalogTemplates.pickProductsTip")}</span>
           </p>
 
-          {/* Only Product / With Quantity toggle */}
-          <div className="flex rounded-xl bg-gray-100 p-1">
-            <button
-              onClick={() => setMode("ONLY_PRODUCT")}
-              className={`flex-1 h-9 rounded-lg text-xs font-semibold transition ${
-                mode === "ONLY_PRODUCT" ? "bg-white shadow text-gray-900" : "text-gray-500"
-              }`}
-            >
-              {t("catalogTemplates.onlyProduct")}
-            </button>
-            <button
-              onClick={() => setMode("WITH_QUANTITY")}
-              className={`flex-1 h-9 rounded-lg text-xs font-semibold transition ${
-                mode === "WITH_QUANTITY" ? "bg-white shadow text-gray-900" : "text-gray-500"
-              }`}
-            >
-              {t("catalogTemplates.productWithQuantity")}
-            </button>
-          </div>
-
-          {mode === "WITH_QUANTITY" && branches.length > 1 && (
+          {branches.length > 1 && (
             <select
               value={branchId}
               onChange={(e) => setBranchId(e.target.value)}
@@ -241,26 +230,27 @@ export default function ProductSuggestionsPicker({ categories }: Props) {
                         </span>
                       )}
                     </label>
+                    {/* Qty + Buy Price are always required — every product added here gets a real
+                        cost basis, same rule as New Product and Add Variant. Selling Price stays
+                        optional. */}
                     {isChecked && (
-                      <div className={`grid gap-2 mt-2 ${mode === "WITH_QUANTITY" ? "grid-cols-3" : "grid-cols-1"}`}>
-                        {mode === "WITH_QUANTITY" && (
-                          <>
-                            <input
-                              type="number"
-                              placeholder={t("catalogTemplates.qty")}
-                              value={selected[name].qty}
-                              onChange={(e) => updateField(name, "qty", e.target.value)}
-                              className="h-9 px-2 rounded-lg border border-gray-200 text-xs"
-                            />
-                            <input
-                              type="number"
-                              placeholder={t("catalogTemplates.unitCost")}
-                              value={selected[name].unitCost}
-                              onChange={(e) => updateField(name, "unitCost", e.target.value)}
-                              className="h-9 px-2 rounded-lg border border-gray-200 text-xs"
-                            />
-                          </>
-                        )}
+                      <div className="grid grid-cols-3 gap-2 mt-2">
+                        <input
+                          type="number"
+                          placeholder={t("catalogTemplates.qty")}
+                          value={selected[name].qty}
+                          onChange={(e) => updateField(name, "qty", e.target.value)}
+                          className="h-9 px-2 rounded-lg border border-gray-200 text-xs"
+                          required
+                        />
+                        <input
+                          type="number"
+                          placeholder={t("catalogTemplates.unitCost")}
+                          value={selected[name].unitCost}
+                          onChange={(e) => updateField(name, "unitCost", e.target.value)}
+                          className="h-9 px-2 rounded-lg border border-gray-200 text-xs"
+                          required
+                        />
                         <input
                           type="number"
                           placeholder={t("catalogTemplates.sellingPriceOptional")}

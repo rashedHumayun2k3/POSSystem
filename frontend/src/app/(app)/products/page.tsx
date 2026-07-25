@@ -122,9 +122,9 @@ export default function ProductsPage() {
             </p>
           </div>
         ) : (
-          <div className="space-y-2">
+          <div className="space-y-6">
             {products.map((product) => (
-              <ProductCard key={product.id} product={product} isOwner={isOwner} canSeeCosts={canSeeCosts} t={t} />
+              <ProductCard key={product.id} product={product} canSeeCosts={canSeeCosts} t={t} />
             ))}
           </div>
         )}
@@ -133,14 +133,61 @@ export default function ProductsPage() {
   );
 }
 
+function VariantsChipIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
+        d="M6 6.75L12 3l6 3.75M6 6.75L12 10.5m-6-3.75v10.5L12 21m0-10.5l6-3.75M12 10.5V21m6-14.25v10.5L12 21" />
+    </svg>
+  );
+}
+function StoreChipIcon({ className, off }: { className?: string; off?: boolean }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
+        d="M15.75 10.5V6a3.75 3.75 0 10-7.5 0v4.5m-3 0h13.5l1.125 9A2.25 2.25 0 0117.663 21H6.337a2.25 2.25 0 01-2.212-2.25l1.125-9z" />
+      {off && <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M3 3l18 18" />}
+    </svg>
+  );
+}
+function CartStatIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
+        d="M2.25 3h1.386c.51 0 .955.343 1.087.836l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 1.94-4.694 2.436-7.152.083-.415-.238-.798-.662-.798H5.106M7.5 14.25L5.106 5.272M7.5 14.25L5.741 21M6 21h12" />
+    </svg>
+  );
+}
+
+function InfoChip({ children, tone }: { children: React.ReactNode; tone?: 'marketplace-on' | 'marketplace-off' }) {
+  const toneClasses =
+    tone === 'marketplace-on'
+      ? 'bg-[#EEEDFE] text-[#534AB7]'
+      : tone === 'marketplace-off'
+        ? 'bg-gray-100 text-gray-500'
+        : 'bg-gray-100 text-gray-600';
+  return (
+    <span className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-lg ${toneClasses}`}>
+      {children}
+    </span>
+  );
+}
+
+function StatCol({ value, label, valueClassName, divider }: { value: React.ReactNode; label: string; valueClassName?: string; divider?: boolean }) {
+  return (
+    <div className={`flex-1 text-center py-2 ${divider ? 'border-l border-gray-500' : ''}`}>
+      <p className={`text-[13px] font-medium ${valueClassName ?? 'text-white'}`}>{value}</p>
+      <p className="text-[11px] text-gray-300 mt-0.5">{label}</p>
+    </div>
+  );
+}
+
 function ProductCard({
   product,
-  isOwner,
   canSeeCosts,
   t,
 }: {
   product: ProductSummary;
-  isOwner: boolean;
   canSeeCosts: boolean;
   t: (key: string, params?: Record<string, string | number>) => string;
 }) {
@@ -157,54 +204,107 @@ function ProductCard({
       ? 'border-l-4 border-l-amber-400'
       : 'border-l border-l-gray-100';
 
-  return (
-    <Link href={`/products/${product.id}`}>
-      <div className={`bg-white border border-gray-100 rounded-xl p-3 flex gap-3 active:bg-gray-50 ${accentBorder}`}>
-        {/* Image */}
-        <div className="w-14 h-14 rounded-lg bg-gray-100 flex items-center justify-center shrink-0 overflow-hidden">
-          {product.imageUrl ? (
-            <img src={resolveMediaUrl(product.imageUrl) ?? ''} alt={product.name} className="w-full h-full object-cover" />
-          ) : (
-            <svg className="w-6 h-6 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={1.5}
-                d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10"
-              />
-            </svg>
-          )}
-        </div>
+  const hasDiscount = product.marketPrice != null && product.marketPrice > product.sellingPrice;
+  const discountPct = hasDiscount
+    ? Math.round(((product.marketPrice! - product.sellingPrice) / product.marketPrice!) * 100)
+    : 0;
 
-        {/* Info */}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-start justify-between gap-2">
-            <p className="text-sm font-medium text-gray-900 truncate">{product.name}</p>
-            <StatusBadge status={product.status} t={t} />
-          </div>
-          <p className="text-xs text-gray-400 mt-0.5">
-            {product.sku} · {product.categoryName}
-          </p>
-          <div className="flex items-center gap-3 mt-1">
-            <span className="text-sm font-semibold text-gray-900">
-              ৳{product.sellingPrice.toLocaleString()}
-            </span>
-            <span className="text-xs text-gray-400">
-              {product.variantCount} {product.variantCount !== 1 ? t('products.variantsLabel') : t('products.variantLabel')} ·{' '}
-              <span className={
-                isOutOfStock ? 'text-red-600 font-semibold' : isLowStock ? 'text-amber-600 font-semibold' : ''
-              }>
-                {product.totalStock} {product.unitCode}
-              </span>
-            </span>
-            {canSeeCosts && product.packagingCostPerUnit != null && (
-              <span className="text-xs text-gray-400">pkg ৳{product.packagingCostPerUnit}</span>
+  // Some product names carry a baked-in "(32% Off)" suffix (seed/demo data) — the price line
+  // below already shows the real, live discount, so strip the redundant duplicate from the name.
+  const displayName = product.name.replace(/\s*\(\s*\d+%\s*off\s*\)\s*$/i, '').trim();
+
+  return (
+    <Link href={`/products/${product.id}`} className="block">
+      <div className={`bg-gray-100 rounded-xl overflow-hidden shadow shadow-gray-400/40 active:shadow-sm transition-shadow ${accentBorder}`}>
+        {/* Layer 1 — image, name, status, price line */}
+        <div className="p-3 flex gap-3">
+          <div className="w-[60px] h-[60px] rounded-[10px] bg-gray-100 flex items-center justify-center shrink-0 overflow-hidden">
+            {product.imageUrl ? (
+              <img src={resolveMediaUrl(product.imageUrl) ?? ''} alt={product.name} className="w-full h-full object-cover" />
+            ) : (
+              <svg className="w-6 h-6 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={1.5}
+                  d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10"
+                />
+              </svg>
             )}
           </div>
-          {(isOutOfStock || isLowStock) && (
-            <p className={`text-xs font-medium mt-1 ${isOutOfStock ? 'text-red-600' : 'text-amber-600'}`}>
-              {isOutOfStock ? t('products.outOfStockMessage') : t('products.lowStockMessage')}
+
+          <div className="flex-1 min-w-0">
+            <div className="flex items-start justify-between gap-2">
+              <p className="text-[15px] font-medium text-gray-900 truncate">{displayName}</p>
+              <StatusBadge status={product.status} t={t} />
+            </div>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {product.sku} · {product.categoryName}
             </p>
+            <div className="flex items-baseline gap-1.5 mt-1 flex-wrap">
+              <span className="text-lg font-bold text-gray-900">৳{product.sellingPrice.toLocaleString()}</span>
+              {hasDiscount && (
+                <>
+                  <span className="text-xs text-gray-400 line-through">৳{product.marketPrice!.toLocaleString()}</span>
+                  <span className="text-xs font-medium text-green-600">
+                    {discountPct}% {t('products.discountOffSuffix')}
+                  </span>
+                </>
+              )}
+            </div>
+            {(isOutOfStock || isLowStock) && (
+              <p className={`text-xs font-medium mt-1 ${isOutOfStock ? 'text-red-600' : 'text-amber-600'}`}>
+                {isOutOfStock ? t('products.outOfStockMessage') : t('products.lowStockMessage')}
+              </p>
+            )}
+          </div>
+        </div>
+
+        {/* Layer 2 — info chips */}
+        <div className="px-3 pb-3 flex flex-wrap gap-1.5">
+          {canSeeCosts && product.buyPrice != null && (
+            <InfoChip>{t('products.buyPriceChipLabel')}: ৳{product.buyPrice.toLocaleString()}</InfoChip>
+          )}
+          <InfoChip>
+            <VariantsChipIcon className="w-3 h-3" />
+            {product.variantCount} {product.variantCount !== 1 ? t('products.variantsLabel') : t('products.variantLabel')} · {product.totalStock} {product.unitCode}
+          </InfoChip>
+          <InfoChip tone={product.showOnMarketplace ? 'marketplace-on' : 'marketplace-off'}>
+            <StoreChipIcon className="w-3 h-3" off={!product.showOnMarketplace} />
+            {product.showOnMarketplace ? t('products.marketplaceListedChip') : t('products.marketplaceNotListedChip')}
+          </InfoChip>
+        </div>
+
+        {/* Layer 3 — stat strip */}
+        <div className="border-t border-gray-500 bg-gray-600 flex">
+          <StatCol
+            value={product.reviewCount > 0 ? `★ ${(product.averageRating ?? 0).toFixed(1)}` : '—'}
+            valueClassName={product.reviewCount > 0 ? 'text-amber-400' : 'text-gray-400'}
+            label={product.reviewCount > 0 ? `${product.reviewCount} ${t('products.reviewsWord')}` : t('products.noReviewsShort')}
+          />
+          <StatCol
+            value={
+              <span className="inline-flex items-center gap-1 justify-center">
+                <CartStatIcon className="w-3.5 h-3.5" />
+                {product.orderCount}
+              </span>
+            }
+            label={t('products.ordersWord')}
+            divider
+          />
+          {canSeeCosts && product.totalProfit != null ? (
+            <StatCol
+              value={`৳${Math.round(product.totalProfit).toLocaleString()}`}
+              valueClassName="text-green-400"
+              label={t('products.totalProfitWord')}
+              divider
+            />
+          ) : (
+            <StatCol
+              value={`${product.variantCount} / ${product.totalStock}`}
+              label={`${t('products.variantsLabel')} / ${product.unitCode}`}
+              divider
+            />
           )}
         </div>
       </div>

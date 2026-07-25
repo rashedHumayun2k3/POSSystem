@@ -30,7 +30,6 @@ export const listSuggestedProducts = async (categoryId: string): Promise<Suggest
 
 export const addSuggestedProducts = async (payload: {
   categoryId: string;
-  withQuantity: boolean;
   branchId?: string;
   items: QuickAddProductItem[];
 }): Promise<AddSuggestedProductsResult[]> => {
