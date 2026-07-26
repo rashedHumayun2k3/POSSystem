@@ -6,6 +6,12 @@ export interface PosCartItem {
   unitPrice: number;
   qty: number;
   available: number;
+  retailPrice: number; // the resolved retail-tier price (PriceOverride ?? SellingPrice), for recomputing unitPrice on qty change
+  wholesaleMinQty: number | null; // both null = product has no wholesale tier
+  wholesaleUnitPrice: number | null;
+  // undefined = automatic (resolved from qty vs wholesaleMinQty); set only when staff taps the
+  // override badge to force retail/wholesale pricing for this line regardless of quantity.
+  manualPriceMode?: 'RETAIL' | 'WHOLESALE';
 }
 
 export type PosSessionStatus = 'SCANNING' | 'AWAITING_PAYMENT' | 'PROCESSING';

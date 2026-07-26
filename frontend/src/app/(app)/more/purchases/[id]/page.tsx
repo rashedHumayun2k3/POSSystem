@@ -157,6 +157,7 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
     variantId: string;
     productName: string;
     variantSku: string;
+    unitCode: string;
   } | null>(null);
 
   const [selectedSupplier, setSelectedSupplier] = useState<SupplierDto | null>(null);
@@ -164,23 +165,23 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
   const [itemForm, setItemForm] = useState({
     qtyBought: '',
     totalCost: '',
-    paidNow: '',
   });
+  // "আমি বাকি রাখতে চাই" — unchecked by default (assume fully paid, the common case). Paid Now
+  // is always derived, never typed directly: totalCost when unchecked, totalCost − due when checked.
+  const [wantsDue, setWantsDue] = useState(false);
+  const [dueInput, setDueInput] = useState('');
 
-  const getDueAmount = () => {
-    const total = Number(itemForm.totalCost);
-    const paid = Number(itemForm.paidNow || '0');
-    if (!Number.isFinite(total)) return 0;
-    return Math.max(total - (Number.isFinite(paid) ? paid : 0), 0);
-  };
+  const totalCostNumber = Number(itemForm.totalCost);
+  const dueNumber = wantsDue ? Number(dueInput || '0') : 0;
+  const paidNowComputed = Number.isFinite(totalCostNumber)
+    ? Math.max(totalCostNumber - (Number.isFinite(dueNumber) ? dueNumber : 0), 0)
+    : 0;
 
-  const paidNowError = (() => {
-    const total = Number(itemForm.totalCost);
-    const paid = Number(itemForm.paidNow || '0');
-    if (!itemForm.paidNow || !itemForm.totalCost) return '';
-    if (!Number.isFinite(paid) || paid < 0) return t('purchases.paidNowInvalid');
-    if (Number.isFinite(total) && paid > total)
-      return t('purchases.paidNowError', { paid: paid.toLocaleString(), total: total.toLocaleString() });
+  const dueError = (() => {
+    if (!wantsDue || !dueInput || !itemForm.totalCost) return '';
+    if (!Number.isFinite(dueNumber) || dueNumber < 0) return t('purchases.dueInvalid');
+    if (Number.isFinite(totalCostNumber) && dueNumber > totalCostNumber)
+      return t('purchases.dueExceedsTotal', { due: dueNumber.toLocaleString(), total: totalCostNumber.toLocaleString() });
     return '';
   })();
 
@@ -191,8 +192,8 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
         qtyBought: parseFloat(itemForm.qtyBought),
         totalCost: parseFloat(itemForm.totalCost),
         supplierId: selectedSupplier?.id || undefined,
-        paidNow: parseFloat(itemForm.paidNow || '0'),
-        dueAmount: getDueAmount(),
+        paidNow: paidNowComputed,
+        dueAmount: dueNumber,
       }),
     onSuccess: () => { invalidate(); resetItemForm(); setShowAddItem(false); },
     onError: (err) => useToastStore.getState().show(getApiErrorMessage(err, t('common.error')), 'error'),
@@ -204,8 +205,8 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
         qtyBought: parseFloat(itemForm.qtyBought),
         totalCost: parseFloat(itemForm.totalCost),
         supplierId: selectedSupplier?.id || undefined,
-        paidNow: parseFloat(itemForm.paidNow || '0'),
-        dueAmount: getDueAmount(),
+        paidNow: paidNowComputed,
+        dueAmount: dueNumber,
       }),
     onSuccess: () => { invalidate(); resetItemForm(); setEditingItem(null); },
     onError: (err) => useToastStore.getState().show(getApiErrorMessage(err, t('common.error')), 'error'),
@@ -217,20 +218,24 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
   });
 
   const resetItemForm = () => {
-    setItemForm({ qtyBought: '', totalCost: '', paidNow: '' });
+    setItemForm({ qtyBought: '', totalCost: '' });
+    setWantsDue(false);
+    setDueInput('');
     setSelectedVariant(null);
     setSelectedSupplier(null);
   };
 
   const openEditItem = (item: PurchaseItemDto) => {
     setEditingItem(item);
-    setSelectedVariant({ variantId: item.variantId, productName: item.productName, variantSku: item.variantSku });
+    setSelectedVariant({ variantId: item.variantId, productName: item.productName, variantSku: item.variantSku, unitCode: item.unitCode || 'pcs' });
     setSelectedSupplier(
       item.supplierId
         ? { id: item.supplierId, name: item.supplierName ?? '', address: item.supplierAddress, phone: null, notes: null, usageCount: 0, lastUsedAt: null }
         : null
     );
-    setItemForm({ qtyBought: String(item.qtyBought), totalCost: String(item.totalCost), paidNow: String(item.paidNow) });
+    setItemForm({ qtyBought: String(item.qtyBought), totalCost: String(item.totalCost) });
+    setWantsDue(item.dueAmount > 0);
+    setDueInput(item.dueAmount > 0 ? String(item.dueAmount) : '');
   };
 
   // ── Cost form state ──────────────────────────────────────────────────────
@@ -412,13 +417,11 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
   const isCompleted = trip.status === 'COMPLETED';
 
   const qtyBoughtNumber = Number(itemForm.qtyBought);
-  const totalCostNumber = Number(itemForm.totalCost);
-  const dueAmount = getDueAmount();
   const isSavingItem = addItemMutation.isPending || updateItemMutation.isPending;
   const hasSelectedVariant = Boolean(editingItem || selectedVariant);
   const hasValidQty = Number.isFinite(qtyBoughtNumber) && qtyBoughtNumber > 0;
   const hasValidTotalCost = Number.isFinite(totalCostNumber) && totalCostNumber > 0;
-  const canSaveItem = hasSelectedVariant && hasValidQty && hasValidTotalCost && !paidNowError && !isSavingItem;
+  const canSaveItem = hasSelectedVariant && hasValidQty && hasValidTotalCost && !dueError && !isSavingItem;
 
   const itemsWithRemaining = (trip.items ?? []).filter(
     (i) => i.qtyBought - i.qtyUsable - i.qtyDamaged > 0
@@ -433,7 +436,7 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
         open={showProductPicker}
         onClose={() => setShowProductPicker(false)}
         onSelect={(r: ProductSearchResult) => {
-          setSelectedVariant({ variantId: r.variantId, productName: r.productName, variantSku: r.variantSku });
+          setSelectedVariant({ variantId: r.variantId, productName: r.productName, variantSku: r.variantSku, unitCode: r.unitCode || 'pcs' });
           setShowProductPicker(false);
         }}
       />
@@ -479,7 +482,10 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
           </div>
         )}
         <div>
-          <p className="text-[10px] text-indigo-400">{t('purchases.total')}</p>
+          <p className="text-[10px] text-indigo-400">
+            {t('purchases.total')} ({t('purchases.itemsCost')} + {t('purchases.sharedCosts')}
+            {totalLateCost > 0 ? ` + ${t('purchases.lateCosts')}` : ''})
+          </p>
           <p className="font-bold text-indigo-900 text-sm">৳{(totalItemCost + totalSharedCost + totalLateCost).toLocaleString()}</p>
         </div>
       </div>
@@ -487,43 +493,46 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
       {/* Order info row */}
       {(() => {
         const editable = trip.status === 'DRAFT' || trip.status === 'RECEIVING';
+        const showDelivery = editable || Boolean(trip.expectedDeliveryDate);
+        const showPoRef = editable || Boolean(trip.supplierPoRef);
+        if (!showDelivery && !showPoRef) return null;
         return (
           <div className="px-4 py-2.5 border-b border-gray-100 flex gap-3">
-            <div className="flex-1 min-w-0">
-              <p className="text-[10px] text-gray-400 mb-0.5">{t('purchases.expectedDelivery')}</p>
-              {editable ? (
-                <input
-                  type="date"
-                  value={headerDelivery}
-                  onChange={(e) => setHeaderDelivery(e.target.value)}
-                  onBlur={saveHeader}
-                  className="w-full text-xs text-gray-700 border border-gray-200 rounded-lg px-2 py-1 bg-white"
-                />
-              ) : (
-                <p className="text-xs text-gray-700">
-                  {trip.expectedDeliveryDate
-                    ? new Date(trip.expectedDeliveryDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
-                    : <span className="text-gray-400">—</span>}
-                </p>
-              )}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-[10px] text-gray-400 mb-0.5">{t('purchases.supplierPoRef')}</p>
-              {editable ? (
-                <input
-                  type="text"
-                  value={headerPoRef}
-                  onChange={(e) => setHeaderPoRef(e.target.value)}
-                  onBlur={saveHeader}
-                  placeholder="e.g. ALI-20260614"
-                  className="w-full text-xs text-gray-700 border border-gray-200 rounded-lg px-2 py-1 bg-white"
-                />
-              ) : (
-                <p className="text-xs text-gray-700">
-                  {trip.supplierPoRef ?? <span className="text-gray-400">—</span>}
-                </p>
-              )}
-            </div>
+            {showDelivery && (
+              <div className="flex-1 min-w-0">
+                <p className="text-[10px] text-gray-400 mb-0.5">{t('purchases.expectedDelivery')}</p>
+                {editable ? (
+                  <input
+                    type="date"
+                    value={headerDelivery}
+                    onChange={(e) => setHeaderDelivery(e.target.value)}
+                    onBlur={saveHeader}
+                    className="w-full text-xs text-gray-700 border border-gray-200 rounded-lg px-2 py-1 bg-white"
+                  />
+                ) : (
+                  <p className="text-xs text-gray-700">
+                    {new Date(trip.expectedDeliveryDate!).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                  </p>
+                )}
+              </div>
+            )}
+            {showPoRef && (
+              <div className="flex-1 min-w-0">
+                <p className="text-[10px] text-gray-400 mb-0.5">{t('purchases.supplierPoRef')}</p>
+                {editable ? (
+                  <input
+                    type="text"
+                    value={headerPoRef}
+                    onChange={(e) => setHeaderPoRef(e.target.value)}
+                    onBlur={saveHeader}
+                    placeholder="e.g. ALI-20260614"
+                    className="w-full text-xs text-gray-700 border border-gray-200 rounded-lg px-2 py-1 bg-white"
+                  />
+                ) : (
+                  <p className="text-xs text-gray-700">{trip.supplierPoRef}</p>
+                )}
+              </div>
+            )}
           </div>
         );
       })()}
@@ -604,13 +613,20 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
 
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className="text-xs text-gray-500 mb-1 block">{t('purchases.qtyBought')}</label>
-                      <input type="number" className="w-full border border-indigo-200 rounded-lg px-3 py-2 text-sm bg-white" placeholder="100"
-                        value={itemForm.qtyBought} onChange={(e) => setItemForm((f) => ({ ...f, qtyBought: e.target.value }))} />
+                      <label className="text-xs text-gray-500 mb-1 block">{t('purchases.qtyBought')} <span className="text-red-500">*</span></label>
+                      <div className="relative">
+                        <input type="number" required className="w-full border border-indigo-200 rounded-lg px-3 py-2 pr-12 text-sm bg-white" placeholder="100"
+                          value={itemForm.qtyBought} onChange={(e) => setItemForm((f) => ({ ...f, qtyBought: e.target.value }))} />
+                        {selectedVariant?.unitCode && (
+                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">
+                            {selectedVariant.unitCode}
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <div>
-                      <label className="text-xs text-gray-500 mb-1 block">{t('purchases.totalCost')}</label>
-                      <input type="number" className="w-full border border-indigo-200 rounded-lg px-3 py-2 text-sm bg-white" placeholder="10000"
+                      <label className="text-xs text-gray-500 mb-1 block">{t('purchases.totalCost')} <span className="text-red-500">*</span></label>
+                      <input type="number" required className="w-full border border-indigo-200 rounded-lg px-3 py-2 text-sm bg-white" placeholder="10000"
                         value={itemForm.totalCost} onChange={(e) => setItemForm((f) => ({ ...f, totalCost: e.target.value }))} />
                     </div>
                   </div>
@@ -639,28 +655,42 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
                     )}
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={wantsDue}
+                      onChange={(e) => { setWantsDue(e.target.checked); if (!e.target.checked) setDueInput(''); }}
+                      className="w-4 h-4 rounded border-gray-300 text-indigo-600"
+                    />
+                    <span className="text-sm text-gray-700">{t('purchases.wantsDueLabel')}</span>
+                  </label>
+
+                  <div className={wantsDue ? 'grid grid-cols-2 gap-2' : ''}>
+                    {wantsDue && (
+                      <div>
+                        <label className={`text-xs mb-1 block ${dueError ? 'text-red-500' : 'text-gray-500'}`}>{t('purchases.due')}</label>
+                        <input
+                          type="number"
+                          placeholder="0"
+                          value={dueInput}
+                          onChange={(e) => setDueInput(e.target.value)}
+                          className={`w-full border rounded-lg px-3 py-2 text-sm bg-white ${
+                            dueError ? 'border-red-400 focus:outline-red-400' : 'border-indigo-200'
+                          }`}
+                        />
+                      </div>
+                    )}
                     <div>
-                      <label className={`text-xs mb-1 block ${paidNowError ? 'text-red-500' : 'text-gray-500'}`}>{t('purchases.paidNow')}</label>
-                      <input
-                        type="number"
-                        placeholder="0"
-                        value={itemForm.paidNow}
-                        onChange={(e) => setItemForm((f) => ({ ...f, paidNow: e.target.value }))}
-                        className={`w-full border rounded-lg px-3 py-2 text-sm bg-white ${
-                          paidNowError ? 'border-red-400 focus:outline-red-400' : 'border-indigo-200'
-                        }`}
-                      />
-                    </div>
-                    <div>
-                      <label className="text-xs text-gray-500 mb-1 block">{t('purchases.due')}</label>
+                      <label className="text-xs text-gray-500 mb-1 block">{t('purchases.paidNow')}</label>
                       <input type="number" className="w-full border border-indigo-100 rounded-lg px-3 py-2 text-sm bg-indigo-50 text-gray-600"
-                        value={dueAmount} readOnly />
-                      <p className="text-[11px] text-gray-400 mt-1">{t('purchases.dueHint')}</p>
+                        value={paidNowComputed} readOnly />
+                      <p className="text-[11px] text-gray-400 mt-1">
+                        {wantsDue ? t('purchases.dueHint') : t('purchases.fullyPaidHint')}
+                      </p>
                     </div>
                   </div>
-                  {paidNowError && (
-                    <p className="text-xs text-red-500 -mt-1">{paidNowError}</p>
+                  {dueError && (
+                    <p className="text-xs text-red-500 -mt-1">{dueError}</p>
                   )}
 
                   <div className="flex gap-2">
@@ -691,8 +721,12 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
               {trip.items.map((item) => {
                 const received = item.qtyUsable + item.qtyDamaged;
                 const remaining = item.qtyBought - received;
+                const notReceivedYet = remaining > 0;
                 return (
-                  <div key={item.id} className="bg-white border border-gray-100 rounded-xl p-3">
+                  <div
+                    key={item.id}
+                    className={`border rounded-xl p-3 ${notReceivedYet ? 'bg-amber-50 border-amber-100' : 'bg-white border-gray-100'}`}
+                  >
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-semibold text-gray-900 truncate">{item.productName}</p>
@@ -719,6 +753,9 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
                       <span>Cost: <strong>৳{item.totalCost.toLocaleString()}</strong></span>
                       {item.dueAmount > 0 && <span className="text-amber-600">Due: ৳{item.dueAmount}</span>}
                     </div>
+                    {notReceivedYet && (
+                      <p className="text-xs text-red-600 font-medium mt-2">{t('purchases.notReceivedWarning')}</p>
+                    )}
                   </div>
                 );
               })}
@@ -833,32 +870,39 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
 
           {/* Item summary table */}
           {trip.items.length > 0 && (
-            <div className="bg-white border border-gray-100 rounded-xl overflow-hidden">
-              <div className="px-3 py-2 bg-gray-50 border-b border-gray-100">
+            <div>
+              <div className="px-3 py-2 bg-gray-50 border border-gray-100 rounded-xl mb-2">
                 <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">{t('purchases.itemSummary')}</p>
               </div>
-              {trip.items.map((item) => {
-                const remaining = item.qtyBought - item.qtyUsable - item.qtyDamaged;
-                const pendingQty = (trip.sessions ?? [])
-                  .filter((s) => s.status === 'PENDING_APPROVAL')
-                  .flatMap((s) => s.items)
-                  .filter((si) => si.purchaseItemId === item.id)
-                  .reduce((sum, si) => sum + si.qtyUsable + si.qtyDamaged, 0);
+              <div className="space-y-2">
+                {trip.items.map((item) => {
+                  const remaining = item.qtyBought - item.qtyUsable - item.qtyDamaged;
+                  const pendingQty = (trip.sessions ?? [])
+                    .filter((s) => s.status === 'PENDING_APPROVAL')
+                    .flatMap((s) => s.items)
+                    .filter((si) => si.purchaseItemId === item.id)
+                    .reduce((sum, si) => sum + si.qtyUsable + si.qtyDamaged, 0);
 
-                return (
-                  <div key={item.id} className="px-3 py-2 border-b border-gray-50 last:border-0">
-                    <p className="text-xs font-medium text-gray-800 truncate">{item.productName} <span className="text-gray-400">({item.variantSku})</span></p>
-                    <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1 text-[11px]">
-                      <span className="text-gray-500">{t('purchases.ordered')}: <strong>{formatQty(item.qtyBought)}</strong></span>
-                      {item.qtyUsable > 0 && <span className="text-green-700">{t('purchases.approved')}: <strong>{formatQty(item.qtyUsable)}</strong></span>}
-                      {item.qtyDamaged > 0 && <span className="text-red-600">{t('purchases.damaged')}: <strong>{formatQty(item.qtyDamaged)}</strong></span>}
-                      {pendingQty > 0 && <span className="text-purple-600">{t('purchases.pending')}: <strong>{formatQty(pendingQty)}</strong></span>}
-                      {remaining > 0 && <span className="text-amber-600">{t('purchases.remaining')}: <strong>{formatQty(remaining)}</strong></span>}
-                      {remaining === 0 && <span className="text-green-600 font-semibold">{t('purchases.complete')}</span>}
+                  return (
+                    <div
+                      key={item.id}
+                      className={`px-3 py-2 border rounded-xl ${
+                        remaining > 0 ? 'bg-amber-50 border-amber-100' : 'bg-green-50 border-green-100'
+                      }`}
+                    >
+                      <p className="text-xs font-medium text-gray-800 truncate">{item.productName} <span className="text-gray-400">({item.variantSku})</span></p>
+                      <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1 text-[11px]">
+                        <span className="text-gray-500">{t('purchases.ordered')}: <strong>{formatQty(item.qtyBought)}</strong></span>
+                        {item.qtyUsable > 0 && <span className="text-green-700">{t('purchases.approved')}: <strong>{formatQty(item.qtyUsable)}</strong></span>}
+                        {item.qtyDamaged > 0 && <span className="text-red-600">{t('purchases.damaged')}: <strong>{formatQty(item.qtyDamaged)}</strong></span>}
+                        {pendingQty > 0 && <span className="text-purple-600">{t('purchases.pending')}: <strong>{formatQty(pendingQty)}</strong></span>}
+                        {remaining > 0 && <span className="text-amber-600">{t('purchases.remaining')}: <strong>{formatQty(remaining)}</strong></span>}
+                        {remaining === 0 && <span className="text-green-600 font-semibold">{t('purchases.complete')}</span>}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
           )}
 
@@ -1010,7 +1054,14 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
                                 <input type="number" min="0" placeholder="e.g. 5"
                                   className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm bg-white"
                                   value={entry?.packets ?? ''}
-                                  onChange={(e) => upd({ packets: e.target.value })}
+                                  onChange={(e) => {
+                                    const packetsVal = e.target.value;
+                                    const p = Number(packetsVal || '0');
+                                    const perPacket = Number(entry?.itemsPerPacket || '0');
+                                    const patch: Partial<SessionItemEntry> = { packets: packetsVal };
+                                    if (p > 0 && perPacket > 0) patch.qtyUsable = String(p * perPacket);
+                                    upd(patch);
+                                  }}
                                 />
                               </div>
                               <span className="text-gray-300 text-lg mt-4">×</span>
@@ -1019,13 +1070,20 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
                                 <input type="number" min="0" placeholder="e.g. 12"
                                   className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm bg-white"
                                   value={entry?.itemsPerPacket ?? ''}
-                                  onChange={(e) => upd({ itemsPerPacket: e.target.value })}
+                                  onChange={(e) => {
+                                    const ippVal = e.target.value;
+                                    const ipp = Number(ippVal || '0');
+                                    const p = Number(entry?.packets || '0');
+                                    const patch: Partial<SessionItemEntry> = { itemsPerPacket: ippVal };
+                                    if (p > 0 && ipp > 0) patch.qtyUsable = String(p * ipp);
+                                    upd(patch);
+                                  }}
                                 />
                               </div>
                               {expectedTotal !== null && (
-                                <div className="mt-4 text-right shrink-0">
-                                  <p className="text-[10px] text-gray-400">{t('purchases.expected')}</p>
-                                  <p className="text-sm font-bold text-indigo-600">{expectedTotal}</p>
+                                <div className="mt-4 text-right shrink-0 bg-gray-800 rounded-lg px-3 py-1.5">
+                                  <p className="text-[10px] text-gray-300">{t('purchases.expected')}</p>
+                                  <p className="text-lg font-bold text-white">{expectedTotal}</p>
                                 </div>
                               )}
                             </div>

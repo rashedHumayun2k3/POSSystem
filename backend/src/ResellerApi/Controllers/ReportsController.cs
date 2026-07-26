@@ -23,6 +23,10 @@ public class ReportsController : ControllerBase
     public async Task<IActionResult> Dashboard()
         => Ok(await _svc.GetDashboardAsync(_user.CanSeeCosts));
 
+    [HttpGet("home-summary")]
+    public async Task<IActionResult> HomeSummary()
+        => Ok(await _svc.GetHomeSummaryAsync());
+
     [HttpGet("sales")]
     public async Task<IActionResult> Sales(
         [FromQuery] DateTime? from,

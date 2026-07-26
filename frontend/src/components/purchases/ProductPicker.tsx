@@ -380,6 +380,11 @@ function ProductRow({
               {t('pickers.newBadge')}
             </span>
           )}
+          {product.stock <= 5 && (
+            <p className="text-[10px] text-red-600 font-medium mt-0.5 max-w-26 leading-tight">
+              {t('pickers.lowStockWarning')}
+            </p>
+          )}
         </div>
       </div>
     </button>

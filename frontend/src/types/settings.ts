@@ -33,4 +33,5 @@ export interface AppSettings {
   refund_threshold?: string;
   low_stock_default?: string;
   return_policy_days?: string;
+  selling_mode?: string; // RETAIL | WHOLESALE | BOTH — controls product form wholesale section
 }

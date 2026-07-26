@@ -188,6 +188,7 @@ export default function TopHeader({ initialQuery }: { initialQuery?: string }) {
 
         <nav className="hidden lg:flex items-center gap-6 text-sm font-medium shrink-0 lg:justify-self-end">
           <Link href="/categories" className="hover:text-white/80">Categories</Link>
+          <Link href="/wholesale" className="hover:text-white/80">Wholesale</Link>
           <Link href="/cart" className="relative flex items-center gap-1.5 hover:text-white/80">
             <CartIcon /> Cart
             {cartCount > 0 && (

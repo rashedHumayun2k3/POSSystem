@@ -51,21 +51,7 @@ public class ReportService : IReportService
         var todayReturns = await _db.Orders.AsNoTracking()
             .CountAsync(o => o.ReturnedAt >= todayUtc && o.ReturnedAt < tomorrowUtc);
 
-        // Stock status — BranchVariantInventories isn't globally branch-filtered (its BranchId
-        // is part of the composite key), so sum across branches when CurrentBranchId is null
-        // (OWNER/MANAGER "All Branches" view) or filter to one branch otherwise.
-        var stockByVariant = await _db.BranchVariantInventories.AsNoTracking()
-            .Where(vi => _db.CurrentBranchId == null || vi.BranchId == _db.CurrentBranchId)
-            .GroupBy(vi => vi.VariantId)
-            .Select(g => new { VariantId = g.Key, OnHand = g.Sum(x => x.OnHand) })
-            .Join(_db.ProductVariants.AsNoTracking(), x => x.VariantId, pv => pv.Id,
-                (x, pv) => new { x.OnHand, pv.ProductId })
-            .Join(_db.Products.AsNoTracking(), x => x.ProductId, p => p.Id,
-                (x, p) => new { x.OnHand, p.LowStockThreshold })
-            .ToListAsync();
-
-        var lowStockCount = stockByVariant.Count(x => x.OnHand > 0 && x.OnHand <= x.LowStockThreshold);
-        var outOfStockCount = stockByVariant.Count(x => x.OnHand <= 0);
+        var (lowStockCount, outOfStockCount) = await GetStockAlertCountsAsync();
 
         // Sales trend — last 30 days from order payments
         var thirtyDaysAgo = DateTime.UtcNow.Date.AddDays(-29);
@@ -167,6 +153,82 @@ public class ReportService : IReportService
             paymentMethods,
             hourlySales,
             byCategory
+        );
+    }
+
+    // BranchVariantInventories isn't globally branch-filtered (its BranchId is part of the
+    // composite key), so sum across branches when CurrentBranchId is null (OWNER/MANAGER
+    // "All Branches" view) or filter to one branch otherwise.
+    private async Task<(int LowStockCount, int OutOfStockCount)> GetStockAlertCountsAsync()
+    {
+        var stockByVariant = await _db.BranchVariantInventories.AsNoTracking()
+            .Where(vi => _db.CurrentBranchId == null || vi.BranchId == _db.CurrentBranchId)
+            .GroupBy(vi => vi.VariantId)
+            .Select(g => new { VariantId = g.Key, OnHand = g.Sum(x => x.OnHand) })
+            .Join(_db.ProductVariants.AsNoTracking(), x => x.VariantId, pv => pv.Id,
+                (x, pv) => new { x.OnHand, pv.ProductId })
+            .Join(_db.Products.AsNoTracking(), x => x.ProductId, p => p.Id,
+                (x, p) => new { x.OnHand, p.LowStockThreshold })
+            .ToListAsync();
+
+        var lowStockCount = stockByVariant.Count(x => x.OnHand > 0 && x.OnHand <= x.LowStockThreshold);
+        var outOfStockCount = stockByVariant.Count(x => x.OnHand <= 0);
+        return (lowStockCount, outOfStockCount);
+    }
+
+    // ── Home summary (mobile home page tiles) ────────────────────────────────────
+
+    public async Task<HomeSummaryDto> GetHomeSummaryAsync()
+    {
+        var todayUtc = DateTime.UtcNow.Date;
+        var tomorrowUtc = todayUtc.AddDays(1);
+
+        var todayOrders = await _db.Orders.AsNoTracking()
+            .CountAsync(OrderFinancials.SoldOrderFilter(todayUtc, tomorrowUtc));
+
+        var pendingDeliveries = await _db.Orders.AsNoTracking()
+            .CountAsync(o => o.OrderStatus != "CANCELLED" && !o.IsDraft &&
+                (o.FulfillmentStatus == "UNFULFILLED" || o.FulfillmentStatus == "PACKED" || o.FulfillmentStatus == "IN_TRANSIT"));
+
+        var (lowStockCount, outOfStockCount) = await GetStockAlertCountsAsync();
+
+        // Money currently held by couriers as collected COD, awaiting remittance to us — same
+        // definition as RemittanceService.GetSummaryAsync's per-courier receivable.
+        var atCourierOrders = await _db.Orders.AsNoTracking()
+            .Include(o => o.Items.Where(i => i.DeletedAt == null))
+            .Include(o => o.Payments)
+            .Where(o => o.CourierId != null && o.CodRemittanceStatus == "PENDING")
+            .ToListAsync();
+        var moneyAtCourier = atCourierOrders.Sum(o =>
+            Math.Max(0, OrderFinancials.ComputeOrderRevenue(o) - o.Payments.Sum(p => p.Amount)));
+
+        // Customer baki — unpaid/partially-paid orders, excluding COD cash already tracked
+        // above as courier money (that's the courier's cash to remit, not the customer's debt).
+        var receivableOrders = await _db.Orders.AsNoTracking()
+            .Include(o => o.Items.Where(i => i.DeletedAt == null))
+            .Include(o => o.Payments)
+            .Where(o => o.OrderStatus != "CANCELLED" && !o.IsDraft
+                && (o.PaymentStatus == "UNPAID" || o.PaymentStatus == "PARTIALLY_PAID")
+                && o.CodRemittanceStatus != "PENDING")
+            .ToListAsync();
+        var customerReceivable = receivableOrders.Sum(o =>
+            Math.Max(0, OrderFinancials.ComputeOrderRevenue(o) - o.Payments.Sum(p => p.Amount)));
+
+        // Cash actually taken in today — doesn't net out cash spent from the drawer (petty cash
+        // expenses), since there's no shift/drawer concept yet to track an opening float against.
+        var todayCash = await _db.OrderPayments.AsNoTracking()
+            .Where(p => p.Method == "CASH" && p.CreatedAt >= todayUtc && p.CreatedAt < tomorrowUtc)
+            .Join(_db.Orders.AsNoTracking().Where(o => o.OrderStatus != "CANCELLED" && !o.IsDraft),
+                p => p.OrderId, o => o.Id, (p, o) => p)
+            .SumAsync(p => p.Amount);
+
+        return new HomeSummaryDto(
+            todayOrders,
+            pendingDeliveries,
+            lowStockCount + outOfStockCount,
+            customerReceivable,
+            moneyAtCourier,
+            todayCash
         );
     }
 

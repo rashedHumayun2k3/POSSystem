@@ -10,6 +10,7 @@ export interface CategoryWithSuggestions {
   categoryId: string;
   name: string;
   availableSuggestionCount: number;
+  suggestedCategoryId: string | null;
 }
 
 export interface SuggestedProduct {

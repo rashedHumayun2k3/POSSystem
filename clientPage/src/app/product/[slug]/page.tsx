@@ -111,6 +111,17 @@ export default function ProductDetailPage({ params }: { params: Promise<{ slug: 
 
             <p className="text-xl lg:text-3xl font-bold text-indigo-600">৳{(selectedVariant?.price ?? product!.sellingPrice).toFixed(2)}</p>
 
+            {product!.wholesaleMinQty != null && product!.wholesaleUnitPrice != null && (
+              <div className="bg-indigo-50 border border-indigo-100 rounded-lg px-3 py-2">
+                <p className="text-sm font-medium text-indigo-700">
+                  Buy {product!.wholesaleMinQty}+ for ৳{product!.wholesaleUnitPrice.toFixed(2)} each
+                </p>
+                {product!.wholesaleNote && (
+                  <p className="text-xs text-indigo-500 mt-1">{product!.wholesaleNote}</p>
+                )}
+              </div>
+            )}
+
             {product!.warrantyDurationValue && product!.warrantyDurationUnit && (
               <span className="inline-flex w-fit items-center gap-1 text-xs text-emerald-700 bg-emerald-50 px-2 py-1 rounded-full">
                 🛡️ {product!.warrantyDurationValue} {formatWarrantyUnit(product!.warrantyDurationUnit, product!.warrantyDurationValue)} Warranty

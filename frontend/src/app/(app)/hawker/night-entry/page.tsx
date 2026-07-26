@@ -2,15 +2,23 @@
 
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { browseProducts } from "@/lib/catalogApi";
+import { browseProducts, getTodaySoldByVariant } from "@/lib/catalogApi";
 import { createOrder, confirmOrder, addOrderPayment } from "@/lib/ordersApi";
 import { resolveMediaUrl } from "@/lib/media";
 import { useLanguage } from "@/i18n/LanguageContext";
 import { useToastStore } from "@/store/toastStore";
 import type { ProductSearchResult } from "@/types/catalog";
+import CustomerPickerSlide, { type SelectedCustomer } from "@/components/orders/CustomerPickerSlide";
+import CustomerSummaryRow from "@/components/orders/CustomerSummaryRow";
 
 function todayStr() {
   return new Date().toISOString().slice(0, 10);
+}
+
+// Some product names carry a baked-in "(32% Off)" suffix (seed/demo data) — the price rows
+// already show the real, live discount, so strip the duplicate wherever the name is displayed.
+function stripDiscountSuffix(name: string): string {
+  return name.replace(/\s*\(\s*\d+%\s*off\s*\)\s*$/i, "").trim();
 }
 
 function extractErrorMessage(err: unknown, fallback: string): string {
@@ -31,10 +39,19 @@ export default function NightEntryPage() {
   const [note, setNote] = useState("");
   const [sessionCount, setSessionCount] = useState(0);
   const [sessionTotal, setSessionTotal] = useState(0);
+  const [addCustomer, setAddCustomer] = useState(false);
+  const [selectedCustomer, setSelectedCustomer] = useState<SelectedCustomer | null>(null);
+  const [customerPickerOpen, setCustomerPickerOpen] = useState(false);
 
   const { data: products = [], isLoading } = useQuery({
     queryKey: ["hawker-night-entry-products"],
     queryFn: () => browseProducts(undefined, true),
+  });
+
+  const { data: todaySold = {} } = useQuery({
+    queryKey: ["hawker-night-entry-today-sold"],
+    queryFn: getTodaySoldByVariant,
+    staleTime: 15_000,
   });
 
   const openTile = (p: ProductSearchResult) => {
@@ -42,6 +59,8 @@ export default function NightEntryPage() {
     setPrice(String(p.sellingPrice));
     setQty(1);
     setNote("");
+    setAddCustomer(false);
+    setSelectedCustomer(null);
   };
 
   const save = useMutation({
@@ -50,8 +69,9 @@ export default function NightEntryPage() {
       const unitPrice = parseFloat(price) || 0;
       const order = await createOrder({
         channel: "HAWKER",
-        customerPhone: "00000000000",
-        customerName: "Walk-in",
+        customerPhone: selectedCustomer?.phone || "00000000000",
+        customerName: selectedCustomer?.name || "Walk-in",
+        customerAddress: selectedCustomer?.address || undefined,
         isDraft: false,
         items: [{ variantId: active.variantId, qty, unitPrice }],
         deliveryChargeCustomer: 0,
@@ -69,7 +89,10 @@ export default function NightEntryPage() {
       setSessionCount((c) => c + 1);
       setSessionTotal((sum) => sum + total);
       setActive(null);
+      setAddCustomer(false);
+      setSelectedCustomer(null);
       queryClient.invalidateQueries({ queryKey: ["hawker-night-entry-products"] });
+      queryClient.invalidateQueries({ queryKey: ["hawker-night-entry-today-sold"] });
     },
     onError: (err) => useToastStore.getState().show(extractErrorMessage(err, t("hawker.saveFailed")), "error"),
   });
@@ -103,27 +126,57 @@ export default function NightEntryPage() {
         ) : products.length === 0 ? (
           <p className="text-sm text-gray-400 text-center py-8">{t("hawker.noProducts")}</p>
         ) : (
-          <div className="grid grid-cols-2 gap-3">
-            {products.map((p) => (
-              <button
-                key={p.variantId}
-                onClick={() => openTile(p)}
-                className="flex flex-col items-center gap-1.5 p-2 rounded-2xl border border-gray-100 bg-white active:bg-indigo-50 active:scale-95 transition-all"
-              >
-                <div className="w-full aspect-square rounded-xl bg-gray-100 overflow-hidden flex items-center justify-center">
-                  {p.imageUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={resolveMediaUrl(p.imageUrl) ?? ''} alt={p.productName} className="w-full h-full object-cover" />
-                  ) : (
-                    <span className="text-5xl">📦</span>
-                  )}
-                </div>
-                <span className="text-sm font-medium text-gray-700 text-center leading-tight line-clamp-2">
-                  {p.productName}
-                </span>
-                <span className="text-base font-bold text-indigo-700">৳{p.sellingPrice}</span>
-              </button>
-            ))}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+            {products.map((p) => {
+              const hasDiscount = p.marketPrice != null && p.marketPrice > p.sellingPrice;
+              const discountPct = hasDiscount
+                ? Math.round(((p.marketPrice! - p.sellingPrice) / p.marketPrice!) * 100)
+                : 0;
+              const displayName = stripDiscountSuffix(p.productName);
+              const soldToday = todaySold[p.variantId] ?? 0;
+
+              return (
+                <button
+                  key={p.variantId}
+                  onClick={() => openTile(p)}
+                  className="flex flex-col gap-1.5 p-2 rounded-2xl border border-gray-100 bg-white active:bg-indigo-50 active:scale-95 transition-all text-left"
+                >
+                  <div className="w-full aspect-square rounded-xl bg-gray-100 overflow-hidden flex items-center justify-center">
+                    {p.imageUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={resolveMediaUrl(p.imageUrl) ?? ''} alt={displayName} className="w-full h-full object-cover" />
+                    ) : (
+                      <span className="text-5xl">📦</span>
+                    )}
+                  </div>
+                  <span className="text-sm font-medium text-gray-700 text-center leading-tight line-clamp-2">
+                    {displayName}
+                  </span>
+                  <div className="text-xs space-y-0.5">
+                    {hasDiscount && (
+                      <>
+                        <div className="flex items-center justify-between text-gray-400">
+                          <span>{t("hawker.marketPrice")}</span>
+                          <span className="line-through">৳{p.marketPrice!.toLocaleString()}</span>
+                        </div>
+                        <div className="flex items-center justify-between text-green-600 font-medium">
+                          <span>{t("hawker.discount")}</span>
+                          <span>-{discountPct}%</span>
+                        </div>
+                      </>
+                    )}
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-400">{t("hawker.currentPrice")}</span>
+                      <span className="text-base font-bold text-indigo-700">৳{p.sellingPrice.toLocaleString()}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-gray-400">
+                      <span>{t("hawker.todaySale")}</span>
+                      <span className="font-medium text-gray-600">{soldToday} {p.unitCode || "pcs"}</span>
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
           </div>
         )}
       </div>
@@ -133,13 +186,16 @@ export default function NightEntryPage() {
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40">
           <div className="w-full max-w-[768px] bg-white rounded-t-3xl px-5 pt-5 pb-8 space-y-4">
             <div className="flex items-center justify-between">
-              <p className="text-sm font-semibold text-gray-900">{active.productName}</p>
+              <p className="text-sm font-semibold text-gray-900">{stripDiscountSuffix(active.productName)}</p>
               <button onClick={() => setActive(null)} className="text-gray-400">
                 ✕
               </button>
             </div>
 
             <div>
+              <p className="text-xs text-gray-400 text-center mb-1">
+                {t("hawker.currentPrice")}: ৳{active.sellingPrice.toLocaleString()}
+              </p>
               <label className="text-xs text-gray-500 font-medium block mb-1">{t("hawker.soldPrice")}</label>
               <input
                 type="number"
@@ -149,6 +205,17 @@ export default function NightEntryPage() {
                 onChange={(e) => setPrice(e.target.value)}
                 className="w-full text-3xl font-bold text-center border border-gray-200 rounded-2xl py-3 focus:outline-none focus:ring-2 focus:ring-indigo-300"
               />
+              {price !== "" && !isNaN(parseFloat(price)) && parseFloat(price) !== active.sellingPrice && (
+                parseFloat(price) < active.sellingPrice ? (
+                  <p className="text-xs text-red-600 mt-1.5">
+                    {t("hawker.priceLessThanCurrent", { amount: (active.sellingPrice - parseFloat(price)).toLocaleString() })}
+                  </p>
+                ) : (
+                  <p className="text-xs text-green-600 mt-1.5">
+                    {t("hawker.priceGreaterThanCurrent", { amount: (parseFloat(price) - active.sellingPrice).toLocaleString() })}
+                  </p>
+                )
+              )}
             </div>
 
             <div className="flex items-center justify-center gap-4">
@@ -166,6 +233,34 @@ export default function NightEntryPage() {
                 +
               </button>
             </div>
+
+            <div className="flex items-center justify-between">
+              <label className="text-xs text-gray-500 font-medium">{t("hawker.addCustomerInfo")}</label>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={addCustomer}
+                onClick={() => {
+                  setAddCustomer((v) => !v);
+                  if (addCustomer) setSelectedCustomer(null);
+                }}
+                className={`relative w-10 h-6 rounded-full transition-colors ${addCustomer ? "bg-indigo-600" : "bg-gray-200"}`}
+              >
+                <span
+                  className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${addCustomer ? "translate-x-4" : ""}`}
+                />
+              </button>
+            </div>
+
+            {addCustomer && (
+              <CustomerSummaryRow
+                customerName={selectedCustomer?.name ?? ""}
+                customerPhone={selectedCustomer?.phone ?? ""}
+                addLabel={t("hawker.selectCustomer")}
+                onAdd={() => setCustomerPickerOpen(true)}
+                onClear={() => setSelectedCustomer(null)}
+              />
+            )}
 
             <div>
               <label className="text-xs text-gray-500 font-medium block mb-1">{t("hawker.note")}</label>
@@ -190,6 +285,13 @@ export default function NightEntryPage() {
           </div>
         </div>
       )}
+
+      <CustomerPickerSlide
+        open={customerPickerOpen}
+        onClose={() => setCustomerPickerOpen(false)}
+        onSelect={(c) => setSelectedCustomer(c)}
+        selectedPhone={selectedCustomer?.phone || undefined}
+      />
     </>
   );
 }

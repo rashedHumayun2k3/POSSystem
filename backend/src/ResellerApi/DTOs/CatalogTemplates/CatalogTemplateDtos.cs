@@ -13,7 +13,8 @@ public record AddSuggestedCategoriesRequest(List<Guid> SuggestedCategoryIds);
 public record CategoryWithSuggestionsDto(
     Guid CategoryId,
     string Name,
-    int AvailableSuggestionCount
+    int AvailableSuggestionCount,
+    Guid? SuggestedCategoryId
 );
 
 public record SuggestedProductDto(

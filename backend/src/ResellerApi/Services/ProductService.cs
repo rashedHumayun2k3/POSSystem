@@ -98,7 +98,8 @@ public class ProductService : IProductService
                 p.Variants.Where(v => v.DeletedAt == null).Select(v => MapVariantDto(v, inv)).ToList(),
                 p.RowVer, p.ShowOnMarketplace, p.YoutubeUrl, details, images,
                 p.WarrantyDurationValue, p.WarrantyDurationUnit,
-                p.AverageRating, p.ReviewCount
+                p.AverageRating, p.ReviewCount,
+                p.WholesaleMinQty, p.WholesaleUnitPrice, p.WholesaleNote
             );
         }
 
@@ -109,7 +110,8 @@ public class ProductService : IProductService
             p.Variants.Where(v => v.DeletedAt == null).Select(MapVariantStaffDto).ToList(),
             p.YoutubeUrl, details, images,
             p.WarrantyDurationValue, p.WarrantyDurationUnit,
-            p.AverageRating, p.ReviewCount
+            p.AverageRating, p.ReviewCount,
+            p.WholesaleMinQty, p.WholesaleUnitPrice, p.WholesaleNote
         );
     }
 
@@ -316,6 +318,23 @@ public class ProductService : IProductService
         return variants.Select(v => MapSearchResult(v, inv, v.AvgLandedCost)).ToList();
     }
 
+    // For the hawker night-entry tile grid — "sold today" per variant, business-scoped via the
+    // Orders join (OrderItem itself has no BusinessId). Kept out of BrowseAsync/MapSearchResult
+    // since those are on the hot path for POS/search too and don't need this aggregate on every call.
+    public async Task<Dictionary<Guid, decimal>> GetTodaySoldQtyByVariantAsync()
+    {
+        var todayUtc = DateTime.UtcNow.Date;
+        var tomorrowUtc = todayUtc.AddDays(1);
+
+        return await _db.OrderItems.AsNoTracking()
+            .Where(i => i.DeletedAt == null)
+            .Join(_db.Orders.AsNoTracking().Where(OrderFinancials.SoldOrderFilter(todayUtc, tomorrowUtc)),
+                i => i.OrderId, o => o.Id, (i, o) => i)
+            .GroupBy(i => i.VariantId)
+            .Select(g => new { VariantId = g.Key, Qty = g.Sum(x => x.Qty) })
+            .ToDictionaryAsync(x => x.VariantId, x => x.Qty);
+    }
+
     public async Task<List<ProductSearchResultDto>> RecentlyPurchasedAsync(int limit)
     {
         var recentVariantIds = await _db.PurchaseItems
@@ -360,6 +379,8 @@ public class ProductService : IProductService
 
     public async Task<ProductDetailDto> CreateAsync(CreateProductRequest request, Guid userId)
     {
+        ValidateWholesaleTier(request.WholesaleMinQty, request.WholesaleUnitPrice, request.SellingPrice);
+
         var combinations = request.VariantCombinations;
 
         // Fail fast, before anything is persisted, rather than leaving a product created
@@ -396,7 +417,10 @@ public class ProductService : IProductService
             Note = request.Note,
             Status = "ACTIVE",
             WarrantyDurationValue = request.WarrantyDurationValue,
-            WarrantyDurationUnit = request.WarrantyDurationUnit
+            WarrantyDurationUnit = request.WarrantyDurationUnit,
+            WholesaleMinQty = request.WholesaleMinQty,
+            WholesaleUnitPrice = request.WholesaleUnitPrice,
+            WholesaleNote = request.WholesaleNote?.Trim() is { Length: > 0 } note ? note : null
         };
         _db.Products.Add(product);
         await _db.SaveChangesAsync(); // get product Id
@@ -532,6 +556,8 @@ public class ProductService : IProductService
         if (!product.RowVer.SequenceEqual(request.RowVer))
             throw new DbUpdateConcurrencyException();
 
+        ValidateWholesaleTier(request.WholesaleMinQty, request.WholesaleUnitPrice, request.SellingPrice);
+
         product.CategoryId = request.CategoryId;
         product.Name = request.Name.Trim();
         product.ImageUrl = request.ImageUrl;
@@ -547,10 +573,27 @@ public class ProductService : IProductService
         product.Status = request.Status;
         product.WarrantyDurationValue = request.WarrantyDurationValue;
         product.WarrantyDurationUnit = request.WarrantyDurationUnit;
+        product.WholesaleMinQty = request.WholesaleMinQty;
+        product.WholesaleUnitPrice = request.WholesaleUnitPrice;
+        product.WholesaleNote = request.WholesaleNote?.Trim() is { Length: > 0 } note ? note : null;
 
         await _db.SaveChangesAsync();
         await _log.LogAsync(_business.CurrentBusinessId, userId, "UPDATE", "Product", product.Id);
         return (ProductDetailDto)(await GetAsync(product.Id, true));
+    }
+
+    // Both null (wholesale off) is always valid. Otherwise both must be present: MinQty >= 2 (a
+    // value of 1 would silently replace the retail price on every single sale), and the
+    // wholesale rate must actually be cheaper than retail or the "discount" is meaningless.
+    private static void ValidateWholesaleTier(decimal? minQty, decimal? unitPrice, decimal sellingPrice)
+    {
+        if (minQty == null && unitPrice == null) return;
+        if (minQty == null || unitPrice == null)
+            throw new ArgumentException("Wholesale minimum quantity and price must both be set, or both left empty.");
+        if (minQty < 2)
+            throw new ArgumentException("Wholesale minimum quantity must be at least 2.");
+        if (unitPrice >= sellingPrice)
+            throw new ArgumentException("Wholesale price must be lower than the retail price.");
     }
 
     public async Task<List<VariantLabelData>> GetVariantLabelsAsync(Guid productId, Guid? variantId)
@@ -891,7 +934,9 @@ public class ProductService : IProductService
         v.VariantValuesJson,
         inv.TryGetValue(v.Id, out var onHand) ? onHand : 0m,
         avgLandedCost,
-        v.Product.MarketPrice
+        v.Product.MarketPrice,
+        v.Product.WholesaleMinQty,
+        v.Product.WholesaleUnitPrice
     );
 
     private static ProductSummaryDto MapSummary(
@@ -911,7 +956,8 @@ public class ProductService : IProductService
             defaultVariant?.AvgLandedCost ?? 0,
             p.AverageRating, p.ReviewCount,
             stats.OrderCount, totalProfit,
-            p.ShowOnMarketplace
+            p.ShowOnMarketplace,
+            p.WholesaleMinQty, p.WholesaleUnitPrice
         );
     }
 }
