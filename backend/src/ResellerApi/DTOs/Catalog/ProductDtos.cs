@@ -51,9 +51,7 @@ public record ProductSummaryDto(
     int ReviewCount,
     int OrderCount,
     decimal TotalProfit,           // OWNER only
-    bool ShowOnMarketplace,
-    decimal? WholesaleMinQty,      // both null = no wholesale tier for this product
-    decimal? WholesaleUnitPrice
+    bool ShowOnMarketplace
 );
 
 public record ProductMarketplaceDetailDto(Guid Id, string Section, string Label, string Value, int SortOrder);
@@ -89,10 +87,7 @@ public record ProductDetailDto(
     int? WarrantyDurationValue,
     string? WarrantyDurationUnit,
     decimal? AverageRating,
-    int ReviewCount,
-    decimal? WholesaleMinQty,
-    decimal? WholesaleUnitPrice,
-    string? WholesaleNote
+    int ReviewCount
 );
 
 public record ProductDetailStaffDto(
@@ -119,10 +114,7 @@ public record ProductDetailStaffDto(
     int? WarrantyDurationValue,
     string? WarrantyDurationUnit,
     decimal? AverageRating,
-    int ReviewCount,
-    decimal? WholesaleMinQty,
-    decimal? WholesaleUnitPrice,
-    string? WholesaleNote
+    int ReviewCount
 );
 
 public record ProductSearchResultDto(
@@ -137,9 +129,7 @@ public record ProductSearchResultDto(
     string VariantValuesJson,
     decimal Stock,
     decimal AvgLandedCost,
-    decimal? MarketPrice,
-    decimal? WholesaleMinQty,
-    decimal? WholesaleUnitPrice
+    decimal? MarketPrice
 );
 
 // Variant field values (marked IsVariant) plus the opening quantity + cost owned for that
@@ -170,12 +160,7 @@ public record CreateProductRequest(
     List<VariantCombinationInput>? VariantCombinations,
     Guid? BranchId,
     int? WarrantyDurationValue,
-    string? WarrantyDurationUnit,
-    // Both null = no wholesale (পাইকারি) tier. Both must be set together, WholesaleMinQty >= 2,
-    // WholesaleUnitPrice < SellingPrice — validated in ProductService.
-    decimal? WholesaleMinQty,
-    decimal? WholesaleUnitPrice,
-    string? WholesaleNote
+    string? WarrantyDurationUnit
 );
 
 // "I already have this stock" — for a variant that has never had any real purchase cost
@@ -204,10 +189,7 @@ public record UpdateProductRequest(
     string Status,
     byte[] RowVer,
     int? WarrantyDurationValue,
-    string? WarrantyDurationUnit,
-    decimal? WholesaleMinQty,
-    decimal? WholesaleUnitPrice,
-    string? WholesaleNote
+    string? WarrantyDurationUnit
 );
 
 public record SetProductMarketplaceVisibilityRequest(bool Show);

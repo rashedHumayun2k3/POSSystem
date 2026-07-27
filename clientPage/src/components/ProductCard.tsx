@@ -10,7 +10,6 @@ import { useShopContext } from "@/context/ShopContext";
 import { useCartStore } from "@/store/cartStore";
 import { resolveMediaUrl } from "@/lib/media";
 import { getDiscountPercent } from "@/lib/discount";
-import { hasWholesaleTier } from "@/lib/wholesale";
 
 const PlusIcon = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
@@ -30,7 +29,6 @@ export default function ProductCard({ product }: { product: ProductCardDto }) {
   const [added, setAdded] = useState(false);
   const variantLabel = formatVariantLabel(product.variantValuesJson);
   const discountPercent = getDiscountPercent(product);
-  const isWholesale = hasWholesaleTier(product);
 
   return (
     <Link
@@ -51,11 +49,6 @@ export default function ProductCard({ product }: { product: ProductCardDto }) {
         {product.inStock && discountPercent > 0 && (
           <span className="absolute top-1.5 left-1.5 bg-red-600 text-white text-[10px] font-semibold px-1.5 py-0.5 rounded">
             -{discountPercent}%
-          </span>
-        )}
-        {isWholesale && (
-          <span className="absolute top-1.5 right-1.5 bg-amber-500 text-white text-[10px] font-semibold px-1.5 py-0.5 rounded">
-            Wholesale
           </span>
         )}
         {product.inStock && (
@@ -94,11 +87,6 @@ export default function ProductCard({ product }: { product: ProductCardDto }) {
             <span className="text-xs text-gray-400 line-through">৳{product.marketPrice!.toFixed(2)}</span>
           )}
         </span>
-        {isWholesale && (
-          <span className="text-xs font-medium text-amber-600">
-            Buy {product.wholesaleMinQty}+ for ৳{product.wholesaleUnitPrice!.toFixed(2)} each
-          </span>
-        )}
         {product.reviewCount > 0 ? (
           <span className="flex items-center gap-1 text-xs text-gray-500">
             <span className="text-amber-400">★</span>

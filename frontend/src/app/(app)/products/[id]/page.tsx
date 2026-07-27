@@ -6,7 +6,6 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { getProduct, archiveProduct, setProductMarketplaceVisibility, getPriceSlots, createPriceSlot, activatePriceSlot, getPriceSlotHistory, downloadBarcodeLabels, updateProduct, updateVariant, addVariant, splitStockIntoVariants, getCategory, getStockAdjustments, adjustStock, recordExistingStockCost, getProductReviews, replyToReview, deleteReviewReply, setReviewHidden, updateMarketplaceDetails, addProductImage, removeProductImage, reorderProductImages, getMarketplaceDetailTemplates } from '@/lib/catalogApi';
 import { listOrdersByProduct } from '@/lib/ordersApi';
-import { getAppSettings } from '@/lib/settingsApi';
 import { useAuthStore } from '@/store/authStore';
 import { useToastStore } from '@/store/toastStore';
 import { toastError } from '@/lib/toastError';
@@ -164,7 +163,6 @@ export default function ProductDetailPage() {
         )}
         {activeTab === 'prices' && isOwner && (
           <PricesTab
-            product={product}
             variants={product.variants}
             selectedVariant={selectedVariant}
             onSelectVariant={setSelectedVariant}
@@ -412,7 +410,6 @@ function InfoTab({
   const buildUpdatePayload = (overrides: Partial<{
     name: string; imageUrl: string | null; description: string | null; note: string | null;
     warrantyDurationValue: number | null; warrantyDurationUnit: string | null;
-    wholesaleMinQty: number | null; wholesaleUnitPrice: number | null;
   }>) => {
     if (!product.rowVer) throw new Error('Missing rowVer');
     return {
@@ -432,8 +429,6 @@ function InfoTab({
       attributesJson: product.attributesJson,
       status: product.status,
       rowVer: product.rowVer,
-      wholesaleMinQty: product.wholesaleMinQty,
-      wholesaleUnitPrice: product.wholesaleUnitPrice,
       ...overrides,
     };
   };
@@ -631,9 +626,6 @@ function InfoTab({
               <p className="text-sm text-gray-400 mt-0.5">{t('products.none')}</p>
             )}
           </div>
-          {!product.description && !product.note && (
-            <p className="text-xs font-medium text-red-600">{t('products.descriptionNoteMissing')}</p>
-          )}
           <div className="bg-blue-200 rounded-lg px-3 py-2 text-center">
             <p className="text-sm text-gray-900">
               <span className="text-gray-700">{t('products.warrantyLabelShort')}: </span>
@@ -709,9 +701,6 @@ function InfoTab({
             <span className="text-xs text-gray-600">{t('products.buyPrice')}</span>
             <span className="text-sm font-semibold text-gray-700">৳{buyPrice.toLocaleString()}</span>
           </div>
-        )}
-        {isOwner && buyPrice === 0 && (
-          <p className="text-xs font-semibold text-red-600">{t('products.buyPriceNotSetInfo')}</p>
         )}
         {product.marketPrice ? (
           <>
@@ -1442,7 +1431,6 @@ function VariantFieldInput({
 // ── Prices Tab ────────────────────────────────────────────────────────────────
 
 function PricesTab({
-  product,
   variants,
   selectedVariant,
   onSelectVariant,
@@ -1451,7 +1439,6 @@ function PricesTab({
   packagingCostPerUnit,
   t,
 }: {
-  product: ProductDetail;
   variants: Variant[];
   selectedVariant: Variant | null;
   onSelectVariant: (v: Variant) => void;
@@ -1466,17 +1453,7 @@ function PricesTab({
   const [showCostForm, setShowCostForm] = useState(false);
   const [costPerUnit, setCostPerUnit] = useState('');
   const [formReason, setFormReason] = useState('');
-  const [wholesaleOn, setWholesaleOn] = useState(product.wholesaleMinQty != null);
-  const [wholesaleMinQty, setWholesaleMinQty] = useState(product.wholesaleMinQty != null ? String(product.wholesaleMinQty) : '');
-  const [wholesaleUnitPrice, setWholesaleUnitPrice] = useState(product.wholesaleUnitPrice != null ? String(product.wholesaleUnitPrice) : '');
-  const [wholesaleNote, setWholesaleNote] = useState(product.wholesaleNote ?? '');
   const qc = useQueryClient();
-
-  const { data: appSettings } = useQuery({ queryKey: ['app-settings'], queryFn: getAppSettings });
-  // Retail-only shops never see the wholesale section — but if a product already has a tier
-  // saved (e.g. the shop just switched from Both/Wholesale to Retail-only), still show it so an
-  // owner isn't left unable to see or remove an existing tier.
-  const showWholesaleOption = (appSettings?.selling_mode ?? 'BOTH') !== 'RETAIL' || product.wholesaleMinQty != null;
 
   const active = selectedVariant ?? variants[0];
 
@@ -1552,69 +1529,6 @@ function PricesTab({
     recordCostMutation.mutate();
   };
 
-  const wholesaleMutation = useMutation({
-    mutationFn: () => {
-      if (!product.rowVer) throw new Error('Missing rowVer');
-      return updateProduct(product.id, {
-        categoryId: product.categoryId,
-        name: product.name,
-        imageUrl: product.imageUrl,
-        unitCode: product.unitCode,
-        sellingPrice: product.sellingPrice,
-        marketPrice: product.marketPrice,
-        packagingCostPerUnit: product.packagingCostPerUnit ?? 0,
-        lowStockThreshold: product.lowStockThreshold,
-        description: product.description,
-        note: product.note,
-        warrantyDurationValue: product.warrantyDurationValue,
-        warrantyDurationUnit: product.warrantyDurationUnit,
-        defectNotes: product.defectNotes,
-        attributesJson: product.attributesJson,
-        status: product.status,
-        rowVer: product.rowVer,
-        wholesaleMinQty: wholesaleOn ? parseFloat(wholesaleMinQty) : null,
-        wholesaleUnitPrice: wholesaleOn ? parseFloat(wholesaleUnitPrice) : null,
-        wholesaleNote: wholesaleOn && wholesaleNote.trim() ? wholesaleNote.trim() : null,
-      });
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['product'] });
-      qc.invalidateQueries({ queryKey: ['products'] });
-      useToastStore.getState().show(t('common.saved'));
-    },
-    onError: (err: unknown) => toastError(err, t('products.failedUpdate')),
-  });
-
-  const handleWholesaleSave = () => {
-    if (wholesaleOn) {
-      const minQty = parseFloat(wholesaleMinQty);
-      const unitPrice = parseFloat(wholesaleUnitPrice);
-      if (!wholesaleMinQty || isNaN(minQty) || minQty < 2) {
-        useToastStore.getState().show(t('products.wholesaleMinQtyInvalid'), 'error');
-        return;
-      }
-      if (!wholesaleUnitPrice || isNaN(unitPrice) || unitPrice <= 0) {
-        useToastStore.getState().show(t('products.wholesalePriceRequired'), 'error');
-        return;
-      }
-      if (unitPrice >= baseSellingPrice) {
-        useToastStore.getState().show(t('products.wholesalePriceMustBeLower'), 'error');
-        return;
-      }
-    }
-    wholesaleMutation.mutate();
-  };
-
-  const wholesaleMinQtyNum = parseFloat(wholesaleMinQty);
-  const wholesaleUnitPriceNum = parseFloat(wholesaleUnitPrice);
-  const wholesaleComplete = wholesaleOn && !isNaN(wholesaleMinQtyNum) && wholesaleMinQtyNum >= 2 && !isNaN(wholesaleUnitPriceNum) && wholesaleUnitPriceNum > 0;
-  const wholesalePreviewLines = wholesaleComplete
-    ? [
-        `${t('products.retailWord')}: 1–${wholesaleMinQtyNum - 1} ${t('products.pieceWord')}: ৳${baseSellingPrice} ${t('products.eachWord')}`,
-        `${t('products.wholesaleWord')}: ${wholesaleMinQtyNum}+ ${t('products.pieceWord')}: ৳${wholesaleUnitPriceNum} ${t('products.eachWord')}`,
-      ]
-    : [`${t('products.anyQuantityWord')}: ৳${baseSellingPrice} ${t('products.eachWord')}`];
-
   const activeSlot = slots.find(s => s.isActive);
   const effectiveSellPrice = activeSlot?.price ?? (active?.priceOverride ?? baseSellingPrice);
   const landedCost = active?.avgLandedCost ?? 0;
@@ -1639,11 +1553,9 @@ function PricesTab({
   const fmtDateTime = (d: string) =>
     new Date(d).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 
-  const costNotSet = Boolean(active) && (active!.avgLandedCost ?? 0) === 0 && (active!.stock ?? 0) > 0;
-
   return (
     <div className="space-y-4">
-      {costNotSet && !showCostForm && (
+      {active && (active.avgLandedCost ?? 0) === 0 && (active.stock ?? 0) > 0 && !showCostForm && (
         <button
           type="button"
           onClick={() => setShowCostForm(true)}
@@ -1651,50 +1563,46 @@ function PricesTab({
         >
           <p className="text-xs font-semibold text-red-600 text-center">{t('products.buyPriceNotSetWarning')}</p>
           <p className="text-[11px] font-medium text-red-500 text-center mt-0.5">
-            {t('products.existingStockCostButton', { qty: active?.stock ?? 0 })}
+            {t('products.existingStockCostButton', { qty: active.stock ?? 0 })}
           </p>
         </button>
       )}
 
-      {/* Cost snapshot card — hidden while cost basis isn't set yet (see warning banner above);
-          showing an all-zero breakdown next to that warning reads as "this costs nothing"
-          rather than "cost unknown". */}
-      {!costNotSet && (
-        <div className="bg-gray-50 rounded-xl p-3 border border-gray-100">
-          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2">{t('products.costStructure')}</p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5">
-            <div className="flex justify-between">
-              <span className="text-xs text-gray-500">{t('products.avgBuyCost')}</span>
-              <span className="text-xs font-medium text-gray-700">৳{landedCost.toLocaleString()}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-xs text-gray-500">{t('products.packagingCostInfo')}</span>
-              <span className="text-xs font-medium text-gray-700">৳{packagingCostPerUnit.toLocaleString()}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-xs font-semibold text-gray-600">{t('products.totalCost')}</span>
-              <span className="text-xs font-semibold text-gray-800">৳{totalCost.toLocaleString()}</span>
-            </div>
+      {/* Cost snapshot card */}
+      <div className="bg-gray-50 rounded-xl p-3 border border-gray-100">
+        <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2">{t('products.costStructure')}</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5">
+          <div className="flex justify-between">
+            <span className="text-xs text-gray-500">{t('products.avgBuyCost')}</span>
+            <span className="text-xs font-medium text-gray-700">৳{landedCost.toLocaleString()}</span>
           </div>
-          <div className="border-t border-gray-200 mt-2 sm:hidden" />
-          <div className={`mt-2 rounded-xl border ${marginBg(currentMargin)} border-purple-100 p-2.5`}>
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-purple-500">{t('products.marketPrice')}</span>
-              <span className="text-base font-bold text-purple-700">
-                {marketPrice ? `৳${marketPrice.toLocaleString()}` : '—'}
-              </span>
-            </div>
-            <div className="flex items-center justify-between mt-1">
-              <span className="text-xs text-gray-500">
-                {t('products.selling')} ৳{effectiveSellPrice.toLocaleString()} → {t('products.margin')}
-              </span>
-              <span className={`text-xs font-bold ${marginColor(currentMargin)}`}>
-                {currentMargin.toFixed(1)}%
-              </span>
-            </div>
+          <div className="flex justify-between">
+            <span className="text-xs text-gray-500">{t('products.packagingCostInfo')}</span>
+            <span className="text-xs font-medium text-gray-700">৳{packagingCostPerUnit.toLocaleString()}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-xs font-semibold text-gray-600">{t('products.totalCost')}</span>
+            <span className="text-xs font-semibold text-gray-800">৳{totalCost.toLocaleString()}</span>
           </div>
         </div>
-      )}
+        <div className="border-t border-gray-200 mt-2 sm:hidden" />
+        <div className={`mt-2 rounded-xl border ${marginBg(currentMargin)} border-purple-100 p-2.5`}>
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium text-purple-500">{t('products.marketPrice')}</span>
+            <span className="text-base font-bold text-purple-700">
+              {marketPrice ? `৳${marketPrice.toLocaleString()}` : '—'}
+            </span>
+          </div>
+          <div className="flex items-center justify-between mt-1">
+            <span className="text-xs text-gray-500">
+              {t('products.selling')} ৳{effectiveSellPrice.toLocaleString()} → {t('products.margin')}
+            </span>
+            <span className={`text-xs font-bold ${marginColor(currentMargin)}`}>
+              {currentMargin.toFixed(1)}%
+            </span>
+          </div>
+        </div>
+      </div>
 
       {/* Add Cost for Existing Stock — only offered while this variant has never had real
           purchase cost recorded. Once it does (any real trip received), this disappears for
@@ -1702,9 +1610,9 @@ function PricesTab({
           average never gets silently wiped by someone clicking this again later. Lives here
           rather than the Stock tab because it only ever sets a cost basis, never a quantity.
           Triggered by tapping the red warning banner above (no separate trigger button). */}
-      {costNotSet && showCostForm && (
+      {active && (active.avgLandedCost ?? 0) === 0 && (active.stock ?? 0) > 0 && showCostForm && (
         <form onSubmit={handleCostSubmit} className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-3">
-          <p className="text-sm font-semibold text-gray-900">{t('products.existingStockCostTitle', { qty: active?.stock ?? 0 })}</p>
+          <p className="text-sm font-semibold text-gray-900">{t('products.existingStockCostTitle', { qty: active.stock ?? 0 })}</p>
           <p className="text-xs text-gray-500">{t('products.existingStockCostHint')}</p>
           <div>
             <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">{t('products.buyPrice')}</label>
@@ -1735,87 +1643,6 @@ function PricesTab({
             </button>
           </div>
         </form>
-      )}
-
-      {/* Wholesale (পাইকারি) pricing — single additive tier, retail always still applies below
-          WholesaleMinQty. See docs discussion: this is deliberately NOT a per-sale category
-          toggle — POS resolves retail vs wholesale automatically from the cart quantity. Hidden
-          for Retail-only shops unless this product already has a saved tier. */}
-      {showWholesaleOption && (
-      <div className="bg-white border border-gray-100 rounded-2xl p-4 space-y-3">
-        <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">{t('products.pricingSectionTitle')}</p>
-
-        <label className="flex items-center gap-2.5 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={wholesaleOn}
-            onChange={(e) => setWholesaleOn(e.target.checked)}
-            className="w-5 h-5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-          />
-          <span className="text-sm font-medium text-gray-900">{t('products.wholesaleToggleLabel')}</span>
-        </label>
-
-        <div className={`grid grid-cols-2 gap-3 rounded-xl p-3 ${wholesaleOn ? 'bg-gray-50' : 'bg-gray-50 opacity-50 pointer-events-none'}`}>
-          <div>
-            <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">{t('products.wholesaleMinQtyLabel')}</label>
-            <input
-              type="number"
-              min={2}
-              step="1"
-              disabled={!wholesaleOn}
-              className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-white"
-              placeholder="10"
-              value={wholesaleMinQty}
-              onChange={(e) => setWholesaleMinQty(e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">{t('products.wholesaleUnitPriceLabel')}</label>
-            <input
-              type="number"
-              min={0}
-              step="0.01"
-              disabled={!wholesaleOn}
-              className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-white"
-              placeholder="85"
-              value={wholesaleUnitPrice}
-              onChange={(e) => setWholesaleUnitPrice(e.target.value)}
-            />
-          </div>
-        </div>
-
-        <div>
-          <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">{t('products.wholesaleNoteLabel')}</label>
-          <textarea
-            disabled={!wholesaleOn}
-            rows={2}
-            maxLength={200}
-            className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-white resize-none disabled:opacity-50"
-            placeholder={t('products.wholesaleNotePlaceholder')}
-            value={wholesaleNote}
-            onChange={(e) => setWholesaleNote(e.target.value)}
-          />
-        </div>
-
-        <div className="bg-indigo-900 rounded-xl px-3 py-2.5">
-          <p className="text-[10px] font-semibold text-indigo-300 uppercase tracking-wide mb-1">{t('products.wholesalePreviewLabel')}</p>
-          {wholesalePreviewLines.map((line, i) => (
-            <p key={i} className="text-sm text-white">{line}</p>
-          ))}
-          {wholesaleOn && wholesaleNote.trim() && (
-            <p className="text-xs text-indigo-300 mt-1.5 pt-1.5 border-t border-indigo-800">{wholesaleNote.trim()}</p>
-          )}
-        </div>
-
-        <button
-          type="button"
-          onClick={handleWholesaleSave}
-          disabled={wholesaleMutation.isPending}
-          className="w-full py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-medium disabled:opacity-50"
-        >
-          {wholesaleMutation.isPending ? t('common.saving') : t('common.save')}
-        </button>
-      </div>
       )}
 
       {/* Variant selector */}

@@ -2678,16 +2678,6 @@ namespace ResellerApi.Data.Migrations
                     b.Property<int?>("WarrantyDurationValue")
                         .HasColumnType("int");
 
-                    b.Property<decimal?>("WholesaleMinQty")
-                        .HasColumnType("DECIMAL(12,3)");
-
-                    b.Property<string>("WholesaleNote")
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<decimal?>("WholesaleUnitPrice")
-                        .HasColumnType("DECIMAL(14,2)");
-
                     b.Property<string>("YoutubeUrl")
                         .HasMaxLength(500)
                         .HasColumnType("nvarchar(500)");

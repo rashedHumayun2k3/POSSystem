@@ -22,9 +22,7 @@ public record ClientPageProductCardDto(
     string ShopName,
     double? AverageRating,
     int ReviewCount,
-    decimal? MarketPrice,
-    decimal? WholesaleMinQty, // both null = no wholesale tier for this product
-    decimal? WholesaleUnitPrice
+    decimal? MarketPrice
 );
 
 public record ClientPageVariantDto(
@@ -52,8 +50,5 @@ public record ClientPageProductDetailDto(
     List<ClientPageMarketplaceDetailDto> MarketplaceDetails,
     List<string> Images,
     int? WarrantyDurationValue,
-    string? WarrantyDurationUnit,
-    decimal? WholesaleMinQty,     // both null = no wholesale tier for this product
-    decimal? WholesaleUnitPrice,
-    string? WholesaleNote
+    string? WarrantyDurationUnit
 );

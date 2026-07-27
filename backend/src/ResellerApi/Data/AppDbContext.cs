@@ -341,9 +341,6 @@ public class AppDbContext : DbContext
             e.Property(x => x.MarketPrice).HasColumnType("DECIMAL(14,2)");
             e.Property(x => x.MarketplacePrice).HasColumnType("DECIMAL(14,2)");
             e.Property(x => x.PackagingCostPerUnit).HasColumnType("DECIMAL(14,2)");
-            e.Property(x => x.WholesaleMinQty).HasColumnType("DECIMAL(12,3)");
-            e.Property(x => x.WholesaleUnitPrice).HasColumnType("DECIMAL(14,2)");
-            e.Property(x => x.WholesaleNote).HasMaxLength(200);
             // Explicit DB default — the C# property initializer (= true) only applies to newly
             // constructed entities in memory, not the SQL column default EF generates for
             // migrations, which defaults to false unless told otherwise. Getting this wrong here

@@ -11,7 +11,6 @@ public interface IProductService
     Task<List<ProductSearchResultDto>> SearchAsync(string q, bool onlyInStock = false);
     Task<ProductSearchResultDto?> GetByBarcodeAsync(string barcode);
     Task<List<ProductSearchResultDto>> BrowseAsync(Guid? categoryId, bool onlyInStock = false);
-    Task<Dictionary<Guid, decimal>> GetTodaySoldQtyByVariantAsync();
     Task<List<ProductSearchResultDto>> RecentlyPurchasedAsync(int limit);
     Task<List<ActiveCategoryDto>> ActiveCategoriesAsync();
     Task<ProductDetailDto> CreateAsync(CreateProductRequest request, Guid userId);

@@ -52,13 +52,8 @@ public class CategoriesController : ControllerBase
     [Authorize(Roles = "OWNER")]
     public async Task<IActionResult> Delete(Guid id)
     {
-        try
-        {
-            await _svc.DeleteAsync(id, _user.UserId);
-            return NoContent();
-        }
-        catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
-        catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
+        await _svc.DeleteAsync(id, _user.UserId);
+        return NoContent();
     }
 
     // ── Fields ────────────────────────────────────────────────────────────────

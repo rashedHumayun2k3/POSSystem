@@ -89,7 +89,6 @@ public record PurchaseItemDto(
     Guid VariantId,
     string VariantSku,
     string ProductName,
-    string UnitCode,
     decimal QtyBought,
     decimal QtyUsable,
     decimal QtyDamaged,

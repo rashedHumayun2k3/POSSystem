@@ -23,7 +23,6 @@ export interface PurchaseItemDto {
   variantId: string;
   variantSku: string;
   productName: string;
-  unitCode: string;
   qtyBought: number;
   qtyUsable: number;
   qtyDamaged: number;
