@@ -94,6 +94,9 @@ type RawSearchResult = {
   variantValuesJson: string;
   stock: number;
   avgLandedCost: number;
+  marketPrice?: number | null;
+  wholesaleMinQty?: number | null;
+  wholesaleUnitPrice?: number | null;
 };
 
 function mapSearchResult(item: RawSearchResult): ProductSearchResult {
@@ -109,6 +112,9 @@ function mapSearchResult(item: RawSearchResult): ProductSearchResult {
     variantValuesJson: item.variantValuesJson,
     stock: item.stock,
     avgLandedCost: item.avgLandedCost,
+    marketPrice: item.marketPrice ?? null,
+    wholesaleMinQty: item.wholesaleMinQty ?? null,
+    wholesaleUnitPrice: item.wholesaleUnitPrice ?? null,
   };
 }
 
@@ -131,6 +137,12 @@ export const searchProducts = async (q: string, onlyInStock = false): Promise<Pr
     params: { q, ...(onlyInStock ? { onlyInStock } : {}) },
   });
   return data.map(mapSearchResult);
+};
+
+// variantId -> qty sold today (business-scoped), for the hawker night-entry tile grid.
+export const getTodaySoldByVariant = async (): Promise<Record<string, number>> => {
+  const { data } = await api.get<Record<string, number>>('/products/today-sold');
+  return data;
 };
 
 export const lookupBarcode = async (barcode: string): Promise<ProductSearchResult> => {

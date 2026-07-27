@@ -48,7 +48,8 @@ public class ProductsController : ControllerBase
                 p.Id, p.Name, p.Sku, p.ImageUrl, p.UnitCode,
                 p.SellingPrice, p.MarketPrice, p.MarketplacePrice, p.Status,
                 p.CategoryName, p.VariantCount, p.TotalStock,
-                p.AverageRating, p.ReviewCount, p.ShowOnMarketplace, p.OrderCount
+                p.AverageRating, p.ReviewCount, p.ShowOnMarketplace, p.OrderCount,
+                p.WholesaleMinQty, p.WholesaleUnitPrice
                 // BuyPrice/TotalProfit deliberately omitted — STAFF must never see cost/profit (rule GTR-10)
             }));
         }
@@ -73,6 +74,10 @@ public class ProductsController : ControllerBase
     [HttpGet("browse")]
     public async Task<IActionResult> Browse([FromQuery] Guid? categoryId, [FromQuery] bool onlyInStock = false)
         => Ok(await _svc.BrowseAsync(categoryId, onlyInStock));
+
+    [HttpGet("today-sold")]
+    public async Task<IActionResult> TodaySold()
+        => Ok(await _svc.GetTodaySoldQtyByVariantAsync());
 
     [HttpGet("recently-purchased")]
     public async Task<IActionResult> RecentlyPurchased([FromQuery] int limit = 5)

@@ -7,7 +7,6 @@ import {
   XMarkIcon,
   PlusIcon,
   MinusIcon,
-  UserCircleIcon,
 } from '@heroicons/react/24/outline';
 import { posDb } from '@/lib/posDb';
 import { lookupBarcode } from '@/lib/catalogApi';
@@ -16,6 +15,7 @@ import type { ProductSearchResult } from '@/types/catalog';
 import BarcodeScanner from '@/components/ui/BarcodeScanner';
 import ProductPicker from '@/components/purchases/ProductPicker';
 import CustomerPickerSlide, { type SelectedCustomer } from '@/components/orders/CustomerPickerSlide';
+import CustomerSummaryRow from '@/components/orders/CustomerSummaryRow';
 
 interface Props {
   session: PosSession;
@@ -35,6 +35,17 @@ function parseVariantLabel(variantValuesJson: string): string {
 
 function sessionSubtotal(session: PosSession): number {
   return session.items.reduce((s, it) => s + it.unitPrice * it.qty, 0);
+}
+
+// Automatic by default (qty >= wholesaleMinQty picks the wholesale rate), but a manual override
+// (staff tapped the badge for this line) always wins regardless of quantity.
+function resolveUnitPrice(item: Pick<PosCartItem, 'retailPrice' | 'wholesaleMinQty' | 'wholesaleUnitPrice' | 'manualPriceMode'>, qty: number): number {
+  if (item.manualPriceMode === 'WHOLESALE' && item.wholesaleUnitPrice != null) return item.wholesaleUnitPrice;
+  if (item.manualPriceMode === 'RETAIL') return item.retailPrice;
+  if (item.wholesaleMinQty != null && item.wholesaleUnitPrice != null && qty >= item.wholesaleMinQty) {
+    return item.wholesaleUnitPrice;
+  }
+  return item.retailPrice;
 }
 
 function calcDiscount(session: PosSession): number {
@@ -80,16 +91,20 @@ export default function CartPanel({ session, onPayClick }: Props) {
     const newItems: PosCartItem[] = [...session.items];
 
     if (existing >= 0) {
-      newItems[existing] = { ...newItems[existing], qty: newItems[existing].qty + 1 };
+      const newQty = newItems[existing].qty + 1;
+      newItems[existing] = { ...newItems[existing], qty: newQty, unitPrice: resolveUnitPrice(newItems[existing], newQty) };
     } else {
       newItems.push({
         variantId: r.variantId,
         productName: r.productName,
         variantLabel: parseVariantLabel(r.variantValuesJson),
         sku: r.variantSku,
-        unitPrice: r.sellingPrice,
+        unitPrice: resolveUnitPrice({ retailPrice: r.sellingPrice, wholesaleMinQty: r.wholesaleMinQty, wholesaleUnitPrice: r.wholesaleUnitPrice }, 1),
         qty: 1,
         available: r.stock,
+        retailPrice: r.sellingPrice,
+        wholesaleMinQty: r.wholesaleMinQty,
+        wholesaleUnitPrice: r.wholesaleUnitPrice,
       });
     }
 
@@ -108,13 +123,30 @@ export default function CartPanel({ session, onPayClick }: Props) {
 
   const updateQty = async (variantId: string, delta: number) => {
     const newItems = session.items
-      .map(i => i.variantId === variantId ? { ...i, qty: i.qty + delta } : i)
+      .map(i => {
+        if (i.variantId !== variantId) return i;
+        const qty = i.qty + delta;
+        return { ...i, qty, unitPrice: resolveUnitPrice(i, qty) };
+      })
       .filter(i => i.qty > 0);
     await posDb.sessions.update(session.id, { items: newItems, updatedAt: Date.now() });
   };
 
   const removeItem = async (variantId: string) => {
     const newItems = session.items.filter(i => i.variantId !== variantId);
+    await posDb.sessions.update(session.id, { items: newItems, updatedAt: Date.now() });
+  };
+
+  // Manual override — flips this one line to the opposite tier from whatever's currently
+  // charging, and that choice sticks regardless of further quantity changes until toggled again
+  // or the item is removed. Only offered on lines whose product actually has a wholesale tier.
+  const toggleManualPrice = async (variantId: string) => {
+    const newItems = session.items.map(i => {
+      if (i.variantId !== variantId || i.wholesaleMinQty == null || i.wholesaleUnitPrice == null) return i;
+      const currentlyWholesale = i.unitPrice === i.wholesaleUnitPrice;
+      const manualPriceMode = currentlyWholesale ? 'RETAIL' as const : 'WHOLESALE' as const;
+      return { ...i, manualPriceMode, unitPrice: resolveUnitPrice({ ...i, manualPriceMode }, i.qty) };
+    });
     await posDb.sessions.update(session.id, { items: newItems, updatedAt: Date.now() });
   };
 
@@ -206,6 +238,18 @@ export default function CartPanel({ session, onPayClick }: Props) {
                 <p className="text-xs text-gray-400 mt-0.5">
                   ৳{item.unitPrice.toLocaleString()} each
                 </p>
+                {item.wholesaleMinQty != null && item.wholesaleUnitPrice != null && (
+                  <button
+                    onClick={() => toggleManualPrice(item.variantId)}
+                    className={`mt-1 inline-flex items-center text-[11px] font-medium px-1.5 py-0.5 rounded-full ${
+                      item.unitPrice === item.wholesaleUnitPrice
+                        ? 'bg-[#EEEDFE] text-[#534AB7]'
+                        : 'bg-gray-100 text-gray-500'
+                    }`}
+                  >
+                    {item.unitPrice === item.wholesaleUnitPrice ? 'পাইকারি দামে' : 'খুচরা দামে'}
+                  </button>
+                )}
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <button
@@ -242,26 +286,13 @@ export default function CartPanel({ session, onPayClick }: Props) {
       <div className="shrink-0 bg-white border-t border-gray-100 px-3 pt-3 pb-4 space-y-2.5">
 
         {/* Customer */}
-        {session.customerName ? (
-          <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-indigo-50 border border-indigo-100">
-            <UserCircleIcon className="w-4 h-4 text-indigo-500 shrink-0" />
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-indigo-700 truncate">{session.customerName}</p>
-              <p className="text-xs text-indigo-400">{session.customerPhone}</p>
-            </div>
-            <button onClick={clearCustomer} className="text-indigo-300 hover:text-indigo-500">
-              <XMarkIcon className="w-4 h-4" />
-            </button>
-          </div>
-        ) : (
-          <button
-            onClick={() => setCustomerPickerOpen(true)}
-            className="w-full flex items-center gap-2 px-3 py-2 rounded-xl border border-dashed border-gray-300 bg-gray-50 text-sm text-gray-500 hover:border-indigo-300 hover:text-indigo-500 transition-colors"
-          >
-            <UserCircleIcon className="w-4 h-4 shrink-0" />
-            <span>Add customer (optional)</span>
-          </button>
-        )}
+        <CustomerSummaryRow
+          customerName={session.customerName}
+          customerPhone={session.customerPhone}
+          addLabel="Add customer (optional)"
+          onAdd={() => setCustomerPickerOpen(true)}
+          onClear={clearCustomer}
+        />
 
         {/* Discount */}
         {!showDiscount ? (

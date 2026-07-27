@@ -24,6 +24,15 @@ export interface DashboardKpi {
   salesByCategory: NameValue[];
 }
 
+export interface HomeSummary {
+  todayOrders: number;
+  pendingDeliveries: number;
+  stockAlerts: number;
+  customerReceivable: number;
+  moneyAtCourier: number;
+  todayCash: number;
+}
+
 export interface SalesSummary {
   totalRevenue: number;
   totalOrders: number;

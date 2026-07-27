@@ -23,6 +23,17 @@ public record DashboardKpiDto(
     List<NameValue> SalesByCategory
 );
 
+// ── Home summary (mobile home page tiles) ────────────────────────────────────
+
+public record HomeSummaryDto(
+    int TodayOrders,
+    int PendingDeliveries,
+    int StockAlerts,
+    decimal CustomerReceivable, // customer baki — excludes COD cash currently held at courier
+    decimal MoneyAtCourier,     // COD collected by courier, pending remittance to us
+    decimal TodayCash           // cash payments received today — not net of cash spent from the drawer
+);
+
 // ── Sales ─────────────────────────────────────────────────────────────────────
 
 public record SalesSummaryDto(

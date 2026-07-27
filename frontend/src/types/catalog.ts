@@ -88,6 +88,8 @@ export interface ProductSummary {
   orderCount: number;
   totalProfit?: number; // owner only
   showOnMarketplace: boolean;
+  wholesaleMinQty: number | null; // both null = no wholesale tier for this product
+  wholesaleUnitPrice: number | null;
 }
 
 export type MarketplaceDetailSection = 'STYLE' | 'FEATURES_SPECS' | 'ITEM_DETAILS';
@@ -141,6 +143,9 @@ export interface ProductDetail {
   warrantyDurationUnit: string | null;
   averageRating: number | null;
   reviewCount: number;
+  wholesaleMinQty: number | null; // both null = no wholesale tier
+  wholesaleUnitPrice: number | null;
+  wholesaleNote: string | null;
 }
 
 export interface PriceSlot {
@@ -203,6 +208,9 @@ export interface CreateProductPayload {
   branchId?: string | null;
   warrantyDurationValue?: number | null;
   warrantyDurationUnit?: string | null;
+  wholesaleMinQty?: number | null;
+  wholesaleUnitPrice?: number | null;
+  wholesaleNote?: string | null;
 }
 
 export interface ProductSearchResult {
@@ -217,5 +225,8 @@ export interface ProductSearchResult {
   variantValuesJson: string;
   stock: number;
   avgLandedCost: number;
+  marketPrice: number | null;
+  wholesaleMinQty: number | null; // both null = no wholesale tier
+  wholesaleUnitPrice: number | null;
 }
 

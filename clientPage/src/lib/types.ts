@@ -33,6 +33,8 @@ export interface ProductCardDto {
   averageRating?: number;
   reviewCount: number;
   marketPrice?: number;
+  wholesaleMinQty?: number | null; // both null/undefined = no wholesale tier for this product
+  wholesaleUnitPrice?: number | null;
 }
 
 export interface PagedResult<T> {
@@ -42,7 +44,7 @@ export interface PagedResult<T> {
   pageSize: number;
 }
 
-export type ProductSort = "default" | "popularity" | "rating" | "discount";
+export type ProductSort = "default" | "popularity" | "rating" | "discount" | "wholesale";
 
 export interface VariantDto {
   id: string;
@@ -76,6 +78,9 @@ export interface ProductDetailDto {
   images: string[];
   warrantyDurationValue?: number | null;
   warrantyDurationUnit?: string | null;
+  wholesaleMinQty?: number | null; // both null/undefined = no wholesale tier for this product
+  wholesaleUnitPrice?: number | null;
+  wholesaleNote?: string | null;
 }
 
 export interface ReviewImageDto {

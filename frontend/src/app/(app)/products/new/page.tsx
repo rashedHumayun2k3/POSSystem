@@ -51,10 +51,30 @@ export default function NewProductPage() {
   const [variantCombinations, setVariantCombinations] = useState<VariantRow[]>([{ values: {}, qty: '', costPrice: '' }]);
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
   const [showMarketPrice, setShowMarketPrice] = useState(false);
+  const [wholesaleOn, setWholesaleOn] = useState(false);
+  const [wholesaleMinQty, setWholesaleMinQty] = useState('');
+  const [wholesaleUnitPrice, setWholesaleUnitPrice] = useState('');
+  const [wholesaleNote, setWholesaleNote] = useState('');
 
   const { data: categories = [] } = useQuery({ queryKey: ['categories'], queryFn: getCategories });
   const { data: units = UNITS_FALLBACK } = useQuery({ queryKey: ['units'], queryFn: getUnits });
   const { data: appSettings } = useQuery({ queryKey: ['app-settings'], queryFn: getAppSettings });
+
+  // Retail-only shops never see the wholesale option at all — a pure UI-visibility switch, the
+  // per-product schema always has the two columns regardless of this setting.
+  const showWholesaleOption = (appSettings?.selling_mode ?? 'BOTH') !== 'RETAIL';
+
+  const wholesaleMinQtyPreview = parseFloat(wholesaleMinQty);
+  const wholesaleUnitPricePreview = parseFloat(wholesaleUnitPrice);
+  const sellingPricePreview = parseFloat(form.sellingPrice) || 0;
+  const wholesaleComplete = wholesaleOn && !isNaN(wholesaleMinQtyPreview) && wholesaleMinQtyPreview >= 2
+    && !isNaN(wholesaleUnitPricePreview) && wholesaleUnitPricePreview > 0;
+  const wholesalePreviewLines = wholesaleComplete
+    ? [
+        `${t('products.retailWord')}: 1–${wholesaleMinQtyPreview - 1} ${t('products.pieceWord')}: ৳${sellingPricePreview} ${t('products.eachWord')}`,
+        `${t('products.wholesaleWord')}: ${wholesaleMinQtyPreview}+ ${t('products.pieceWord')}: ৳${wholesaleUnitPricePreview} ${t('products.eachWord')}`,
+      ]
+    : [`${t('products.anyQuantityWord')}: ৳${sellingPricePreview} ${t('products.eachWord')}`];
 
   // Pre-fills the low-stock threshold from the business's global default (Settings > Low Stock
   // Alert) instead of a hardcoded 5 — still fully editable per product before saving. Applied
@@ -67,6 +87,18 @@ export default function NewProductPage() {
       setForm((f) => ({ ...f, lowStockThreshold: def }));
     }
     appliedLowStockDefault.current = true;
+  }, [appSettings]);
+
+  // Wholesale-only shops expect to fill this in on almost every product, so it starts checked —
+  // still just a default, staff can uncheck it for a one-off retail-only item. Applied once, so
+  // it doesn't stomp on the checkbox if staff already toggled it before the setting arrived.
+  const appliedWholesaleDefault = useRef(false);
+  useEffect(() => {
+    if (appliedWholesaleDefault.current || !appSettings) return;
+    if (appSettings.selling_mode === 'WHOLESALE') {
+      setWholesaleOn(true);
+    }
+    appliedWholesaleDefault.current = true;
   }, [appSettings]);
 
   useEffect(() => {
@@ -105,6 +137,22 @@ export default function NewProductPage() {
       if (row.costPrice === '' || parseFloat(row.costPrice) < 0) { useToastStore.getState().show(t('products.costRequired'), 'error'); return; }
     }
 
+    let wholesaleMinQtyNum: number | null = null;
+    let wholesaleUnitPriceNum: number | null = null;
+    if (showWholesaleOption && wholesaleOn) {
+      wholesaleMinQtyNum = parseFloat(wholesaleMinQty);
+      wholesaleUnitPriceNum = parseFloat(wholesaleUnitPrice);
+      if (!wholesaleMinQty || isNaN(wholesaleMinQtyNum) || wholesaleMinQtyNum < 2) {
+        useToastStore.getState().show(t('products.wholesaleMinQtyInvalid'), 'error'); return;
+      }
+      if (!wholesaleUnitPrice || isNaN(wholesaleUnitPriceNum) || wholesaleUnitPriceNum <= 0) {
+        useToastStore.getState().show(t('products.wholesalePriceRequired'), 'error'); return;
+      }
+      if (wholesaleUnitPriceNum >= parseFloat(form.sellingPrice)) {
+        useToastStore.getState().show(t('products.wholesalePriceMustBeLower'), 'error'); return;
+      }
+    }
+
     mutation.mutate({
       categoryId: form.categoryId,
       name: form.name.trim(),
@@ -123,6 +171,9 @@ export default function NewProductPage() {
       })),
       warrantyDurationValue: form.warrantyDurationValue ? parseInt(form.warrantyDurationValue) : null,
       warrantyDurationUnit: form.warrantyDurationValue ? form.warrantyDurationUnit : null,
+      wholesaleMinQty: wholesaleMinQtyNum,
+      wholesaleUnitPrice: wholesaleUnitPriceNum,
+      wholesaleNote: showWholesaleOption && wholesaleOn && wholesaleNote.trim() ? wholesaleNote.trim() : null,
     });
   };
 
@@ -277,6 +328,74 @@ export default function NewProductPage() {
               onChange={(e) => setForm((f) => ({ ...f, marketPrice: e.target.value }))}
             />
             <p className="text-xs text-gray-400 mt-1">{t('products.marketPriceHint')}</p>
+          </div>
+        )}
+
+        {/* Wholesale (পাইকারি) pricing — single additive tier, hidden entirely for Retail-only
+            shops (selling_mode setting). Retail price above always still applies below MinQty. */}
+        {showWholesaleOption && (
+          <div className="bg-gray-50 border border-gray-100 rounded-2xl p-4 space-y-3">
+            <label className="flex items-center gap-2.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={wholesaleOn}
+                onChange={(e) => setWholesaleOn(e.target.checked)}
+                className="w-5 h-5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+              />
+              <span className="text-sm font-medium text-gray-900">{t('products.wholesaleToggleLabel')}</span>
+            </label>
+
+            <div className={`grid grid-cols-2 gap-3 rounded-xl p-3 ${wholesaleOn ? 'bg-white' : 'bg-white opacity-50 pointer-events-none'}`}>
+              <div>
+                <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">{t('products.wholesaleMinQtyLabel')}</label>
+                <input
+                  type="number"
+                  min={2}
+                  step="1"
+                  disabled={!wholesaleOn}
+                  className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm"
+                  placeholder="10"
+                  value={wholesaleMinQty}
+                  onChange={(e) => setWholesaleMinQty(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">{t('products.wholesaleUnitPriceLabel')}</label>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  disabled={!wholesaleOn}
+                  className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm"
+                  placeholder="85"
+                  value={wholesaleUnitPrice}
+                  onChange={(e) => setWholesaleUnitPrice(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">{t('products.wholesaleNoteLabel')}</label>
+              <textarea
+                disabled={!wholesaleOn}
+                rows={2}
+                maxLength={200}
+                className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-white resize-none disabled:opacity-50"
+                placeholder={t('products.wholesaleNotePlaceholder')}
+                value={wholesaleNote}
+                onChange={(e) => setWholesaleNote(e.target.value)}
+              />
+            </div>
+
+            <div className="bg-indigo-900 rounded-xl px-3 py-2.5">
+              <p className="text-[10px] font-semibold text-indigo-300 uppercase tracking-wide mb-1">{t('products.wholesalePreviewLabel')}</p>
+              {wholesalePreviewLines.map((line, i) => (
+                <p key={i} className="text-sm text-white">{line}</p>
+              ))}
+              {wholesaleOn && wholesaleNote.trim() && (
+                <p className="text-xs text-indigo-300 mt-1.5 pt-1.5 border-t border-indigo-800">{wholesaleNote.trim()}</p>
+              )}
+            </div>
           </div>
         )}
 

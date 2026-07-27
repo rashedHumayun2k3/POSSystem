@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using ResellerApi.Data;
 
@@ -11,9 +12,11 @@ using ResellerApi.Data;
 namespace ResellerApi.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260725171927_AddProductWholesaleTier")]
+    partial class AddProductWholesaleTier
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -2680,10 +2683,6 @@ namespace ResellerApi.Data.Migrations
 
                     b.Property<decimal?>("WholesaleMinQty")
                         .HasColumnType("DECIMAL(12,3)");
-
-                    b.Property<string>("WholesaleNote")
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
 
                     b.Property<decimal?>("WholesaleUnitPrice")
                         .HasColumnType("DECIMAL(14,2)");

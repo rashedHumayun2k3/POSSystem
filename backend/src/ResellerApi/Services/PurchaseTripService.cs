@@ -631,6 +631,9 @@ public class PurchaseTripService : IPurchaseTripService
             return requestedBranchId.Value;
         }
 
+        if (_business.CurrentBranchId.HasValue)
+            return _business.CurrentBranchId.Value;
+
         var activeBranches = await _db.Branches.Where(b => b.IsActive).Select(b => b.Id).ToListAsync();
         if (activeBranches.Count == 1)
             return activeBranches[0];
@@ -704,6 +707,7 @@ public class PurchaseTripService : IPurchaseTripService
         i.Id, i.VariantId,
         i.Variant?.Sku ?? "",
         i.Variant?.Product?.Name ?? "",
+        i.Variant?.Product?.UnitCode ?? "pcs",
         i.QtyBought, i.QtyUsable, i.QtyDamaged, i.TotalCost,
         i.SupplierId, i.Supplier?.Name ?? i.ShopName, i.Supplier?.Address,
         i.MemoPhotoUrl,
