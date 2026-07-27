@@ -1,13 +1,8 @@
 import { api } from "./api";
-import type { DashboardKpi, HomeSummary, SalesSummary, InventoryReport, PnlReport, OrdersReport, StockValuationResponse } from "@/types/reports";
+import type { DashboardKpi, SalesSummary, InventoryReport, PnlReport, OrdersReport, StockValuationResponse } from "@/types/reports";
 
 export const getDashboard = async (): Promise<DashboardKpi> => {
   const { data } = await api.get("/reports/dashboard");
-  return data;
-};
-
-export const getHomeSummary = async (): Promise<HomeSummary> => {
-  const { data } = await api.get("/reports/home-summary");
   return data;
 };
 

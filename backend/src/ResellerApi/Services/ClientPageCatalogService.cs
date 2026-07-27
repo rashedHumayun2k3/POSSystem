@@ -128,8 +128,7 @@ public class ClientPageCatalogService : IClientPageCatalogService
                 return new ClientPageProductCardDto(
                     r.Id, r.VariantId, r.Name, r.ImageUrl, r.UnitCode, r.EffectivePrice,
                     r.VariantValuesJson, r.Stock > 0, shopContext.BusinessId!.Value, shopContext.ShopName!,
-                    count > 0 ? avg : null, count, r.MarketPrice,
-                    r.WholesaleMinQty, r.WholesaleUnitPrice
+                    count > 0 ? avg : null, count, r.MarketPrice
                 );
             }).ToList();
 
@@ -172,11 +171,6 @@ public class ClientPageCatalogService : IClientPageCatalogService
                     .ToDictionaryAsync(x => x.Id, x => x.PopularityScore);
                 return cards.OrderByDescending(c => scores.GetValueOrDefault(c.ProductId, 0)).ToList();
             }
-            case "wholesale":
-                return cards
-                    .Where(c => c.WholesaleMinQty != null && c.WholesaleUnitPrice != null)
-                    .OrderByDescending(WholesaleDiscountFraction)
-                    .ToList();
             default:
                 return cards; // already name-ordered by the upstream IProductService query
         }
@@ -184,11 +178,6 @@ public class ClientPageCatalogService : IClientPageCatalogService
 
     private static int DiscountPercent(ClientPageProductCardDto c) =>
         c.MarketPrice is decimal mp && mp > c.Price ? (int)Math.Round((mp - c.Price) / mp * 100) : 0;
-
-    // Biggest bulk deal first — how much cheaper the wholesale rate is versus the card's own
-    // effective (retail) price, as a fraction. Guards Price == 0 rather than throwing.
-    private static decimal WholesaleDiscountFraction(ClientPageProductCardDto c) =>
-        c.Price > 0 && c.WholesaleUnitPrice != null ? (c.Price - c.WholesaleUnitPrice.Value) / c.Price : 0;
 
     public async Task<ClientPageProductDetailDto?> GetProductDetailAsync(ClientPageShopContext shopContext, Guid productId)
     {
@@ -225,8 +214,7 @@ public class ClientPageCatalogService : IClientPageCatalogService
                     .Concat(dto.Variants.Where(v => !string.IsNullOrEmpty(v.ImageUrl)).Select(v => v.ImageUrl!))
                     .Distinct()
                     .ToList(),
-                dto.WarrantyDurationValue, dto.WarrantyDurationUnit,
-                dto.WholesaleMinQty, dto.WholesaleUnitPrice, dto.WholesaleNote
+                dto.WarrantyDurationValue, dto.WarrantyDurationUnit
             );
         }
 
@@ -265,8 +253,7 @@ public class ClientPageCatalogService : IClientPageCatalogService
                 .Concat(product.Variants.Where(v => !string.IsNullOrEmpty(v.ImageUrl)).Select(v => v.ImageUrl!))
                 .Distinct()
                 .ToList(),
-            product.WarrantyDurationValue, product.WarrantyDurationUnit,
-            product.WholesaleMinQty, product.WholesaleUnitPrice, product.WholesaleNote
+            product.WarrantyDurationValue, product.WarrantyDurationUnit
         );
     }
 
@@ -330,14 +317,6 @@ public class ClientPageCatalogService : IClientPageCatalogService
                 .Where(v => v.Product.AverageRating != null && v.Product.AverageRating >= HighRatingMin)
                 .OrderByDescending(v => v.Product.AverageRating),
             "popularity" => query.OrderByDescending(v => v.Product.PopularityScore),
-            // Biggest bulk deal first, same discount-fraction logic as the shop-mode branch —
-            // compared against the same effective price (PriceOverride ?? MarketplacePrice ??
-            // SellingPrice) the card itself displays, not the raw SellingPrice.
-            "wholesale" => query
-                .Where(v => v.Product.WholesaleMinQty != null && v.Product.WholesaleUnitPrice != null)
-                .OrderByDescending(v =>
-                    ((v.PriceOverride ?? (v.Product.MarketplacePrice ?? v.Product.SellingPrice)) - v.Product.WholesaleUnitPrice!.Value) /
-                    (v.PriceOverride ?? (v.Product.MarketplacePrice ?? v.Product.SellingPrice))),
             _ => query.OrderBy(v => v.Product.Name).ThenBy(v => v.Sku)
         };
 
@@ -360,8 +339,7 @@ public class ClientPageCatalogService : IClientPageCatalogService
             stockByVariant.TryGetValue(v.Id, out var inStock) && inStock,
             v.Product.BusinessId, businesses.GetValueOrDefault(v.Product.BusinessId, ""),
             v.Product.AverageRating.HasValue ? (double)v.Product.AverageRating.Value : null,
-            v.Product.ReviewCount, v.Product.MarketPrice,
-            v.Product.WholesaleMinQty, v.Product.WholesaleUnitPrice
+            v.Product.ReviewCount, v.Product.MarketPrice
         )).ToList();
 
         if (onlyInStock)

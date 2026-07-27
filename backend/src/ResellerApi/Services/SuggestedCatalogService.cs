@@ -132,7 +132,7 @@ public class SuggestedCatalogService : ISuggestedCatalogService
                 .Where(sp => sp.SuggestedCategoryId == c.SuggestedCategoryId && !alreadyNamed.Contains(sp.Name))
                 .Count();
 
-            return new CategoryWithSuggestionsDto(c.Id, c.Name, available, c.SuggestedCategoryId);
+            return new CategoryWithSuggestionsDto(c.Id, c.Name, available);
         }).ToList();
     }
 
@@ -219,10 +219,7 @@ public class SuggestedCatalogService : ISuggestedCatalogService
                 VariantCombinations: null, // single default variant, no stock/cost yet — this flow has its own opening-stock path, see ReceiveOpeningStockAsync below
                 BranchId: null,
                 WarrantyDurationValue: null,
-                WarrantyDurationUnit: null,
-                WholesaleMinQty: null,
-                WholesaleUnitPrice: null,
-                WholesaleNote: null
+                WarrantyDurationUnit: null
             );
             var created = await _products.CreateAsync(createReq, userId);
 

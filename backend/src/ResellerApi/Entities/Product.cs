@@ -21,13 +21,6 @@ public class Product : BusinessScopedEntity
     // product-edit form.
     public decimal? MarketplacePrice { get; set; }
     public decimal PackagingCostPerUnit { get; set; } = 0;
-
-    // Optional single wholesale (পাইকারি) tier — additive, not exclusive: SellingPrice always
-    // still applies below WholesaleMinQty. Both null = wholesale off for this product. Never
-    // both-one-null: enforced in ProductService, not the database.
-    public decimal? WholesaleMinQty { get; set; }
-    public decimal? WholesaleUnitPrice { get; set; }
-    public string? WholesaleNote { get; set; } // short owner note shown with the wholesale price quote
     public int LowStockThreshold { get; set; } = 5;
     public string? AttributesJson { get; set; }  // validated against category template
     public string? Note { get; set; }

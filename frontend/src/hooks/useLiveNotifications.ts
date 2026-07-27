@@ -32,7 +32,6 @@ export function useLiveNotifications() {
     const connection = new signalR.HubConnectionBuilder()
       .withUrl(process.env.NEXT_PUBLIC_HUB_URL, { accessTokenFactory: () => accessToken })
       .withAutomaticReconnect()
-      .configureLogging(signalR.LogLevel.None)
       .build();
 
     connection.on("OrderCreated", (payload: OrderCreatedPayload) => {

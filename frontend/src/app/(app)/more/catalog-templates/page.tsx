@@ -8,15 +8,12 @@ import {
   addSuggestedCategories,
   listCategoriesWithSuggestions,
 } from "@/lib/catalogTemplatesApi";
-import { deleteCategory } from "@/lib/catalogApi";
 import ProductSuggestionsPicker from "@/components/catalog/ProductSuggestionsPicker";
 import AddedProductsList from "@/components/catalog/AddedProductsList";
 import { useLanguage } from "@/i18n/LanguageContext";
 import { getCategoryEmoji, getBusinessTypeEmoji } from "@/lib/categoryEmoji";
 import { suggestedCategoryDisplayName } from "@/lib/suggestedCategoryBn";
 import { useToastStore } from "@/store/toastStore";
-import { toastError } from "@/lib/toastError";
-import { useAuthStore } from "@/store/authStore";
 
 type TabKey = "categories" | "myAddedProducts";
 
@@ -24,9 +21,7 @@ export default function CatalogTemplatesPage() {
   const router = useRouter();
   const { t, lang } = useLanguage();
   const qc = useQueryClient();
-  const owner = useAuthStore((s) => s.isOwner());
   const [addingId, setAddingId] = useState<string | null>(null);
-  const [removingId, setRemovingId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>("categories");
   const tabsScrollRef = useRef<HTMLDivElement>(null);
 
@@ -56,39 +51,8 @@ export default function CatalogTemplatesPage() {
     addOneMutation.mutate(id);
   };
 
-  const removeMutation = useMutation({
-    mutationFn: (categoryId: string) => deleteCategory(categoryId),
-    onSuccess: () => {
-      setRemovingId(null);
-      qc.invalidateQueries({ queryKey: ["catalog-templates-suggested-categories"] });
-      qc.invalidateQueries({ queryKey: ["catalog-templates-categories"] });
-      useToastStore.getState().show(t("catalogTemplates.categoryRemoved"));
-    },
-    onError: (err: unknown) => {
-      setRemovingId(null);
-      // The backend's own message is always English ("Cannot delete a category that has
-      // products."), so translate that one known case here rather than showing it raw in bn.
-      const backendMessage = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
-      if (backendMessage === "Cannot delete a category that has products.") {
-        useToastStore.getState().show(t("catalogTemplates.categoryHasProducts"), "error");
-      } else {
-        toastError(err, t("catalogTemplates.removeCategoryFailed"));
-      }
-    },
-  });
-
-  // Backend enforces the actual rule (blocks deletion if the category already has products) —
-  // this confirm is just a speed bump against accidental taps, not the safety check itself.
-  const handleRemove = (categoryId: string) => {
-    if (!window.confirm(t("catalogTemplates.removeCategoryConfirm"))) return;
-    setRemovingId(categoryId);
-    removeMutation.mutate(categoryId);
-  };
-
-  // Grouped by business type so an already-added category (e.g. Wallet) stays in its own
-  // section (e.g. 👜 Bags & Accessories) alongside the not-yet-added ones of that same type,
-  // instead of being pulled out into a separate flat block.
-  const groupedByType = suggestedCategories.reduce<Record<string, typeof suggestedCategories>>((acc, c) => {
+  const notYetAdded = suggestedCategories.filter((c) => !c.alreadyAdded);
+  const groupedByType = notYetAdded.reduce<Record<string, typeof notYetAdded>>((acc, c) => {
     (acc[c.businessTypeCode] ??= []).push(c);
     return acc;
   }, {});
@@ -144,73 +108,45 @@ export default function CatalogTemplatesPage() {
 
       <div className="px-4 pt-4">
         {activeTab === "categories" && (
-          <div>
-            {!loadingProducts && categoriesWithSuggestions.length > 0 && (
-              <div className="mb-4">
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
-                  {t("catalogTemplates.selectedCategoriesForBusiness")}
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {categoriesWithSuggestions.map((cat) => (
-                    <span
-                      key={cat.categoryId}
-                      className="flex items-center gap-1.5 text-xs font-medium text-green-800 bg-green-50 border border-green-200 rounded-full pl-3 pr-1.5 py-1.5"
-                    >
-                      {getCategoryEmoji(cat.name)} {suggestedCategoryDisplayName(cat.name, lang)}
-                      {owner && (
-                        <button
-                          type="button"
-                          onClick={() => handleRemove(cat.categoryId)}
-                          disabled={removingId === cat.categoryId}
-                          aria-label={t("common.remove")}
-                          className="shrink-0 w-4 h-4 flex items-center justify-center rounded-full text-green-600 hover:bg-green-100 disabled:opacity-40"
-                        >
-                          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
-                          </svg>
-                        </button>
-                      )}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
-              {t("catalogTemplates.categoriesTitle")}
-            </p>
-
-            {loadingProducts || loadingCategories ? (
-              <div className="h-24 bg-gray-100 rounded-xl animate-pulse" />
-            ) : suggestedCategories.length === 0 ? (
-              <p className="text-sm text-gray-400 py-2">{t("catalogTemplates.noCategoriesYet")}</p>
-            ) : (
-              <div className="space-y-4">
-                {categoriesWithSuggestions.length > 0 && (
-                  <p className="flex items-start gap-1.5 text-xs text-indigo-700 bg-indigo-50 rounded-lg px-3 py-2">
+          <div className="space-y-6">
+            {/* My Selected Categories — at the top */}
+            <div>
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+                {t("catalogTemplates.addProductsTitle")}
+              </p>
+              {loadingProducts ? (
+                <div className="h-24 bg-gray-100 rounded-xl animate-pulse" />
+              ) : categoriesWithSuggestions.length === 0 ? (
+                <p className="text-sm text-gray-400 py-2">{t("catalogTemplates.noCategoriesYet")}</p>
+              ) : (
+                <>
+                  <p className="flex items-start gap-1.5 text-xs text-indigo-700 bg-indigo-50 rounded-lg px-3 py-2 mb-3">
                     <span>💡</span>
                     <span>{t("catalogTemplates.addProductsTip")}</span>
                   </p>
-                )}
+                  <ProductSuggestionsPicker categories={categoriesWithSuggestions} />
+                </>
+              )}
+            </div>
 
-                {Object.entries(groupedByType).map(([typeCode, cats]) => {
-                  // Already-added categories of this type, resolved to their real Category
-                  // (with its live suggestion count) so they render as green pills here,
-                  // in the same section as the not-yet-added ones of the same business type.
-                  const addedInGroup = cats
-                    .filter((c) => c.alreadyAdded)
-                    .map((c) => categoriesWithSuggestions.find((cws) => cws.suggestedCategoryId === c.id))
-                    .filter((c): c is NonNullable<typeof c> => !!c);
-                  const notAddedInGroup = cats.filter((c) => !c.alreadyAdded);
-
-                  return (
+            {/* Choose Categories */}
+            <div>
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+                {t("catalogTemplates.addCategoriesTitle")}
+              </p>
+              {loadingCategories ? (
+                <div className="h-24 bg-gray-100 rounded-xl animate-pulse" />
+              ) : notYetAdded.length === 0 ? (
+                <p className="text-sm text-gray-400 py-2">{t("catalogTemplates.allCategoriesAdded")}</p>
+              ) : (
+                <div className="space-y-4">
+                  {Object.entries(groupedByType).map(([typeCode, cats]) => (
                     <div key={typeCode}>
                       <p className="text-[11px] text-gray-400 mb-1.5">
                         {getBusinessTypeEmoji(typeCode)} {t(`onboarding.type.${typeCode}`)}
                       </p>
                       <div className="space-y-2">
-                        {addedInGroup.length > 0 && <ProductSuggestionsPicker categories={addedInGroup} />}
-                        {notAddedInGroup.map((cat) => (
+                        {cats.map((cat) => (
                           <div
                             key={cat.id}
                             className="flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl border border-gray-100 bg-white"
@@ -230,10 +166,10 @@ export default function CatalogTemplatesPage() {
                         ))}
                       </div>
                     </div>
-                  );
-                })}
-              </div>
-            )}
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
 

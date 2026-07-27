@@ -3,7 +3,6 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { searchProducts } from "@/lib/clientPageApi";
 import { useShopContext } from "@/context/ShopContext";
-import type { ProductSort } from "@/lib/types";
 import ProductCard from "./ProductCard";
 
 const PAGE_SIZE = 40;
@@ -11,19 +10,17 @@ const PAGE_SIZE = 40;
 export default function ProductGrid({
   q,
   categoryId,
-  sort,
   title,
 }: {
   q?: string;
   categoryId?: string;
-  sort?: ProductSort;
   title?: string;
 }) {
   const { shopSlug, isLoading: shopLoading } = useShopContext();
 
   const { data, isLoading, hasNextPage, isFetchingNextPage, fetchNextPage } = useInfiniteQuery({
-    queryKey: ["clientpage-products", shopSlug, q, categoryId, sort],
-    queryFn: ({ pageParam }) => searchProducts(shopSlug, { q, categoryId, sort, page: pageParam, pageSize: PAGE_SIZE }),
+    queryKey: ["clientpage-products", shopSlug, q, categoryId],
+    queryFn: ({ pageParam }) => searchProducts(shopSlug, { q, categoryId, page: pageParam, pageSize: PAGE_SIZE }),
     initialPageParam: 1,
     getNextPageParam: (lastPage) =>
       lastPage.page * lastPage.pageSize < lastPage.total ? lastPage.page + 1 : undefined,

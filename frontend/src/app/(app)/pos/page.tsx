@@ -157,9 +157,6 @@ export default function PosPage() {
         unitPrice: p.sellingPrice,
         qty,
         available: p.stock,
-        retailPrice: p.sellingPrice,
-        wholesaleMinQty: p.wholesaleMinQty,
-        wholesaleUnitPrice: p.wholesaleUnitPrice,
       };
     }
 

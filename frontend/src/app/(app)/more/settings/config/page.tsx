@@ -16,7 +16,6 @@ export default function BusinessConfigPage() {
   const [refundThreshold, setRefundThreshold] = useState("");
   const [lowStockDefault, setLowStockDefault] = useState("");
   const [returnPolicyDays, setReturnPolicyDays] = useState("");
-  const [sellingMode, setSellingMode] = useState("BOTH");
   const [savedKey, setSavedKey] = useState("");
 
   const { data: settings } = useQuery({
@@ -31,7 +30,6 @@ export default function BusinessConfigPage() {
     if (settings.refund_threshold) setRefundThreshold(settings.refund_threshold);
     if (settings.low_stock_default) setLowStockDefault(settings.low_stock_default);
     if (settings.return_policy_days) setReturnPolicyDays(settings.return_policy_days);
-    if (settings.selling_mode) setSellingMode(settings.selling_mode);
   }, [settings]);
 
   const saveMutation = useMutation({
@@ -124,17 +122,6 @@ export default function BusinessConfigPage() {
             onChange={(e) => setReturnPolicyDays(e.target.value)}
             placeholder="e.g. 7"
             className="w-full h-10 px-3 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-        </ConfigRow>
-
-        <ConfigRow label={t("settings.sellingMode")} hint={t("settings.sellingModeHint")} settingKey="selling_mode" value={sellingMode}>
-          <div className="flex rounded-xl overflow-hidden border border-gray-200">
-            {(["RETAIL", "WHOLESALE", "BOTH"] as const).map((m) => (
-              <button key={m} onClick={() => setSellingMode(m)}
-                className={`flex-1 py-2.5 text-xs font-medium transition ${sellingMode === m ? "bg-indigo-600 text-white" : "text-gray-600"}`}>
-                {m === "RETAIL" ? t("settings.sellingModeRetail") : m === "WHOLESALE" ? t("settings.sellingModeWholesale") : t("settings.sellingModeBoth")}
-              </button>
-            ))}
-          </div>
         </ConfigRow>
       </div>
     </div>
