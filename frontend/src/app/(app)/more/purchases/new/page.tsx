@@ -2,11 +2,20 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useMutation } from '@tanstack/react-query';
-import { createTrip } from '@/lib/purchasesApi';
+import Link from 'next/link';
+import { useMutation, useQuery } from '@tanstack/react-query';
+import { createTrip, listTrips } from '@/lib/purchasesApi';
 import type { SourceType } from '@/types/purchases';
 import { useLanguage } from '@/i18n/LanguageContext';
 import { toastError } from '@/lib/toastError';
+
+const STATUS_COLORS: Record<string, string> = {
+  DRAFT: 'bg-gray-100 text-gray-600',
+  PENDING_APPROVAL: 'bg-amber-100 text-amber-700',
+  RECEIVING: 'bg-blue-100 text-blue-700',
+  COMPLETED: 'bg-green-100 text-green-700',
+  CANCELLED: 'bg-red-100 text-red-600',
+};
 
 type SourceOption = {
   type: SourceType;
@@ -96,6 +105,26 @@ export default function NewPurchasePage() {
 
   const selectedOpt = SOURCE_OPTIONS.find((o) => o.type === selected);
 
+  const SOURCE_LABELS: Record<string, string> = {
+    CHINA_TRIP:      t('purchases.chinaTripLabel'),
+    ALIBABA:         t('purchases.alibabaLabel'),
+    LOCAL_WHOLESALE: t('purchases.localLabel'),
+    AGENT:           t('purchases.agentLabel'),
+  };
+
+  const STATUS_LABELS: Record<string, string> = {
+    DRAFT:            t('purchases.statusDraft'),
+    PENDING_APPROVAL: t('purchases.statusPending'),
+    RECEIVING:        t('purchases.statusReceiving'),
+    COMPLETED:        t('purchases.statusCompleted'),
+    CANCELLED:        t('purchases.statusCancelled'),
+  };
+
+  const { data: history = [] } = useQuery({
+    queryKey: ['purchase-trips', ''],
+    queryFn: () => listTrips(),
+  });
+
   return (
     <div className="pb-20">
       {/* Header */}
@@ -159,6 +188,44 @@ export default function NewPurchasePage() {
         >
           {mutation.isPending ? t('common.creating') : t('purchases.startOrder')}
         </button>
+
+        {/* Purchase history */}
+        {history.length > 0 && (
+          <div className="pt-2">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{t('purchases.historyTitle')}</p>
+            <div className="space-y-1.5">
+              {history.slice(0, 5).map((trip) => {
+                const date = new Date(trip.createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+                const cost = (trip.totalItemCost + trip.totalSharedCost).toLocaleString();
+                return (
+                  <Link
+                    key={trip.id}
+                    href={`/more/purchases/${trip.id}`}
+                    className="flex items-center gap-2 bg-white border border-gray-100 rounded-xl px-3 py-2.5 active:scale-[0.99] transition"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-sm font-semibold text-gray-900">{trip.tripNo}</span>
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium leading-none ${STATUS_COLORS[trip.status] ?? 'bg-gray-100 text-gray-600'}`}>
+                          {STATUS_LABELS[trip.status] ?? trip.status}
+                        </span>
+                        <span className="ml-auto text-[11px] text-gray-400 shrink-0">{date}</span>
+                      </div>
+                      <p className="text-[11px] text-gray-400 mt-0.5 truncate">
+                        {SOURCE_LABELS[trip.sourceType] ?? trip.sourceType}
+                        {' · '}{trip.itemCount} {trip.itemCount !== 1 ? t('purchases.items') : t('purchases.item')}
+                        {' · '}৳{cost}
+                      </p>
+                    </div>
+                    <svg className="w-4 h-4 text-gray-300 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

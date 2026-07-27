@@ -13,6 +13,7 @@ import {
 } from "@heroicons/react/24/outline";
 import { useLanguage } from "@/i18n/LanguageContext";
 import { listOrders } from "@/lib/ordersApi";
+import { getHomeSummary } from "@/lib/reportsApi";
 
 export default function DashboardPage() {
   const { user, isOwner, businesses, currentBusinessId, currentBranchId } = useAuthStore();
@@ -29,6 +30,12 @@ export default function DashboardPage() {
   const { data: pendingOnlineOrders = [] } = useQuery({
     queryKey: ["dashboard-online-order-alert", currentBranchId],
     queryFn: () => listOrders({ channel: "WEBSITE", fulfillmentStatus: "UNFULFILLED" }),
+    staleTime: 15_000,
+  });
+
+  const { data: homeSummary } = useQuery({
+    queryKey: ["dashboard-home-summary", currentBranchId],
+    queryFn: getHomeSummary,
     staleTime: 15_000,
   });
 
@@ -51,10 +58,10 @@ export default function DashboardPage() {
       {owner && (
         <div className="flex gap-3 overflow-x-auto pb-1 -mx-4 px-4 scrollbar-hide">
           {[
-            { labelKey: "dashboard.cashToday",      value: "৳0", color: "bg-green-50 text-green-700" },
-            { labelKey: "dashboard.customersOwe",   value: "৳0", color: "bg-blue-50 text-blue-700" },
+            { labelKey: "dashboard.cashToday",      value: `৳${(homeSummary?.todayCash ?? 0).toLocaleString()}`, color: "bg-green-50 text-green-700" },
+            { labelKey: "dashboard.customersOwe",   value: `৳${(homeSummary?.customerReceivable ?? 0).toLocaleString()}`, color: "bg-blue-50 text-blue-700" },
             { labelKey: "dashboard.iOwe",           value: "৳0", color: "bg-red-50 text-red-700" },
-            { labelKey: "dashboard.atCouriers",     value: "৳0", color: "bg-indigo-50 text-indigo-700" },
+            { labelKey: "dashboard.atCouriers",     value: `৳${(homeSummary?.moneyAtCourier ?? 0).toLocaleString()}`, color: "bg-indigo-50 text-indigo-700" },
           ].map((card) => (
             <div
               key={card.labelKey}
@@ -70,9 +77,9 @@ export default function DashboardPage() {
       {/* Today row */}
       <div className="grid grid-cols-3 gap-3">
         {[
-          { labelKey: "dashboard.ordersToday",       value: "0", href: "/orders" },
-          { labelKey: "dashboard.pendingDeliveries", value: "0", href: "/more/deliveries" },
-          { labelKey: "dashboard.stockAlerts",       value: "0", href: "/products", danger: true },
+          { labelKey: "dashboard.ordersToday",       value: String(homeSummary?.todayOrders ?? 0), href: "/orders" },
+          { labelKey: "dashboard.pendingDeliveries", value: String(homeSummary?.pendingDeliveries ?? 0), href: "/more/deliveries" },
+          { labelKey: "dashboard.stockAlerts",       value: String(homeSummary?.stockAlerts ?? 0), href: "/products", danger: true },
         ].map((stat) => (
           <Link
             key={stat.labelKey}
