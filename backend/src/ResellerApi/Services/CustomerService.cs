@@ -46,6 +46,18 @@ public class CustomerService : ICustomerService
         ).ToList();
     }
 
+    // Uncapped and deliberately lightweight (no order/balance joins) — this feeds the offline POS
+    // device's local cache, not a UI list, so every customer needs to be present rather than the
+    // 50-row typeahead cap that ListAsync applies for on-screen search.
+    public async Task<List<CustomerCacheDto>> ListForCacheAsync()
+    {
+        return await _db.Customers
+            .AsNoTracking()
+            .OrderBy(c => c.Name)
+            .Select(c => new CustomerCacheDto(c.Id, c.Name, c.Phone, c.Address))
+            .ToListAsync();
+    }
+
     public async Task<CustomerSummaryDto?> FindByPhoneAsync(string phone)
     {
         var c = await _db.Customers.AsNoTracking().FirstOrDefaultAsync(x => x.Phone == phone);

@@ -9,6 +9,7 @@ import type {
   ReturnOrderPayload,
   AddPaymentPayload,
   CustomerSummary,
+  CustomerCacheEntry,
   UpdateCustomerPayload,
   CourierDto,
   DeliveryManDto,
@@ -135,6 +136,11 @@ export const claimOrder = async (id: string): Promise<void> => {
 
 export const searchCustomers = async (q: string): Promise<CustomerSummary[]> => {
   const { data } = await api.get('/customers', { params: { q } });
+  return data;
+};
+
+export const getCustomerCache = async (): Promise<CustomerCacheEntry[]> => {
+  const { data } = await api.get('/customers/cache');
   return data;
 };
 

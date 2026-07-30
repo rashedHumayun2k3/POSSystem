@@ -20,6 +20,17 @@ public record CustomerSummaryDto(
     decimal UnpaidBalance
 );
 
+// Deliberately excludes CreditLimit/StoreCreditBalance/UnpaidBalance and every order-history
+// field — this is the shape synced down to an offline POS device's local cache (GTR-10 territory:
+// financial data stays server-side, only identity/contact fields needed to attach an existing
+// customer to a sale get cached).
+public record CustomerCacheDto(
+    Guid Id,
+    string Name,
+    string Phone,
+    string? Address
+);
+
 public record UpdateCustomerRequest(
     string Name,
     string? Address,
@@ -113,7 +124,11 @@ public record CreateOrderRequest(
     string? Note,
     string? ClientUid,
     Guid? CourierId,
-    DateOnly? BusinessDate = null // backdatable — e.g. hawker night-entry logging an earlier day's sale
+    DateOnly? BusinessDate = null, // backdatable — e.g. hawker night-entry logging an earlier day's sale
+    // R3.3: a sale that happened offline is accepted even if it drives stock negative on sync,
+    // rather than rejected — set only by the offline-sync replay path, never by a live/online
+    // create. See ConfirmInternalAsync.
+    bool AllowOversell = false
 );
 
 public record UpdateOrderRequest(

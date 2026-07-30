@@ -2,11 +2,13 @@
 
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { browseProducts, getTodaySoldByVariant } from "@/lib/catalogApi";
-import { createOrder, confirmOrder, addOrderPayment } from "@/lib/ordersApi";
+import { createOrder, addOrderPayment } from "@/lib/ordersApi";
+import { enqueueOfflineSale, isNetworkError } from "@/lib/posSync";
+import { browseProductsWithFallback, getTodaySoldWithFallback, useCatalogAutoSync } from "@/lib/localDb/catalogCache";
 import { resolveMediaUrl } from "@/lib/media";
 import { useLanguage } from "@/i18n/LanguageContext";
 import { useToastStore } from "@/store/toastStore";
+import { useAuthStore } from "@/store/authStore";
 import type { ProductSearchResult } from "@/types/catalog";
 import CustomerPickerSlide, { type SelectedCustomer } from "@/components/orders/CustomerPickerSlide";
 import CustomerSummaryRow from "@/components/orders/CustomerSummaryRow";
@@ -31,6 +33,8 @@ function extractErrorMessage(err: unknown, fallback: string): string {
 export default function NightEntryPage() {
   const { t } = useLanguage();
   const queryClient = useQueryClient();
+  const canSeeCosts = useAuthStore((s) => s.canSeeCosts);
+  useCatalogAutoSync();
 
   const [date, setDate] = useState(todayStr());
   const [active, setActive] = useState<ProductSearchResult | null>(null);
@@ -39,18 +43,24 @@ export default function NightEntryPage() {
   const [note, setNote] = useState("");
   const [sessionCount, setSessionCount] = useState(0);
   const [sessionTotal, setSessionTotal] = useState(0);
+  const [sessionProfit, setSessionProfit] = useState(0);
+  // Additive per-variant tally of sales made this session — merged on top of whatever
+  // todaySold/stock the query returned so the tile grid reflects a just-made sale immediately,
+  // whether it synced right away or is still sitting in the offline queue (which won't show up in
+  // a server-computed "today sold" figure until it actually syncs).
+  const [sessionSoldDelta, setSessionSoldDelta] = useState<Record<string, number>>({});
   const [addCustomer, setAddCustomer] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<SelectedCustomer | null>(null);
   const [customerPickerOpen, setCustomerPickerOpen] = useState(false);
 
   const { data: products = [], isLoading } = useQuery({
     queryKey: ["hawker-night-entry-products"],
-    queryFn: () => browseProducts(undefined, true),
+    queryFn: () => browseProductsWithFallback(undefined, true),
   });
 
   const { data: todaySold = {} } = useQuery({
     queryKey: ["hawker-night-entry-today-sold"],
-    queryFn: getTodaySoldByVariant,
+    queryFn: getTodaySoldWithFallback,
     staleTime: 15_000,
   });
 
@@ -65,59 +75,110 @@ export default function NightEntryPage() {
 
   const save = useMutation({
     mutationFn: async () => {
-      if (!active) return 0;
+      if (!active) return { total: 0, profit: 0, variantId: "", qty: 0, offline: false };
       const unitPrice = parseFloat(price) || 0;
-      const order = await createOrder({
-        channel: "HAWKER",
-        customerPhone: selectedCustomer?.phone || "00000000000",
-        customerName: selectedCustomer?.name || "Walk-in",
-        customerAddress: selectedCustomer?.address || undefined,
-        isDraft: false,
-        items: [{ variantId: active.variantId, qty, unitPrice }],
-        deliveryChargeCustomer: 0,
-        advancePaid: 0,
-        note: note.trim() || undefined,
-        clientUid: crypto.randomUUID(),
-        businessDate: date,
-      });
-      await confirmOrder(order.id);
       const total = unitPrice * qty;
-      await addOrderPayment(order.id, { method: "CASH", amount: total });
-      return total;
+      // Landed-cost based, same as the tile's avgLandedCost — an approximation (no packaging
+      // cost subtracted, unlike the backend's report/dashboard profit figures) good enough for a
+      // running session total; Owner/Manager only, never sent to STAFF's eyes (see canSeeCosts gate below).
+      const profit = (unitPrice - active.avgLandedCost) * qty;
+      const saleId = crypto.randomUUID();
+
+      try {
+        // isDraft:false makes createOrder also confirm (commit stock) in the same call — no
+        // separate confirm step, same fix already applied to the regular POS checkout flow.
+        const order = await createOrder({
+          channel: "HAWKER",
+          customerPhone: selectedCustomer?.phone || "00000000000",
+          customerName: selectedCustomer?.name || "Walk-in",
+          customerAddress: selectedCustomer?.address || undefined,
+          isDraft: false,
+          items: [{ variantId: active.variantId, qty, unitPrice }],
+          deliveryChargeCustomer: 0,
+          advancePaid: 0,
+          note: note.trim() || undefined,
+          clientUid: saleId,
+          businessDate: date,
+        });
+        await addOrderPayment(order.id, { method: "CASH", amount: total });
+        return { total, profit, variantId: active.variantId, qty, offline: false };
+      } catch (err) {
+        if (!isNetworkError(err)) throw err;
+        // No network — queue the sale locally instead of blocking the seller. saleId doubles as
+        // the eventual order's Idempotency-Key/ClientUid, same pattern the regular POS offline
+        // queue uses (see lib/posSync.ts).
+        await enqueueOfflineSale({
+          id: saleId,
+          channel: "HAWKER",
+          customerName: selectedCustomer?.name || "Walk-in",
+          customerPhone: selectedCustomer?.phone || "00000000000",
+          items: [{ variantId: active.variantId, qty, unitPrice }],
+          note: note.trim() || undefined,
+          method: "CASH",
+          paidAmount: total,
+          total,
+          businessDate: date,
+          createdAt: Date.now(),
+        });
+        return { total, profit, variantId: active.variantId, qty, offline: true };
+      }
     },
-    onSuccess: (total) => {
+    onSuccess: ({ total, profit, variantId, qty: soldQty, offline }) => {
       setSessionCount((c) => c + 1);
       setSessionTotal((sum) => sum + total);
+      setSessionProfit((sum) => sum + profit);
+      if (variantId) {
+        setSessionSoldDelta((prev) => ({ ...prev, [variantId]: (prev[variantId] ?? 0) + soldQty }));
+      }
       setActive(null);
       setAddCustomer(false);
       setSelectedCustomer(null);
-      queryClient.invalidateQueries({ queryKey: ["hawker-night-entry-products"] });
-      queryClient.invalidateQueries({ queryKey: ["hawker-night-entry-today-sold"] });
+      if (offline) {
+        useToastStore.getState().show(t("hawker.savedOffline"), "success");
+      } else {
+        queryClient.invalidateQueries({ queryKey: ["hawker-night-entry-products"] });
+        queryClient.invalidateQueries({ queryKey: ["hawker-night-entry-today-sold"] });
+      }
     },
     onError: (err) => useToastStore.getState().show(extractErrorMessage(err, t("hawker.saveFailed")), "error"),
   });
+
+  // Caps the qty stepper against what's actually left after this session's own (possibly still
+  // offline-queued) sales, not just the last-synced stock figure.
+  const activeRemainingStock = active
+    ? Math.max(0, active.stock - (sessionSoldDelta[active.variantId] ?? 0))
+    : 0;
 
   return (
     <>
       <div className="px-4 py-4 space-y-4">
         {/* Date + running total */}
-        <div className="flex items-center justify-between bg-indigo-50 rounded-xl px-4 py-3">
-          <div>
-            <label className="text-xs text-indigo-500 font-medium block mb-1">{t("hawker.entryDate")}</label>
-            <input
-              type="date"
-              value={date}
-              max={todayStr()}
-              onChange={(e) => setDate(e.target.value)}
-              className="bg-white border border-indigo-200 rounded-lg px-2 py-1 text-sm"
-            />
+        <div className="bg-indigo-50 rounded-xl px-4 py-3 divide-y divide-indigo-100">
+          <div className="flex items-center justify-between pb-3">
+            <div>
+              <label className="text-xs text-indigo-500 font-medium block mb-1">{t("hawker.entryDate")}</label>
+              <input
+                type="date"
+                value={date}
+                max={todayStr()}
+                onChange={(e) => setDate(e.target.value)}
+                className="bg-white border border-indigo-200 rounded-lg px-2 py-1 text-sm"
+              />
+            </div>
+            <div className="text-right">
+              <p className="text-xs text-indigo-500">{t("hawker.entriesSoFar")}</p>
+              <p className="text-lg font-bold text-indigo-700">
+                {sessionCount} · ৳{sessionTotal.toLocaleString()}
+              </p>
+            </div>
           </div>
-          <div className="text-right">
-            <p className="text-xs text-indigo-500">{t("hawker.entriesSoFar")}</p>
-            <p className="text-lg font-bold text-indigo-700">
-              {sessionCount} · ৳{sessionTotal.toLocaleString()}
-            </p>
-          </div>
+
+          {canSeeCosts() && (
+            <div className="flex items-center justify-between pt-3">
+              <p className="text-xs text-emerald-600 font-medium">{t("hawker.todaysProfit")}</p>
+              <p className="text-lg font-bold text-emerald-700">৳{sessionProfit.toLocaleString()}</p>
+            </div>
+          )}
         </div>
 
         {/* Product tile grid */}
@@ -133,7 +194,7 @@ export default function NightEntryPage() {
                 ? Math.round(((p.marketPrice! - p.sellingPrice) / p.marketPrice!) * 100)
                 : 0;
               const displayName = stripDiscountSuffix(p.productName);
-              const soldToday = todaySold[p.variantId] ?? 0;
+              const soldToday = (todaySold[p.variantId] ?? 0) + (sessionSoldDelta[p.variantId] ?? 0);
 
               return (
                 <button
@@ -227,7 +288,7 @@ export default function NightEntryPage() {
               </button>
               <span className="text-lg font-semibold w-8 text-center">{qty}</span>
               <button
-                onClick={() => setQty((q) => Math.min(active.stock, q + 1))}
+                onClick={() => setQty((q) => Math.min(activeRemainingStock, q + 1))}
                 className="w-10 h-10 rounded-full bg-indigo-100 text-lg"
               >
                 +

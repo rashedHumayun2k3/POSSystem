@@ -1363,6 +1363,8 @@
     "nightEntryTitle": "Night Entry",
     "entryDate": "Entry for",
     "entriesSoFar": "Entries",
+    "todaysProfit": "Today's Profit",
+    "savedOffline": "Saved offline — will sync when back online",
     "soldPrice": "Sold for (৳)",
     "note": "Note (optional)",
     "notePlaceholder": "e.g. sold with discount",
@@ -1380,9 +1382,13 @@
     "priceGreaterThanCurrent": "The selling price is ৳{amount} greater than the current price"
   },
   "connectivity": {
-    "offline": "Currently Server is not connected. Please check your internet connection.",
-    "readFaqMeanwhile": "In the meantime, you can read these FAQs",
-    "viewFaq": "View FAQ"
+    "offline": "Your device is not connected to the internet right now, so you can only sell (POS) at the moment.",
+    "online": "Online",
+    "offlineShort": "Offline",
+    "syncing": "Syncing {count}",
+    "gateTitle": "No internet connection",
+    "gateBody": "This page needs internet to load. You can still sell in POS without internet — sales will sync automatically once you're back online.",
+    "goToPos": "Go to POS"
   },
   "salesRecord": {
     "title": "Sales Record"

@@ -15,6 +15,15 @@ export interface CustomerSummary {
   unpaidBalance: number;
 }
 
+// Lightweight shape used for the offline POS local cache — identity/contact fields only, no
+// financial data (see backend CustomerCacheDto).
+export interface CustomerCacheEntry {
+  id: string;
+  name: string;
+  phone: string;
+  address: string | null;
+}
+
 export interface UpdateCustomerPayload {
   name: string;
   address?: string | null;
@@ -194,6 +203,9 @@ export interface CreateOrderPayload {
   clientUid?: string;
   courierId?: string;
   businessDate?: string; // backdatable — e.g. hawker night-entry logging an earlier day's sale
+  // R3.3 — set only when replaying a sale that already happened offline: accepts the sale even if
+  // it drives stock negative, instead of rejecting it outright (which the online path still does).
+  allowOversell?: boolean;
 }
 
 export interface UpdateOrderPayload {

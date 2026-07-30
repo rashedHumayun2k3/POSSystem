@@ -9,7 +9,7 @@ import {
   MinusIcon,
 } from '@heroicons/react/24/outline';
 import { posDb } from '@/lib/posDb';
-import { lookupBarcode } from '@/lib/catalogApi';
+import { lookupBarcodeWithFallback } from '@/lib/localDb/catalogCache';
 import type { PosSession, PosCartItem } from '@/types/pos';
 import type { ProductSearchResult } from '@/types/catalog';
 import BarcodeScanner from '@/components/ui/BarcodeScanner';
@@ -114,7 +114,9 @@ export default function CartPanel({ session, onPayClick }: Props) {
   const handleBarcodeInput = useCallback(async (barcode: string) => {
     setScanError('');
     try {
-      const r = await lookupBarcode(barcode);
+      // Live lookup when reachable; falls back to the on-device product cache (native app only)
+      // when there's no network at all — see lib/localDb/catalogCache.ts.
+      const r = await lookupBarcodeWithFallback(barcode);
       await addToCart(r);
     } catch {
       setScanError(`Not found: ${barcode}`);

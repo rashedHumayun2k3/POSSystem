@@ -98,6 +98,7 @@ type RawSearchResult = {
   marketPrice?: number | null;
   wholesaleMinQty?: number | null;
   wholesaleUnitPrice?: number | null;
+  categoryId: string;
 };
 
 function mapSearchResult(item: RawSearchResult): ProductSearchResult {
@@ -116,6 +117,7 @@ function mapSearchResult(item: RawSearchResult): ProductSearchResult {
     marketPrice: item.marketPrice ?? null,
     wholesaleMinQty: item.wholesaleMinQty ?? null,
     wholesaleUnitPrice: item.wholesaleUnitPrice ?? null,
+    categoryId: item.categoryId,
   };
 }
 

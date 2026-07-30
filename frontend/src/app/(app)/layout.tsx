@@ -3,17 +3,28 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/store/authStore";
+import { useConnectivityStore } from "@/store/connectivityStore";
 import AppHeader from "@/components/layout/AppHeader";
 import BottomTabBar from "@/components/layout/BottomTabBar";
 import TrialBanner from "@/components/layout/TrialBanner";
 import ConnectivityBanner from "@/components/layout/ConnectivityBanner";
+import OfflineGate from "@/components/layout/OfflineGate";
 import LiveNotificationsProvider from "@/components/layout/LiveNotificationsProvider";
 import { usePathname } from "next/navigation";
 import { useLanguage } from "@/i18n/LanguageContext";
 
+// The only routes that render without needing a server round-trip: POS and Hawker Night Entry
+// (the "New Sale" destination — Night Entry replaces POS entirely for hawker-channel businesses,
+// see BottomTabBar's isHawker branch) both have their own offline-sale/local-cache path built for
+// exactly this, and the More menu + FAQ are static links with no data fetching. Every other route
+// shows OfflineGate instead of mounting its content when offline, rather than letting each page's
+// own query silently fail into a blank screen.
+const OFFLINE_SAFE_PATHS = ["/pos", "/hawker/night-entry", "/more", "/more/faq"];
+
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const user = useAuthStore((s) => s.user);
   const hasHydrated = useAuthStore((s) => s.hasHydrated);
+  const isOnline = useConnectivityStore((s) => s.isOnline);
   const router = useRouter();
   const pathname = usePathname();
   const { t } = useLanguage();
@@ -74,6 +85,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   // actions) — the layout must not also render its default one, or the branch dropdown (and
   // everything else in AppHeader) shows twice, stacked.
   const hasOwnHeader = /^\/orders\/[^/]+$/.test(pathname);
+  const isOfflineSafe = OFFLINE_SAFE_PATHS.includes(pathname);
 
   return (
     <div className="max-w-[768px] mx-auto min-h-full bg-white shadow-sm flex flex-col min-h-screen">
@@ -83,7 +95,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <TrialBanner />
       </div>
       <main className="flex-1 overflow-y-auto pb-20 print:pb-0 print:overflow-visible">
-        {children}
+        {!isOnline && !isOfflineSafe ? <OfflineGate /> : children}
       </main>
       <div className="print:hidden">
         <BottomTabBar />

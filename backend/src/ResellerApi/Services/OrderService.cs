@@ -120,7 +120,7 @@ public class OrderService : IOrderService
         {
             try
             {
-                order = await ConfirmInternalAsync(order, userId);
+                order = await ConfirmInternalAsync(order, userId, request.AllowOversell);
             }
             catch (StockUnavailableException)
             {
@@ -501,17 +501,24 @@ public class OrderService : IOrderService
 
     // ── Confirm ───────────────────────────────────────────────────────────────
 
-    public async Task<OrderDetailDto> ConfirmAsync(Guid id, Guid userId)
+    public async Task<OrderDetailDto> ConfirmAsync(Guid id, Guid userId, bool allowOversell = false)
     {
         var order = await _db.Orders
             .Include(o => o.Items)
             .FirstOrDefaultAsync(o => o.Id == id)
             ?? throw new KeyNotFoundException("Order not found.");
 
+        // Idempotent no-op if this order was already confirmed — e.g. CreateAsync auto-confirms
+        // a non-draft order internally, and a caller (POS checkout) that then also calls this
+        // endpoint explicitly must not re-run stock-commit a second time. FulfillmentStatus alone
+        // can't detect this: confirming never changes it, only ConfirmedAt does.
+        if (order.ConfirmedAt != null)
+            return await GetAsync(id, true);
+
         if (order.FulfillmentStatus != "UNFULFILLED")
             throw new InvalidOperationException($"Order cannot be confirmed in status {order.FulfillmentStatus}.");
 
-        order = await ConfirmInternalAsync(order, userId);
+        order = await ConfirmInternalAsync(order, userId, allowOversell);
         await _log.LogAsync(_db.CurrentBusinessId, userId, "UPDATE", "Order", order.Id);
         return await GetAsync(id, true);
     }
@@ -941,7 +948,7 @@ public class OrderService : IOrderService
 
     // ── Internal helpers ──────────────────────────────────────────────────────
 
-    private async Task<Order> ConfirmInternalAsync(Order order, Guid userId)
+    private async Task<Order> ConfirmInternalAsync(Order order, Guid userId, bool allowOversell = false)
     {
         await using var tx = await _db.Database.BeginTransactionAsync();
         try
@@ -964,8 +971,21 @@ public class OrderService : IOrderService
                 }
             }
 
+            // R3.3: online, an oversell blocks the confirm outright (first-commit-wins). A sale
+            // that already happened offline can't be un-sold on sync, so it's accepted anyway and
+            // flagged for the owner to verify physical stock instead — no Notifications module
+            // exists yet (that's its own unbuilt feature) so this uses Activity Log, the closest
+            // existing owner-reviewable trail, rather than inventing a bespoke alert mechanism.
             if (unavailable.Any())
-                throw new StockUnavailableException(unavailable);
+            {
+                if (!allowOversell)
+                    throw new StockUnavailableException(unavailable);
+
+                await _log.LogAsync(
+                    _db.CurrentBusinessId, userId, "OVERSOLD", "Order", order.Id,
+                    after: new { Message = "Offline sale accepted despite insufficient stock — verify physical stock.", Items = unavailable }
+                );
+            }
 
             foreach (var item in order.Items.Where(i => i.DeletedAt == null))
             {

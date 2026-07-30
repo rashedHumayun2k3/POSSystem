@@ -19,8 +19,8 @@ export default function ConnectivityBanner() {
       </div>
 
       <div className="text-center pb-2">
-        <Link href="/more/faq" className="text-xs font-semibold underline underline-offset-2">
-          {t("connectivity.readFaqMeanwhile")} · {t("connectivity.viewFaq")}
+        <Link href="/pos" className="text-xs font-semibold underline underline-offset-2">
+          {t("connectivity.goToPos")}
         </Link>
       </div>
     </div>

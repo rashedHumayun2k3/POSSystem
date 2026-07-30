@@ -12,6 +12,9 @@ interface Props {
   paidAmount: number;
   method: PayMethod;
   customerPhone?: string;
+  // true = this sale was queued offline — orderId/orderNo are local placeholders, not real server
+  // identifiers yet, so Print (which fetches a PDF by order id) has nothing to fetch until sync.
+  offline: boolean;
   businessName: string;
   onNewSale: () => void;
 }
@@ -32,7 +35,7 @@ function toWhatsAppNumber(phone: string): string {
 }
 
 export default function SaleSuccessModal({
-  orderId, orderNo, total, paidAmount, method, customerPhone, businessName, onNewSale,
+  orderId, orderNo, total, paidAmount, method, customerPhone, offline, businessName, onNewSale,
 }: Props) {
   const [printing, setPrinting] = useState(false);
   const change = method === 'CASH' ? Math.max(0, paidAmount - total) : 0;
@@ -62,9 +65,11 @@ export default function SaleSuccessModal({
   return (
     <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl text-center">
-        <CheckCircleIcon className="w-16 h-16 text-green-500 mx-auto mb-3" />
-        <h2 className="text-lg font-bold text-gray-900">Payment Successful</h2>
-        <p className="text-sm text-gray-500 mt-1">Order {orderNo}</p>
+        <CheckCircleIcon className={`w-16 h-16 mx-auto mb-3 ${offline ? 'text-amber-500' : 'text-green-500'}`} />
+        <h2 className="text-lg font-bold text-gray-900">{offline ? 'Saved Offline' : 'Payment Successful'}</h2>
+        <p className="text-sm text-gray-500 mt-1">
+          {offline ? 'Will sync automatically once back online' : `Order ${orderNo}`}
+        </p>
 
         <div className="bg-gray-50 rounded-xl px-4 py-3 mt-4 text-sm space-y-1">
           <div className="flex justify-between">
@@ -86,7 +91,8 @@ export default function SaleSuccessModal({
         <div className="flex gap-2 mt-5">
           <button
             onClick={handlePrint}
-            disabled={printing}
+            disabled={printing || offline}
+            title={offline ? 'Available once this sale has synced' : undefined}
             className="flex-1 flex items-center justify-center gap-1.5 border border-gray-200 text-gray-700 py-2.5 rounded-xl font-medium text-sm disabled:opacity-50"
           >
             <PrinterIcon className="w-4 h-4" />

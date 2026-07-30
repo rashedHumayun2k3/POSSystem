@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">LavLokshan</string>
+    <string name="title_activity_main">LavLokshan</string>
+    <string name="package_name">com.lavlokshan.app</string>
+    <string name="custom_url_scheme">com.lavlokshan.app</string>
+</resources>

@@ -49,7 +49,6 @@ export default function ShiftModal({ mode, shift, cashierName, onOpen, onClose }
             onChange={e => setFloat(e.target.value)}
             placeholder="0"
             className="w-full border border-gray-200 rounded-xl px-3 py-3 text-lg font-semibold text-center focus:outline-none focus:ring-2 focus:ring-indigo-300 mb-5"
-            autoFocus
             onKeyDown={e => {
               if (e.key === 'Enter') {
                 const newShift: PosShift = {
