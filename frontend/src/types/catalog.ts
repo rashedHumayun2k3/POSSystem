@@ -20,6 +20,26 @@ export interface Category {
   parentCategoryNameBn: string | null;
 }
 
+// One bucket in the product sales graph — periodStart is "YYYY-MM-DD", a day (7d/30d ranges) or
+// the start of a 7-day bucket (90d/180d ranges). Revenue/Profit are Owner/Manager only server-side
+// (GTR-10) — the endpoint itself 403s for STAFF, not just hidden client-side.
+export interface ProductSalesPoint {
+  periodStart: string;
+  qty: number;
+  revenue: number;
+  profit: number;
+  channels: ProductSalesChannelPoint[];
+}
+
+// Same bucket, split out per Order.Channel — used to flatten the sales history table into one row
+// per date+channel instead of one row per date.
+export interface ProductSalesChannelPoint {
+  channel: string;
+  qty: number;
+  revenue: number;
+  profit: number;
+}
+
 export interface Variant {
   id: string;
   variantValuesJson: string;
@@ -156,6 +176,8 @@ export interface PriceSlot {
   isActive: boolean;
   createdAt: string;
   createdByName: string;
+  startDate: string;
+  endDate: string | null;
 }
 
 export interface PriceActivationLog {
@@ -172,6 +194,8 @@ export interface CreateSlotPayload {
   label: string;
   newPrice: number;
   reason?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
 }
 
 export interface VariantCombinationInput {

@@ -78,7 +78,7 @@ export default function DashboardPage() {
       <div className="grid grid-cols-3 gap-3">
         {[
           { labelKey: "dashboard.ordersToday",       value: String(homeSummary?.todayOrders ?? 0), href: "/orders" },
-          { labelKey: "dashboard.pendingDeliveries", value: String(homeSummary?.pendingDeliveries ?? 0), href: "/more/deliveries" },
+          { labelKey: "dashboard.pendingDeliveries", value: String(homeSummary?.pendingDeliveries ?? 0), href: "/orders?tab=PENDING" },
           { labelKey: "dashboard.stockAlerts",       value: String(homeSummary?.stockAlerts ?? 0), href: "/products", danger: true },
         ].map((stat) => (
           <Link

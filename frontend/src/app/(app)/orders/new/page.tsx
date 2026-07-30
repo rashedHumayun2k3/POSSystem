@@ -44,6 +44,40 @@ const CHANNEL_ACTIVE_CLS: Record<Channel, string> = {
   OTHER:     "bg-gray-500   text-white border-gray-500",
 };
 
+// Unselected state — a light tint of each channel's own brand color (not plain white/gray for
+// everyone) so the buttons hint at their identity even before you tap one.
+const CHANNEL_INACTIVE_CLS: Record<Channel, string> = {
+  FACEBOOK:  "bg-blue-200   text-blue-900   border-blue-300",
+  WHATSAPP:  "bg-green-200  text-green-900  border-green-300",
+  INSTAGRAM: "bg-pink-200   text-pink-900   border-pink-300",
+  PHONE:     "bg-slate-300  text-slate-900  border-slate-400",
+  SHOP:      "bg-amber-200  text-amber-900  border-amber-300",
+  OTHER:     "bg-gray-300   text-gray-900   border-gray-400",
+};
+
+// Couriers come from the API (not a fixed union like Channel), so this is matched by name at
+// render time instead of keyed by a known set — same idea as CHANNEL_ACTIVE/INACTIVE_CLS (bold
+// fill when selected, light tint of the same hue when not), just for the well-known Bangladeshi
+// couriers specifically; anything else (a courier this shop added themselves) falls back to the
+// plain indigo the whole app already uses for "generic selected".
+const COURIER_COLORS: { match: string; active: string; inactive: string }[] = [
+  { match: "steadfast",     active: "bg-orange-600 text-white border-orange-600", inactive: "bg-orange-200 text-orange-900 border-orange-300" },
+  { match: "ecourier",      active: "bg-blue-600   text-white border-blue-600",   inactive: "bg-blue-200   text-blue-900   border-blue-300" },
+  { match: "paperfly",      active: "bg-purple-600 text-white border-purple-600", inactive: "bg-purple-200 text-purple-900 border-purple-300" },
+  { match: "pathao",        active: "bg-green-600  text-white border-green-600", inactive: "bg-green-200  text-green-900  border-green-300" },
+  { match: "redx",          active: "bg-red-600    text-white border-red-600",   inactive: "bg-red-200    text-red-900    border-red-300" },
+  { match: "sa paribahan",  active: "bg-amber-600  text-white border-amber-600", inactive: "bg-amber-200  text-amber-900  border-amber-300" },
+  { match: "sundarban",     active: "bg-teal-600   text-white border-teal-600",  inactive: "bg-teal-200   text-teal-900   border-teal-300" },
+];
+const COURIER_DEFAULT_ACTIVE = "bg-indigo-600 text-white border-indigo-600";
+const COURIER_DEFAULT_INACTIVE = "bg-indigo-200 text-indigo-900 border-indigo-300";
+
+function courierButtonClass(name: string, active: boolean): string {
+  const found = COURIER_COLORS.find((c) => name.toLowerCase().includes(c.match));
+  if (found) return active ? found.active : found.inactive;
+  return active ? COURIER_DEFAULT_ACTIVE : COURIER_DEFAULT_INACTIVE;
+}
+
 // ── Main component ─────────────────────────────────────────────────────────
 export default function NewOrderPage() {
   const router = useRouter();
@@ -180,7 +214,7 @@ export default function NewOrderPage() {
       <div className="px-4 pb-32 space-y-5 pt-4">
 
         {/* ── 1. Products ──────────────────────────────────────── */}
-        <section>
+        <section className="bg-gray-100 border border-gray-400 rounded-2xl p-4">
           <div className="flex items-center justify-between mb-2">
             <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
               {t("orders.productsSection")}
@@ -252,7 +286,7 @@ export default function NewOrderPage() {
         </section>
 
         {/* ── 2. Customer ──────────────────────────────────────── */}
-        <section>
+        <section className="bg-gray-100 border border-gray-400 rounded-2xl p-4">
           <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">
             {t("orders.customerSection")}
           </p>
@@ -320,7 +354,7 @@ export default function NewOrderPage() {
         </section>
 
         {/* ── 3. Channel ───────────────────────────────────────── */}
-        <section>
+        <section className="bg-gray-100 border border-gray-400 rounded-2xl p-4">
           <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">
             {t("orders.channelSection")}
           </p>
@@ -333,9 +367,7 @@ export default function NewOrderPage() {
                   if (ch === "SHOP") { setCourierId(""); setDeliveryCharge("0"); }
                 }}
                 className={`px-3 py-2 rounded-xl text-xs font-medium transition-all border ${
-                  channel === ch
-                    ? CHANNEL_ACTIVE_CLS[ch]
-                    : "bg-white text-gray-600 border-gray-200"
+                  channel === ch ? CHANNEL_ACTIVE_CLS[ch] : CHANNEL_INACTIVE_CLS[ch]
                 }`}
               >
                 {CHANNEL_LABELS[ch]}
@@ -345,7 +377,7 @@ export default function NewOrderPage() {
         </section>
 
         {/* ── 4. Courier service ───────────────────────────────── */}
-        <section>
+        <section className="bg-gray-100 border border-gray-400 rounded-2xl p-4">
           <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">
             {t("orders.courierSection")}
           </p>
@@ -353,7 +385,7 @@ export default function NewOrderPage() {
             <button
               onClick={() => { setCourierId(""); setDeliveryCharge("0"); }}
               className={`px-3 py-2 rounded-xl text-xs font-medium border transition ${
-                courierId === "" ? "bg-gray-700 text-white border-gray-700" : "bg-white text-gray-500 border-gray-200"
+                courierId === "" ? "bg-gray-700 text-white border-gray-700" : "bg-gray-300 text-gray-900 border-gray-400"
               }`}
             >
               {t("orders.noCourier")}
@@ -366,9 +398,7 @@ export default function NewOrderPage() {
                   setDeliveryCharge(String(c.outsideDhakaCharge));
                 }}
                 className={`px-3 py-2 rounded-xl text-xs font-medium border transition ${
-                  courierId === c.id
-                    ? "bg-indigo-600 text-white border-indigo-600"
-                    : "bg-white text-gray-600 border-gray-200"
+                  courierButtonClass(c.name, courierId === c.id)
                 }`}
               >
                 {c.name}
@@ -403,7 +433,7 @@ export default function NewOrderPage() {
         </section>
 
         {/* ── 5. Payment summary ───────────────────────────────── */}
-        <section>
+        <section className="bg-gray-100 border border-gray-400 rounded-2xl p-4">
           <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">
             {t("orders.paymentSection")}
           </p>
@@ -473,7 +503,7 @@ export default function NewOrderPage() {
         </section>
 
         {/* ── 6. Note ──────────────────────────────────────────── */}
-        <section>
+        <section className="bg-gray-100 border border-gray-400 rounded-2xl p-4">
           <textarea
             placeholder={t("orders.notePlaceholder")}
             rows={2}

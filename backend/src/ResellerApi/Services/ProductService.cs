@@ -15,14 +15,31 @@ public class ProductService : IProductService
     private readonly IBusinessContext _business;
     private readonly IActivityLogService _log;
     private readonly IPurchaseTripService _purchaseTrips;
+    private readonly IPriceSlotService _priceSlots;
 
-    public ProductService(AppDbContext db, IBusinessContext business, IActivityLogService log, IPurchaseTripService purchaseTrips)
+    public ProductService(AppDbContext db, IBusinessContext business, IActivityLogService log, IPurchaseTripService purchaseTrips, IPriceSlotService priceSlots)
     {
         _db = db;
         _business = business;
         _log = log;
         _purchaseTrips = purchaseTrips;
+        _priceSlots = priceSlots;
     }
+
+    // Gives a variant real Activation History from day one instead of a blind spot before its
+    // first manually-created offer. Only called for a variant that actually "owns" a starting
+    // price value — the default variant with no override (which resolves to Product.SellingPrice)
+    // or any variant with an explicit PriceOverride. A non-default variant with no override
+    // inherits Product.SellingPrice dynamically (see PriceSlotService.ApplyPriceToVariant); giving
+    // it a slot here would pin it to a point-in-time copy and break that inheritance the moment
+    // SellingPrice changes later — so that case is deliberately skipped by every call site below.
+    // No-op below zero: Catalog Templates' Quick Add leaves SellingPrice genuinely optional
+    // (defaults to 0 when left blank) — CreateSlotAsync rejects NewPrice <= 0, and there's nothing
+    // meaningful to log yet anyway when no price was ever set.
+    private Task CreateOriginalPriceSlotAsync(Guid variantId, decimal price, Guid userId) =>
+        price > 0
+            ? _priceSlots.CreateSlotAsync(variantId, new CreateSlotRequest("Original Price", price, null), userId)
+            : Task.CompletedTask;
 
     public async Task<List<ProductSummaryDto>> ListAsync(string? status, Guid? categoryId, string? q)
     {
@@ -70,6 +87,17 @@ public class ProductService : IProductService
 
     public async Task<object> GetAsync(Guid id, bool isOwner)
     {
+        // Reconcile scheduled Offers before reading — a "check on read" instead of a background
+        // job (see PriceSlotService.EnsureScheduledStateAsync), so this needs to run and commit
+        // BEFORE the no-tracking read below, otherwise a just-activated slot's price wouldn't show
+        // up in this same request.
+        var variantIds = await _db.ProductVariants
+            .Where(v => v.ProductId == id && v.DeletedAt == null)
+            .Select(v => v.Id)
+            .ToListAsync();
+        foreach (var variantId in variantIds)
+            await _priceSlots.EnsureScheduledStateAsync(variantId);
+
         var p = await _db.Products
             .AsNoTracking()
             .Include(p => p.Category)
@@ -283,10 +311,21 @@ public class ProductService : IProductService
 
     public async Task<ProductSearchResultDto?> GetByBarcodeAsync(string barcode)
     {
+        // A barcode scan is the moment of an actual sale — reconciling scheduled Offers here (see
+        // ProductService.GetAsync for why this is "check on read" rather than a background job)
+        // matters more here than almost anywhere else, since this is what POS actually charges.
+        var variantId = await _db.ProductVariants
+            .AsNoTracking()
+            .Where(v => v.Barcode == barcode && v.Product.Status == "ACTIVE")
+            .Select(v => (Guid?)v.Id)
+            .FirstOrDefaultAsync();
+        if (variantId == null) return null;
+        await _priceSlots.EnsureScheduledStateAsync(variantId.Value);
+
         var variant = await _db.ProductVariants
             .AsNoTracking()
             .Include(v => v.Product)
-            .FirstOrDefaultAsync(v => v.Barcode == barcode && v.Product.Status == "ACTIVE");
+            .FirstOrDefaultAsync(v => v.Id == variantId.Value);
         if (variant == null) return null;
         var inv = await LoadInventoryAsync(new[] { variant.Id });
         return MapSearchResult(variant, inv, variant.AvgLandedCost);
@@ -449,6 +488,12 @@ public class ProductService : IProductService
         }
         await _db.SaveChangesAsync();
         await _log.LogAsync(_business.CurrentBusinessId, userId, "CREATE", "Product", product.Id);
+
+        // Only the default variant "owns" SellingPrice at creation (every combo starts with
+        // PriceOverride null) — see CreateOriginalPriceSlotAsync for why non-default variants are
+        // deliberately skipped.
+        var defaultVariant = createdVariants.First(cv => cv.Variant.IsDefault).Variant;
+        await CreateOriginalPriceSlotAsync(defaultVariant.Id, product.SellingPrice, userId);
 
         if (combinations != null)
         {
@@ -677,6 +722,13 @@ public class ProductService : IProductService
         await _db.SaveChangesAsync();
         await _log.LogAsync(_business.CurrentBusinessId, userId, "CREATE", "ProductVariant", variant.Id);
 
+        // Same rule as CreateAsync: only give this variant an initial slot if it actually owns a
+        // starting price (default-with-no-override resolves to Product.SellingPrice; an explicit
+        // PriceOverride is its own starting price). A non-default variant with no override is left
+        // alone so it keeps inheriting Product.SellingPrice dynamically.
+        if (request.IsDefault || request.PriceOverride.HasValue)
+            await CreateOriginalPriceSlotAsync(variant.Id, request.PriceOverride ?? product.SellingPrice, userId);
+
         await SetVariantOpeningStockAndCostAsync(variant.Id, request.Qty, request.CostPrice, branchId, userId);
 
         var onHand = await _db.BranchVariantInventories
@@ -805,6 +857,69 @@ public class ProductService : IProductService
             .ToListAsync();
         var invMap = await LoadInventoryAsync(allVariants.Select(v => v.Id));
         return allVariants.Select(v => MapVariantDto(v, invMap)).ToList();
+    }
+
+    // Units sold per day (7d/30d) or per 7-day bucket (90d/180d) — daily buckets over 6 months
+    // would be an unreadable ~180-bar strip on a phone screen, so the longer ranges collapse into
+    // weeks instead. Deliberately NOT OrderFinancials.SoldOrderFilter (the CreatedAt-based
+    // definition Dashboard/Sales Summary/P&L use, which counts an order the instant it's placed,
+    // before it's even confirmed, and never nets out returns) — a per-product "is this actually
+    // selling" trend is misleading if it counts orders that haven't stuck yet. Matches the
+    // stricter definition PopularityService already uses for recent-sales ranking instead:
+    // OrderStatus == COMPLETED, FulfillmentStatus != RETURNED, bucketed by ConfirmedAt. This
+    // means this tab's totals will NOT reconcile with the Dashboard/P&L numbers — that's expected,
+    // not a bug; they're deliberately answering different questions (committed revenue vs. sales
+    // that actually happened).
+    private static readonly Dictionary<string, (int Days, int BucketDays)> SalesRangeOptions = new()
+    {
+        ["7d"] = (7, 1),
+        ["30d"] = (30, 1),
+        ["90d"] = (90, 7),
+        ["180d"] = (180, 7),
+    };
+
+    public async Task<List<ProductSalesPointDto>> GetSalesTimeseriesAsync(Guid productId, string range)
+    {
+        if (!SalesRangeOptions.TryGetValue(range, out var opt))
+            throw new ArgumentException("Invalid range. Expected one of: 7d, 30d, 90d, 180d.");
+
+        var today = DateTime.UtcNow.Date;
+        var from = today.AddDays(-(opt.Days - 1));
+        var toExclusive = today.AddDays(1);
+
+        var sales = await _db.Orders
+            .AsNoTracking()
+            .Where(o => o.OrderStatus == "COMPLETED" &&
+                        o.FulfillmentStatus != "RETURNED" &&
+                        o.ConfirmedAt != null &&
+                        o.ConfirmedAt >= from && o.ConfirmedAt < toExclusive)
+            .SelectMany(o => o.Items
+                .Where(i => i.DeletedAt == null && i.Variant != null && i.Variant.ProductId == productId)
+                .Select(i => new { o.Channel, ConfirmedAt = o.ConfirmedAt!.Value, i.Qty, i.UnitPrice, i.UnitCostSnapshot }))
+            .ToListAsync();
+
+        var points = new List<ProductSalesPointDto>();
+        for (var offset = 0; offset < opt.Days; offset += opt.BucketDays)
+        {
+            var bucketStart = from.AddDays(offset);
+            var bucketEndExclusive = from.AddDays(Math.Min(offset + opt.BucketDays, opt.Days));
+            var bucketSales = sales.Where(s => s.ConfirmedAt >= bucketStart && s.ConfirmedAt < bucketEndExclusive).ToList();
+            var qty = bucketSales.Sum(s => s.Qty);
+            var revenue = bucketSales.Sum(s => s.Qty * s.UnitPrice);
+            var profit = bucketSales.Sum(s => s.Qty * (s.UnitPrice - s.UnitCostSnapshot.GetValueOrDefault()));
+            var channels = bucketSales
+                .GroupBy(s => s.Channel)
+                .Select(g => new ProductSalesChannelDto(
+                    g.Key,
+                    g.Sum(s => s.Qty),
+                    g.Sum(s => s.Qty * s.UnitPrice),
+                    g.Sum(s => s.Qty * (s.UnitPrice - s.UnitCostSnapshot.GetValueOrDefault()))
+                ))
+                .OrderByDescending(c => c.Qty)
+                .ToList();
+            points.Add(new ProductSalesPointDto(DateOnly.FromDateTime(bucketStart), qty, revenue, profit, channels));
+        }
+        return points;
     }
 
     public async Task<VariantDto> UpdateVariantAsync(Guid productId, Guid variantId, UpdateVariantRequest request, Guid userId)

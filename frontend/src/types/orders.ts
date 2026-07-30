@@ -120,6 +120,9 @@ export interface OrderListItem {
   items: OrderListItemSummary[];
   profit?: number; // owner/manager only — absent for STAFF, server-side gated
   isRevised: boolean;
+  courierId?: string;
+  courierName?: string;
+  handedOverAt?: string; // used to compute "days in transit" on the delivery board
 }
 
 export interface OrderDetail {

@@ -265,6 +265,14 @@ public class ProductsController : ControllerBase
     public async Task<IActionResult> GetSlotHistory(Guid variantId)
         => Ok(await _slotSvc.GetActivationHistoryAsync(variantId));
 
+    [HttpDelete("variants/{variantId:guid}/slots/{slotId:guid}")]
+    [Authorize(Roles = "OWNER")]
+    public async Task<IActionResult> DeleteSlot(Guid variantId, Guid slotId)
+    {
+        await _slotSvc.DeleteSlotAsync(variantId, slotId, _user.UserId);
+        return NoContent();
+    }
+
     // ── Stock adjustments ──────────────────────────────────────────────────────
 
     [HttpGet("variants/{variantId:guid}/stock-adjustments")]
@@ -284,6 +292,14 @@ public class ProductsController : ControllerBase
     [HttpGet("{id:guid}/orders")]
     public async Task<IActionResult> OrdersByProduct(Guid id)
         => Ok(await _orderSvc.ListByProductAsync(id, _user.CanSeeCosts));
+
+    [HttpGet("{id:guid}/sales-timeseries")]
+    [Authorize(Roles = Roles.OwnerOrManager)]
+    public async Task<IActionResult> SalesTimeseries(Guid id, [FromQuery] string range = "7d")
+    {
+        try { return Ok(await _svc.GetSalesTimeseriesAsync(id, range)); }
+        catch (ArgumentException ex) { return BadRequest(new { message = ex.Message }); }
+    }
 
     [HttpGet("{id:guid}/reviews")]
     public async Task<IActionResult> ReviewsByProduct(Guid id)

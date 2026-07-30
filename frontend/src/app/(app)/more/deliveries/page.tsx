@@ -1,9 +1,14 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import SlidePanel from '@/components/ui/SlidePanel';
 import { useLanguage } from '@/i18n/LanguageContext';
+import { listOrders, deliverOrder } from '@/lib/ordersApi';
+import type { OrderListItem } from '@/types/orders';
+import { useToastStore } from '@/store/toastStore';
+import { toastError } from '@/lib/toastError';
 import {
   getRemittanceSummary,
   getCourierOrders,
@@ -14,7 +19,7 @@ import {
   type CreateRemittancePayload,
 } from '@/lib/remittanceApi';
 
-type Tab = 'board' | 'history';
+type Tab = 'inTransit' | 'cod' | 'history';
 
 const METHOD_LABELS: Record<string, string> = {
   BKASH: 'bKash',
@@ -31,7 +36,7 @@ const METHOD_COLORS: Record<string, string> = {
 };
 
 export default function DeliveriesPage() {
-  const [tab, setTab] = useState<Tab>('board');
+  const [tab, setTab] = useState<Tab>('inTransit');
   const { t } = useLanguage();
 
   return (
@@ -43,16 +48,246 @@ export default function DeliveriesPage() {
 
       {/* Tab bar */}
       <div className="bg-white border-b border-gray-100 flex shrink-0">
-        <TabBtn active={tab === 'board'} onClick={() => setTab('board')} label={t('deliveries.tabBoard')} />
+        <TabBtn active={tab === 'inTransit'} onClick={() => setTab('inTransit')} label={t('deliveries.tabInTransit')} />
+        <TabBtn active={tab === 'cod'} onClick={() => setTab('cod')} label={t('deliveries.tabBoard')} />
         <TabBtn active={tab === 'history'} onClick={() => setTab('history')} label={t('deliveries.tabHistory')} />
       </div>
 
-      {tab === 'board' ? <BoardTab /> : <HistoryTab />}
+      {tab === 'inTransit' ? <InTransitTab /> : tab === 'cod' ? <BoardTab /> : <HistoryTab />}
     </div>
   );
 }
 
-// ── Board Tab ──────────────────────────────────────────────────────────────────
+// ── In Transit Tab ────────────────────────────────────────────────────────────
+// The actual "22 pending deliveries" board the dashboard tile links to — orders already handed
+// to a courier (IN_TRANSIT) but not yet resolved. Separate from the COD tab below: that one is
+// about money already collected by the courier for DELIVERED orders, a completely different
+// population of orders from these still-in-transit ones.
+
+function InTransitTab() {
+  const { t } = useLanguage();
+  const router = useRouter();
+  const qc = useQueryClient();
+  const [confirmDeliverOrder, setConfirmDeliverOrder] = useState<OrderListItem | null>(null);
+
+  const { data: orders = [], isLoading, error } = useQuery({
+    queryKey: ['orders', { fulfillmentStatus: 'IN_TRANSIT' }],
+    queryFn: () => listOrders({ fulfillmentStatus: 'IN_TRANSIT' }),
+    staleTime: 30_000,
+  });
+
+  const deliverMutation = useMutation({
+    mutationFn: (id: string) => deliverOrder(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['orders'] });
+      qc.invalidateQueries({ queryKey: ['dashboard-home-summary'] });
+      setConfirmDeliverOrder(null);
+      useToastStore.getState().show(t('common.saved'));
+    },
+    onError: (err: unknown) => toastError(err, t('deliveries.failedMarkDelivered')),
+  });
+
+  // Returned orders go through the full Refund/Replace flow (item-level resolution, refund
+  // method, etc.) which already lives on the order detail page — not duplicated inline here.
+  const goToReturn = (id: string) => router.push(`/orders/${id}`);
+
+  if (isLoading) {
+    return (
+      <div className="flex-1 flex items-center justify-center">
+        <p className="text-sm text-gray-400">{t('common.loading')}</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex-1 flex items-center justify-center px-6 text-center">
+        <p className="text-sm text-red-400">{t('common.errorLoading')}</p>
+      </div>
+    );
+  }
+
+  if (orders.length === 0) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center px-6 text-center gap-3 py-16">
+        <div className="w-16 h-16 rounded-full bg-indigo-50 flex items-center justify-center">
+          <svg className="w-8 h-8 text-indigo-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 01-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 00-3.213-9.193 2.056 2.056 0 00-1.58-.86H14.25M16.5 18.75h-2.25m0-11.177v-.958c0-.568-.422-1.048-.987-1.106a48.554 48.554 0 00-10.026 0 1.106 1.106 0 00-.987 1.106v7.635m12-6.677v6.677m0 4.5v-4.5m0 0h-12" />
+          </svg>
+        </div>
+        <p className="text-sm font-medium text-gray-700">{t('deliveries.noInTransitOrders')}</p>
+        <p className="text-xs text-gray-400">{t('deliveries.noInTransitOrdersHint')}</p>
+      </div>
+    );
+  }
+
+  // Group by courier — an IN_TRANSIT order should always have one, but a missing courier is
+  // bucketed rather than silently dropped from the board.
+  const groups = new Map<string, { courierName: string; orders: OrderListItem[] }>();
+  for (const o of orders) {
+    const key = o.courierId ?? '__none__';
+    if (!groups.has(key)) groups.set(key, { courierName: o.courierName ?? t('deliveries.noCourierGroup'), orders: [] });
+    groups.get(key)!.orders.push(o);
+  }
+
+  return (
+    <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+      {Array.from(groups.entries()).map(([key, group]) => (
+        <CourierGroupSection
+          key={key}
+          courierName={group.courierName}
+          orders={group.orders}
+          onDeliver={setConfirmDeliverOrder}
+          onReturn={goToReturn}
+        />
+      ))}
+
+      {confirmDeliverOrder && (
+        <ConfirmDeliverSheet
+          order={confirmDeliverOrder}
+          pending={deliverMutation.isPending}
+          onConfirm={() => deliverMutation.mutate(confirmDeliverOrder.id)}
+          onClose={() => setConfirmDeliverOrder(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function CourierGroupSection({
+  courierName,
+  orders,
+  onDeliver,
+  onReturn,
+}: {
+  courierName: string;
+  orders: OrderListItem[];
+  onDeliver: (order: OrderListItem) => void;
+  onReturn: (id: string) => void;
+}) {
+  const [collapsed, setCollapsed] = useState(false);
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setCollapsed((c) => !c)}
+        className="w-full flex items-center justify-between px-1 py-1.5"
+      >
+        <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+          {courierName} · {orders.length}
+        </span>
+        <svg className={`w-4 h-4 text-gray-400 transition-transform ${collapsed ? '-rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+      {!collapsed && (
+        <div className="space-y-2 mt-1">
+          {orders.map((o) => (
+            <InTransitOrderCard key={o.id} order={o} onDeliver={() => onDeliver(o)} onReturn={() => onReturn(o.id)} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Whole days between HandedOverAt and now — null when an order has no handover timestamp yet
+// (shouldn't happen for IN_TRANSIT, but the badge just doesn't render rather than show "NaN").
+function daysSinceHandover(handedOverAt?: string): number | null {
+  if (!handedOverAt) return null;
+  const ms = Date.now() - new Date(handedOverAt).getTime();
+  return Math.max(0, Math.floor(ms / (1000 * 60 * 60 * 24)));
+}
+
+function InTransitOrderCard({
+  order,
+  onDeliver,
+  onReturn,
+}: {
+  order: OrderListItem;
+  onDeliver: () => void;
+  onReturn: () => void;
+}) {
+  const { t } = useLanguage();
+  const days = daysSinceHandover(order.handedOverAt);
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 px-4 py-3.5">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="text-sm font-semibold text-gray-900">{order.orderNo}</p>
+            {days !== null && (
+              <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
+                days >= 5 ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-500'
+              }`}>
+                {t('deliveries.daysInTransit', { days })}
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-gray-500 mt-0.5">{order.customerName} · {order.customerPhone}</p>
+          {order.trackingNo && (
+            <p className="text-xs text-gray-400 font-mono mt-0.5">{order.trackingNo}</p>
+          )}
+        </div>
+        <p className="text-sm font-bold text-gray-900 shrink-0">৳{order.totalAmount.toLocaleString('en-BD')}</p>
+      </div>
+      <div className="flex gap-2 mt-3">
+        <button
+          type="button"
+          onClick={onReturn}
+          className="flex-1 py-2 rounded-xl text-xs font-semibold border border-red-200 text-red-600 active:bg-red-50 transition-colors"
+        >
+          {t('deliveries.markReturned')}
+        </button>
+        <button
+          type="button"
+          onClick={onDeliver}
+          className="flex-1 py-2 rounded-xl text-xs font-semibold bg-emerald-600 text-white active:bg-emerald-700 transition-colors"
+        >
+          {t('deliveries.markDelivered')}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ConfirmDeliverSheet({
+  order,
+  pending,
+  onConfirm,
+  onClose,
+}: {
+  order: OrderListItem;
+  pending: boolean;
+  onConfirm: () => void;
+  onClose: () => void;
+}) {
+  const { t } = useLanguage();
+  return (
+    <SlidePanel
+      open
+      onClose={onClose}
+      title={t('deliveries.confirmDeliveredTitle', { orderNo: order.orderNo })}
+      footer={
+        <button
+          onClick={onConfirm}
+          disabled={pending}
+          className="w-full bg-emerald-600 text-white py-3 rounded-xl text-sm font-semibold disabled:opacity-50 active:bg-emerald-700 transition-colors"
+        >
+          {pending ? t('common.saving') : t('deliveries.markDelivered')}
+        </button>
+      }
+    >
+      <div className="px-4 py-4">
+        <p className="text-sm text-gray-600">{t('deliveries.confirmDeliveredBody')}</p>
+      </div>
+    </SlidePanel>
+  );
+}
+
+// ── COD Reconciliation Tab ───────────────────────────────────────────────────────
 
 function BoardTab() {
   const { t } = useLanguage();

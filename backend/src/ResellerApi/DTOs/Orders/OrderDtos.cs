@@ -255,7 +255,10 @@ public record OrderListDto(
     DateOnly BusinessDate,
     List<OrderListItemSummaryDto> Items,
     decimal? Profit, // owner/manager only — null for STAFF, mirrors OrderDetailDto.Economics gating
-    bool IsRevised
+    bool IsRevised,
+    Guid? CourierId,
+    string? CourierName,
+    DateTime? HandedOverAt // used to compute "days in transit" on the delivery board
 );
 
 public record OrderDetailDto(

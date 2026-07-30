@@ -7,7 +7,9 @@ public record PriceSlotDto(
     string? Reason,
     bool IsActive,
     DateTime CreatedAt,
-    string CreatedByName
+    string CreatedByName,
+    DateTime StartDate,
+    DateTime? EndDate
 );
 
 public record PriceActivationLogDto(
@@ -23,5 +25,9 @@ public record PriceActivationLogDto(
 public record CreateSlotRequest(
     string Label,
     decimal NewPrice,
-    string? Reason
+    string? Reason,
+    // Null StartDate means "now" (service defaults it) — matches the existing behavior for every
+    // slot created before scheduling existed. Null EndDate means no auto-expiry ("until changed").
+    DateTime? StartDate = null,
+    DateTime? EndDate = null
 );

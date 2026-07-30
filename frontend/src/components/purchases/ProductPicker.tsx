@@ -13,7 +13,7 @@ import {
 } from '@/lib/catalogApi';
 import type { ProductSearchResult } from '@/types/catalog';
 import { useLanguage } from '@/i18n/LanguageContext';
-import { QrCodeIcon } from '@heroicons/react/24/outline';
+import { QrCodeIcon, ChevronLeftIcon, ChevronRightIcon } from '@heroicons/react/24/outline';
 import { resolveMediaUrl } from '@/lib/media';
 
 interface Props {
@@ -99,6 +99,32 @@ export default function ProductPicker({
       setSelectedCategoryId(categories[0].id);
     }
   }, [categories, selectedCategoryId, search]);
+
+  // Category chip row — left/right arrow buttons on top of the horizontal scroller, since on a
+  // small phone screen only 2-3 chips fit and swipe-to-scroll isn't obviously discoverable.
+  // canScrollLeft/Right gate which arrow renders at all, so an arrow never sits there uselessly
+  // once you've scrolled all the way to that end.
+  const chipScrollRef = useRef<HTMLDivElement>(null);
+  const [canScrollChipsLeft, setCanScrollChipsLeft] = useState(false);
+  const [canScrollChipsRight, setCanScrollChipsRight] = useState(false);
+
+  const updateChipScrollState = () => {
+    const el = chipScrollRef.current;
+    if (!el) return;
+    setCanScrollChipsLeft(el.scrollLeft > 4);
+    setCanScrollChipsRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 4);
+  };
+
+  // Re-check once the chips have actually laid out (categories arriving async, panel opening) —
+  // a rAF instead of running synchronously since scrollWidth isn't reliable until paint.
+  useEffect(() => {
+    const raf = requestAnimationFrame(updateChipScrollState);
+    return () => cancelAnimationFrame(raf);
+  }, [categories, open]);
+
+  const scrollChips = (direction: 'left' | 'right') => {
+    chipScrollRef.current?.scrollBy({ left: direction === 'left' ? -160 : 160, behavior: 'smooth' });
+  };
 
   // Recently purchased
   const { data: recentlyPurchased = [] } = useQuery({
@@ -219,31 +245,59 @@ export default function ProductPicker({
       {/* ── Browse mode ───────────────────────────────────────────────── */}
       {!isSearching && (
         <div>
+          {/* Category chips — first thing in browse mode (above Recently Purchased), sticky so it
+              stays visible while scrolling the list below. Arrow buttons only render on whichever
+              side still has more to scroll to (see canScrollChipsLeft/Right). */}
+          {categories.length > 0 && (
+            <div className="border-b border-gray-100 bg-white sticky top-0 z-10">
+              <div
+                ref={chipScrollRef}
+                onScroll={updateChipScrollState}
+                className="px-4 py-2 flex gap-2 overflow-x-auto scrollbar-hide"
+              >
+                {categories.map((cat) => (
+                  <button
+                    key={cat.id}
+                    onClick={() => setSelectedCategoryId(cat.id)}
+                    className={`shrink-0 text-xs px-3 py-1.5 rounded-full font-medium transition-colors ${
+                      selectedCategoryId === cat.id
+                        ? 'bg-indigo-600 text-white'
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                  >
+                    {cat.name}
+                  </button>
+                ))}
+              </div>
+              {canScrollChipsLeft && (
+                <button
+                  type="button"
+                  onClick={() => scrollChips('left')}
+                  aria-label={t('common.scrollLeft')}
+                  className="absolute left-0.5 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-white shadow border border-gray-200 flex items-center justify-center"
+                >
+                  <ChevronLeftIcon className="w-3.5 h-3.5 text-gray-500" />
+                </button>
+              )}
+              {canScrollChipsRight && (
+                <button
+                  type="button"
+                  onClick={() => scrollChips('right')}
+                  aria-label={t('common.scrollRight')}
+                  className="absolute right-0.5 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-white shadow border border-gray-200 flex items-center justify-center"
+                >
+                  <ChevronRightIcon className="w-3.5 h-3.5 text-gray-500" />
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Recently purchased */}
           {recentlyPurchased.length > 0 && (
             <div>
               <SectionHeader label={t('pickers.recentlyPurchased')} accent />
               {recentlyPurchased.map((r) => (
                 <ProductRow key={r.variantId} product={r} onSelect={handleSelect} t={t} inCart={cartVariantIds?.has(r.variantId) ?? false} showSellingPrice={showSellingPrice} />
-              ))}
-            </div>
-          )}
-
-          {/* Category chips */}
-          {categories.length > 0 && (
-            <div className="px-4 py-2 flex gap-2 overflow-x-auto scrollbar-hide border-b border-gray-100 bg-white sticky top-0 z-10">
-              {categories.map((cat) => (
-                <button
-                  key={cat.id}
-                  onClick={() => setSelectedCategoryId(cat.id)}
-                  className={`shrink-0 text-xs px-3 py-1.5 rounded-full font-medium transition-colors ${
-                    selectedCategoryId === cat.id
-                      ? 'bg-indigo-600 text-white'
-                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                  }`}
-                >
-                  {cat.name}
-                </button>
               ))}
             </div>
           )}
