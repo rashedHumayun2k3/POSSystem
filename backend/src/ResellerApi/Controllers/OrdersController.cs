@@ -78,9 +78,9 @@ public class OrdersController : ControllerBase
     }
 
     [HttpPost("{id:guid}/confirm")]
-    public async Task<IActionResult> Confirm(Guid id)
+    public async Task<IActionResult> Confirm(Guid id, [FromQuery] bool allowOversell = false)
     {
-        try { return Ok(await _svc.ConfirmAsync(id, _user.UserId)); }
+        try { return Ok(await _svc.ConfirmAsync(id, _user.UserId, allowOversell)); }
         catch (StockUnavailableException ex)
         {
             return Conflict(new { code = "STOCK_UNAVAILABLE", message = ex.Message, items = ex.UnavailableItems });

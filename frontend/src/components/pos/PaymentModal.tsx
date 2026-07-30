@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 import { XMarkIcon } from '@heroicons/react/24/outline';
-import { createOrder, confirmOrder, addOrderPayment } from '@/lib/ordersApi';
+import { createOrder, addOrderPayment } from '@/lib/ordersApi';
+import { enqueueOfflineSale, isNetworkError } from '@/lib/posSync';
 import type { PosSession } from '@/types/pos';
 import { useToastStore } from '@/store/toastStore';
 
@@ -11,7 +12,9 @@ export type PayMethod = 'CASH' | 'BKASH' | 'CARD';
 interface Props {
   session: PosSession;
   onClose: () => void;
-  onSuccess: (method: PayMethod, paidAmount: number, orderTotal: number, orderId: string, orderNo: string) => void;
+  // offline=true means the sale was queued locally, not actually created on the server yet —
+  // orderId/orderNo are placeholders in that case (see handleConfirm), not real order identifiers.
+  onSuccess: (method: PayMethod, paidAmount: number, orderTotal: number, orderId: string, orderNo: string, offline: boolean) => void;
 }
 
 const METHODS: PayMethod[] = ['CASH', 'BKASH', 'CARD'];
@@ -82,9 +85,14 @@ export default function PaymentModal({ session, onClose, onSuccess }: Props) {
       return;
     }
     setLoading(true);
+    const paidAmt = method === 'CASH' ? Math.min(cashReceived, total) : total;
 
     try {
-      // Create POS order (channel=SHOP, isDraft=false, session.id as idempotency key)
+      // Create POS order — channel=SHOP, isDraft=false, session.id as idempotency key.
+      // isDraft:false makes the server auto-confirm (commit stock) as part of this same call, so
+      // there's no separate confirm step here — calling confirm again afterward would either be a
+      // wasted round trip (now a no-op server-side) or, before that fix, silently double-committed
+      // stock on every sale.
       const order = await createOrder(
         {
           channel: 'SHOP',
@@ -107,15 +115,33 @@ export default function PaymentModal({ session, onClose, onSuccess }: Props) {
         session.id  // Idempotency-Key header
       );
 
-      // Commit stock
-      await confirmOrder(order.id);
-
       // Record the payment
-      const paidAmt = method === 'CASH' ? Math.min(cashReceived, total) : total;
       await addOrderPayment(order.id, { method, amount: paidAmt });
 
-      onSuccess(method, paidAmt, total, order.id, order.orderNo);
+      onSuccess(method, paidAmt, total, order.id, order.orderNo, false);
     } catch (err: unknown) {
+      if (isNetworkError(err)) {
+        // No network at all — queue the sale locally instead of blocking the cashier. session.id
+        // doubles as the eventual order's Idempotency-Key, so this stays exactly as duplicate-safe
+        // as the online path once it syncs (see lib/posSync.ts).
+        await enqueueOfflineSale({
+          id: session.id,
+          channel: 'SHOP',
+          customerName: session.customerName || 'Walk-in',
+          customerPhone: session.customerPhone || '00000000000',
+          items: session.items.map(i => ({ variantId: i.variantId, qty: i.qty, unitPrice: i.unitPrice })),
+          discountType: session.discountType,
+          discountValue: session.discountValue,
+          note: session.note,
+          method,
+          paidAmount: paidAmt,
+          total,
+          createdAt: Date.now(),
+        });
+        useToastStore.getState().show('Saved offline — will sync when back online', 'success');
+        onSuccess(method, paidAmt, total, session.id, 'Pending Sync', true);
+        return;
+      }
       useToastStore.getState().show(extractErrorMessage(err), 'error');
       setLoading(false);
     }

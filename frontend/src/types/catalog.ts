@@ -252,5 +252,6 @@ export interface ProductSearchResult {
   marketPrice: number | null;
   wholesaleMinQty: number | null; // both null = no wholesale tier
   wholesaleUnitPrice: number | null;
+  categoryId: string;
 }
 

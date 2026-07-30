@@ -1051,7 +1051,8 @@ public class ProductService : IProductService
         avgLandedCost,
         v.Product.MarketPrice,
         v.Product.WholesaleMinQty,
-        v.Product.WholesaleUnitPrice
+        v.Product.WholesaleUnitPrice,
+        v.Product.CategoryId
     );
 
     private static ProductSummaryDto MapSummary(

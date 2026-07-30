@@ -9,6 +9,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useLanguage, type Lang } from "@/i18n/LanguageContext";
 import Avatar from "@/components/ui/Avatar";
+import ConnectivityPill from "@/components/layout/ConnectivityPill";
 import { listOrders } from "@/lib/ordersApi";
 
 interface Props {
@@ -98,6 +99,7 @@ export default function AppHeader({ title, backHref, extraActions }: Props) {
       ) : null}
 
       <div className="ml-auto flex items-center gap-3">
+        <ConnectivityPill />
         {extraActions}
         <button
           onClick={toggleLang}

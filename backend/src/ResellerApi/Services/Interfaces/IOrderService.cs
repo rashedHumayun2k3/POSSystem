@@ -11,7 +11,7 @@ public interface IOrderService
     Task<OrderDetailDto> UpdateAsync(Guid id, UpdateOrderRequest request, Guid userId);
     Task<OrderDetailDto> ReviseAsync(Guid id, ReviseOrderRequest request, Guid userId);
     Task DeleteAsync(Guid id, string reason, Guid userId);
-    Task<OrderDetailDto> ConfirmAsync(Guid id, Guid userId);
+    Task<OrderDetailDto> ConfirmAsync(Guid id, Guid userId, bool allowOversell = false);
     Task<OrderDetailDto> PackAsync(Guid id, Guid userId);
     Task<OrderDetailDto> HandoverAsync(Guid id, HandoverOrderRequest request, Guid userId);
     Task<OrderDetailDto> DeliverAsync(Guid id, Guid userId);

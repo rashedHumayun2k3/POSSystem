@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import SlidePanel from '@/components/ui/SlidePanel';
-import { searchCustomers } from '@/lib/ordersApi';
+import { searchCustomersWithFallback } from '@/lib/localDb/catalogCache';
 import type { CustomerSummary } from '@/types/orders';
 import { useLanguage } from '@/i18n/LanguageContext';
 
@@ -30,7 +30,7 @@ export default function CustomerPickerSlide({ open, onClose, onSelect, selectedP
 
   const { data: results = [], isFetching } = useQuery({
     queryKey: ['customer-search', search],
-    queryFn: () => searchCustomers(search),
+    queryFn: () => searchCustomersWithFallback(search),
     enabled: open && search.trim().length >= 1,
     staleTime: 3000,
   });

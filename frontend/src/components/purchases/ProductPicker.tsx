@@ -5,12 +5,14 @@ import { useQuery } from '@tanstack/react-query';
 import SlidePanel from '@/components/ui/SlidePanel';
 import BarcodeScanner from '@/components/ui/BarcodeScanner';
 import {
-  searchProducts,
-  browseProducts,
   getRecentlyPurchasedProducts,
-  getActiveCategories,
-  lookupBarcode,
 } from '@/lib/catalogApi';
+import {
+  searchProductsWithFallback,
+  browseProductsWithFallback,
+  lookupBarcodeWithFallback,
+  getActiveCategoriesWithFallback,
+} from '@/lib/localDb/catalogCache';
 import type { ProductSearchResult } from '@/types/catalog';
 import { useLanguage } from '@/i18n/LanguageContext';
 import { QrCodeIcon, ChevronLeftIcon, ChevronRightIcon } from '@heroicons/react/24/outline';
@@ -78,7 +80,7 @@ export default function ProductPicker({
     setShowScanner(false);
     setScanError('');
     try {
-      const result = await lookupBarcode(barcode);
+      const result = await lookupBarcodeWithFallback(barcode);
       onSelect(result);
     } catch {
       setScanError(`${t('pickers.barcodeNotFound')}: ${barcode}`);
@@ -88,7 +90,7 @@ export default function ProductPicker({
   // Active categories (only those with ≥1 active product)
   const { data: categories = [] } = useQuery({
     queryKey: ['active-categories'],
-    queryFn: getActiveCategories,
+    queryFn: getActiveCategoriesWithFallback,
     enabled: open,
     staleTime: 60_000,
   });
@@ -136,7 +138,7 @@ export default function ProductPicker({
   // Browse products in selected category (A-Z)
   const { data: browseResults = [], isLoading: browseLoading } = useQuery({
     queryKey: ['browse-products', selectedCategoryId, onlyInStock],
-    queryFn: () => browseProducts(selectedCategoryId ?? undefined, onlyInStock),
+    queryFn: () => browseProductsWithFallback(selectedCategoryId ?? undefined, onlyInStock),
     enabled: open && !search && selectedCategoryId !== null,
   });
 
@@ -149,7 +151,7 @@ export default function ProductPicker({
     debounceRef.current = setTimeout(async () => {
       setSearchLoading(true);
       try {
-        const data = await searchProducts(q, onlyInStock);
+        const data = await searchProductsWithFallback(q, onlyInStock);
         setSearchResults(data);
       } catch {
         setSearchError(t('pickers.searchFailed'));

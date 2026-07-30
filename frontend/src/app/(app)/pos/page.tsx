@@ -11,6 +11,9 @@ import CartPanel from '@/components/pos/CartPanel';
 import PaymentModal from '@/components/pos/PaymentModal';
 import ShiftModal from '@/components/pos/ShiftModal';
 import SaleSuccessModal from '@/components/pos/SaleSuccessModal';
+import SyncPill from '@/components/pos/SyncPill';
+import { useOfflineSyncEngine } from '@/lib/posSync';
+import { useCatalogAutoSync } from '@/lib/localDb/catalogCache';
 import { Toast } from '@/components/ui/Toast';
 import { browseProducts } from '@/lib/catalogApi';
 import type { PosCartItem } from '@/types/pos';
@@ -53,9 +56,15 @@ interface CompletedSale {
   paidAmount: number;
   method: PayMethod;
   customerPhone?: string;
+  // true = queued locally, not actually on the server yet (orderId/orderNo are placeholders) —
+  // see PaymentModal.handleConfirm and lib/posSync.ts.
+  offline: boolean;
 }
 
 export default function PosPage() {
+  useOfflineSyncEngine();
+  useCatalogAutoSync();
+
   const user = useAuthStore(s => s.user);
   const cashierName = user?.name ?? user?.phone ?? 'Cashier';
   const businesses = useAuthStore(s => s.businesses);
@@ -248,7 +257,8 @@ export default function PosPage() {
     paidAmount: number,
     orderTotal: number,
     orderId: string,
-    orderNo: string
+    orderNo: string,
+    offline: boolean
   ) => {
     setPaymentOpen(false);
 
@@ -279,6 +289,7 @@ export default function PosPage() {
       paidAmount,
       method,
       customerPhone: finishedSession?.customerPhone || undefined,
+      offline,
     });
   };
 
@@ -292,6 +303,8 @@ export default function PosPage() {
       {shift && (
         <div className="print:hidden shrink-0 bg-indigo-700 text-white px-3 py-1.5 flex items-center justify-between text-xs select-none">
           <div className="flex items-center gap-2 min-w-0">
+            <SyncPill />
+            <span className="opacity-40 shrink-0">|</span>
             <svg className="w-3.5 h-3.5 opacity-70 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
@@ -380,6 +393,7 @@ export default function PosPage() {
           paidAmount={completedSale.paidAmount}
           method={completedSale.method}
           customerPhone={completedSale.customerPhone}
+          offline={completedSale.offline}
           businessName={businessName}
           onNewSale={() => setCompletedSale(null)}
         />

@@ -152,7 +152,8 @@ public record ProductSearchResultDto(
     decimal AvgLandedCost,
     decimal? MarketPrice,
     decimal? WholesaleMinQty,
-    decimal? WholesaleUnitPrice
+    decimal? WholesaleUnitPrice,
+    Guid CategoryId
 );
 
 // Variant field values (marked IsVariant) plus the opening quantity + cost owned for that

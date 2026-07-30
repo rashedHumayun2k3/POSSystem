@@ -21,6 +21,10 @@ public class CustomersController : ControllerBase
     public async Task<IActionResult> List([FromQuery] string? q)
         => Ok(await _svc.ListAsync(q));
 
+    [HttpGet("cache")]
+    public async Task<IActionResult> Cache()
+        => Ok(await _svc.ListForCacheAsync());
+
     [HttpGet("by-phone")]
     public async Task<IActionResult> ByPhone([FromQuery] string phone)
     {
