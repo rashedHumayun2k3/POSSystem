@@ -149,6 +149,7 @@ public class OrderService : IOrderService
             .Include(o => o.Items).ThenInclude(i => i.Variant).ThenInclude(v => v.Product)
             .Include(o => o.Payments)
             .Include(o => o.HandlingUser)
+            .Include(o => o.Courier)
             .AsQueryable();
 
         if (!string.IsNullOrWhiteSpace(orderStatus))
@@ -192,6 +193,7 @@ public class OrderService : IOrderService
             .Include(o => o.Items).ThenInclude(i => i.Variant).ThenInclude(v => v.Product)
             .Include(o => o.Payments)
             .Include(o => o.HandlingUser)
+            .Include(o => o.Courier)
             .Where(o => o.Items.Any(i => i.Variant != null && i.Variant.ProductId == productId))
             .OrderByDescending(o => o.BusinessDate).ThenByDescending(o => o.CreatedAt)
             .Take(200)
@@ -1100,7 +1102,8 @@ public class OrderService : IOrderService
             o.OrderStatus, o.PaymentStatus, o.FulfillmentStatus,
             o.IsDraft, total, Math.Max(0, total - paid),
             o.TrackingNo, o.HandlingUser?.Name, o.CreatedAt, o.BusinessDate,
-            items, profit, o.IsRevised
+            items, profit, o.IsRevised,
+            o.CourierId, o.Courier?.Name, o.HandedOverAt
         );
     }
 

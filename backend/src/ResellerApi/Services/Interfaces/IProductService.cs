@@ -29,4 +29,6 @@ public interface IProductService
     Task<VariantDto> UpdateVariantAsync(Guid productId, Guid variantId, UpdateVariantRequest request, Guid userId);
     Task<VariantDto> RecordExistingStockCostAsync(Guid variantId, RecordExistingStockCostRequest request, Guid userId);
     Task<List<VariantDto>> SplitStockIntoVariantsAsync(Guid productId, SplitStockIntoVariantsRequest request, Guid userId);
+
+    Task<List<ProductSalesPointDto>> GetSalesTimeseriesAsync(Guid productId, string range);
 }

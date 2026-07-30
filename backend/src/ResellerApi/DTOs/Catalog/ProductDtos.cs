@@ -2,6 +2,19 @@ namespace ResellerApi.DTOs.Catalog;
 
 public record ActiveCategoryDto(Guid Id, string Name);
 
+// One bucket in the product sales graph — PeriodStart is a day (7d/30d ranges) or the start of a
+// 7-day bucket (90d/180d ranges); see ProductService.GetSalesTimeseriesAsync. Revenue/Profit are
+// attributed to just this product's line items (Qty*UnitPrice / Qty*(UnitPrice-UnitCostSnapshot)),
+// not the whole order — delivery charges/discounts are order-level, not product-level, so they're
+// deliberately left out of a per-product number. Owner/Manager only (GTR-10: STAFF never sees
+// cost/profit), enforced by the [Authorize(Roles = Roles.OwnerOrManager)] on the endpoint itself.
+// Channels is this same bucket split out per Order.Channel (FACEBOOK/WHATSAPP/SHOP/...) — the
+// chart uses the bucket-level Qty/Revenue/Profit as-is, the sales history table flattens
+// Channels into one row per bucket+channel instead, since a single day can span several channels.
+public record ProductSalesPointDto(DateOnly PeriodStart, decimal Qty, decimal Revenue, decimal Profit, List<ProductSalesChannelDto> Channels);
+
+public record ProductSalesChannelDto(string Channel, decimal Qty, decimal Revenue, decimal Profit);
+
 // ── Variant DTOs ─────────────────────────────────────────────────────────────
 
 public record VariantDto(

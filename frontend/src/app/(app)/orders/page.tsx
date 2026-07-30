@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { listOrders } from "@/lib/ordersApi";
@@ -12,7 +13,13 @@ import { itemsSummaryText } from "@/lib/orderListHelpers";
 // "New Orders" first and selected by default — for online-orders-only staff, that's the queue
 // that matters most (see conversation: literal label beats status jargon like "Open" for
 // less tech-savvy staff, and it's what they should land on without extra taps).
+// "PENDING" is a virtual tab (not a real FulfillmentStatus) — merges UNFULFILLED + PACKED +
+// IN_TRANSIT client-side, matching exactly what the Dashboard's "Pending deliveries" count
+// measures (ReportService.GetHomeSummaryAsync), so tapping that tile lands on a list that
+// actually totals the number shown instead of a subset of it.
+const PENDING_STATUSES = ["UNFULFILLED", "PACKED", "IN_TRANSIT"];
 const FULFILLMENT_TABS: Array<{ key: string; labelKey: string }> = [
+  { key: "PENDING", labelKey: "dashboard.pendingDeliveries" },
   { key: "UNFULFILLED", labelKey: "orders.newOrders" },
   { key: "PACKED", labelKey: "orders.packed" },
   { key: "IN_TRANSIT", labelKey: "orders.inTransit" },
@@ -31,9 +38,30 @@ const CHANNEL_ICONS: Record<string, string> = {
   OTHER: "•",
 };
 
+function orderGroupDateLabel(businessDate: string, t: (key: string) => string): string {
+  const d = new Date(businessDate);
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  if (d.toDateString() === today.toDateString()) return t("orders.today");
+  if (d.toDateString() === yesterday.toDateString()) return t("orders.yesterday");
+  return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+}
+
 export default function OrdersPage() {
+  return (
+    <Suspense fallback={null}>
+      <OrdersPageInner />
+    </Suspense>
+  );
+}
+
+function OrdersPageInner() {
   const { t } = useLanguage();
-  const [activeTab, setActiveTab] = useState("UNFULFILLED");
+  const searchParams = useSearchParams();
+  // Lazy init so a deep-link like /orders?tab=PENDING (from the Dashboard tile) lands directly on
+  // that tab instead of always opening on the UNFULFILLED default and requiring an extra tap.
+  const [activeTab, setActiveTab] = useState(() => searchParams.get("tab") || "UNFULFILLED");
   const [search, setSearch] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
@@ -50,22 +78,42 @@ export default function OrdersPage() {
   // the Products list page).
   const { data: orders = [], isLoading } = useQuery({
     queryKey: ["orders", activeTab, search, fromDate, toDate, currentBranchId],
-    queryFn: () =>
-      listOrders({
-        fulfillmentStatus: activeTab || undefined,
+    queryFn: async () => {
+      const base = {
         q: search || undefined,
         from: fromDate || undefined,
         // Backend does CreatedAt <= to, so a bare date would cut off that day's later orders.
         to: toDate ? `${toDate}T23:59:59` : undefined,
-      }),
+      };
+      if (activeTab !== "PENDING") {
+        return listOrders({ ...base, fulfillmentStatus: activeTab || undefined });
+      }
+      // Virtual "Pending" tab — one call per underlying status (the API only filters on a single
+      // exact FulfillmentStatus), merged and re-sorted newest-first client-side since 3 separately
+      // top-N-sorted lists don't come back interleaved correctly.
+      const perStatus = await Promise.all(
+        PENDING_STATUSES.map((status) => listOrders({ ...base, fulfillmentStatus: status }))
+      );
+      return perStatus.flat().sort((a, b) =>
+        a.businessDate !== b.businessDate
+          ? (a.businessDate < b.businessDate ? 1 : -1)
+          : new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+    },
     staleTime: 15_000,
   });
 
-  // Flat, newest-first — no date grouping here (that's Sales Record's job for daily revenue
-  // totals). Orders is a "what needs my attention right now" queue; grouping by day just adds a
-  // tap-to-expand step in front of the one thing staff actually came here to see. The list
-  // endpoint already sorts BusinessDate/CreatedAt desc, so no client-side re-sort is needed.
+  // Grouped by BusinessDate, newest first — sections are always fully expanded (no
+  // tap-to-collapse), so grouping only adds a visual date label, not an extra step in front of
+  // what staff actually came here to see. The list endpoint already sorts BusinessDate/CreatedAt
+  // desc, so groups come out newest-first for free without a client-side re-sort.
   const visibleOrders = orders.filter((o) => o.channel !== "SHOP" && o.channel !== "HAWKER");
+  const orderGroups: Array<{ businessDate: string; orders: typeof visibleOrders }> = [];
+  for (const order of visibleOrders) {
+    const last = orderGroups[orderGroups.length - 1];
+    if (last && last.businessDate === order.businessDate) last.orders.push(order);
+    else orderGroups.push({ businessDate: order.businessDate, orders: [order] });
+  }
 
   return (
     <div className="flex flex-col h-full">
@@ -141,9 +189,13 @@ export default function OrdersPage() {
         {!isLoading && visibleOrders.length === 0 && (
           <div className="text-center py-12 text-gray-400 text-sm">{t("common.noData")}</div>
         )}
-        {!isLoading && visibleOrders.length > 0 && (
-          <div className="rounded-xl border border-gray-100 overflow-hidden divide-y divide-gray-100 bg-white">
-            {visibleOrders.map((order) => {
+        {!isLoading && orderGroups.map((group) => (
+          <div key={group.businessDate}>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide px-1 mb-1.5">
+              {orderGroupDateLabel(group.businessDate, t)}
+            </p>
+            <div className="space-y-2">
+            {group.orders.map((order) => {
               // Not-yet-packed orders (draft awaiting confirmation, or confirmed but unpacked):
               // FulfillmentStatus/PaymentStatus/due-amount are always the same three values for
               // every order in this state (UNFULFILLED/UNPAID/full amount due) — not information,
@@ -155,11 +207,11 @@ export default function OrdersPage() {
               <Link
                 key={order.id}
                 href={`/orders/${order.id}`}
-                className="block p-3 active:bg-gray-50"
+                className="block p-3 rounded-xl border border-gray-300 bg-gray-100 active:bg-gray-200"
               >
                 <div className="flex items-center gap-2 mb-1">
                   <span className="text-xs text-gray-400 font-mono">{order.orderNo}</span>
-                  <span className="text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded font-mono">
+                  <span className="text-xs bg-white text-gray-600 px-1.5 py-0.5 rounded font-mono">
                     {CHANNEL_ICONS[order.channel] ?? order.channel}
                   </span>
                   {order.isDraft && (
@@ -223,8 +275,9 @@ export default function OrdersPage() {
               </Link>
               );
             })}
+            </div>
           </div>
-        )}
+        ))}
       </div>
     </div>
   );

@@ -17,6 +17,7 @@ import type {
   MarketplaceDetailTemplateLabel,
   ProductImage,
   SplitStockIntoVariantsPayload,
+  ProductSalesPoint,
 } from '@/types/catalog';
 
 // ── Categories ────────────────────────────────────────────────────────────────
@@ -152,6 +153,16 @@ export const lookupBarcode = async (barcode: string): Promise<ProductSearchResul
 
 export const getProduct = async (id: string): Promise<ProductDetail> => {
   const { data } = await api.get(`/products/${id}`);
+  return data;
+};
+
+export type SalesTimeseriesRange = '7d' | '30d' | '90d' | '180d';
+
+export const getProductSalesTimeseries = async (
+  id: string,
+  range: SalesTimeseriesRange
+): Promise<ProductSalesPoint[]> => {
+  const { data } = await api.get(`/products/${id}/sales-timeseries`, { params: { range } });
   return data;
 };
 
@@ -294,6 +305,10 @@ export const createPriceSlot = async (variantId: string, payload: CreateSlotPayl
 
 export const activatePriceSlot = async (variantId: string, slotId: string): Promise<void> => {
   await api.post(`/products/variants/${variantId}/slots/${slotId}/activate`);
+};
+
+export const deletePriceSlot = async (variantId: string, slotId: string): Promise<void> => {
+  await api.delete(`/products/variants/${variantId}/slots/${slotId}`);
 };
 
 export const getPriceSlotHistory = async (variantId: string): Promise<PriceActivationLog[]> => {
