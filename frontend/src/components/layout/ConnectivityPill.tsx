@@ -15,12 +15,7 @@ export default function ConnectivityPill() {
   const { t } = useLanguage();
 
   if (isOnline && pending === 0) {
-    return (
-      <span className="inline-flex items-center gap-1 shrink-0 text-[11px] font-medium text-emerald-600">
-        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-        {t("connectivity.online")}
-      </span>
-    );
+    return <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" title={t("connectivity.online")} />;
   }
 
   if (!isOnline) {

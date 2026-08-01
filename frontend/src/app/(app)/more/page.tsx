@@ -9,14 +9,12 @@ import {
   Cog6ToothIcon,
   ScaleIcon,
   UserGroupIcon,
-  ArrowRightOnRectangleIcon,
   TagIcon,
   ArchiveBoxIcon,
   RectangleStackIcon,
   QuestionMarkCircleIcon,
   ChatBubbleLeftRightIcon,
 } from "@heroicons/react/24/outline";
-import { useLogout } from "@/hooks/useAuth";
 import { useLanguage } from "@/i18n/LanguageContext";
 
 export default function MorePage() {
@@ -24,7 +22,6 @@ export default function MorePage() {
   const isOwner    = role === "OWNER";
   const isManager  = role === "MANAGER";
   const isWarehouse = role === "WAREHOUSE";
-  const logout = useLogout();
   const { t } = useLanguage();
 
   const ownerLinks = [
@@ -93,16 +90,6 @@ export default function MorePage() {
           </svg>
         </Link>
       ))}
-
-      <button
-        onClick={logout}
-        className="flex items-center gap-4 w-full bg-white rounded-2xl px-4 h-16 border border-gray-100 text-red-500 active:scale-[0.98] transition mt-4"
-      >
-        <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-red-50">
-          <ArrowRightOnRectangleIcon className="w-5 h-5 text-red-500" />
-        </div>
-        <p className="text-sm font-semibold">{t("more.logout")}</p>
-      </button>
     </div>
   );
 }

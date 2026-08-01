@@ -7,6 +7,8 @@ import { updateMyPhoto } from "@/lib/usersApi";
 import Avatar from "@/components/ui/Avatar";
 import { useLanguage } from "@/i18n/LanguageContext";
 import { useToastStore } from "@/store/toastStore";
+import { useLogout } from "@/hooks/useAuth";
+import { ArrowRightOnRectangleIcon } from "@heroicons/react/24/outline";
 
 const ROLE_KEY: Record<string, string> = {
   OWNER: "settings.roleOwner",
@@ -21,6 +23,7 @@ export default function ProfilePage() {
   const updateUserPhoto = useAuthStore((s) => s.updateUserPhoto);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  const logout = useLogout();
 
   if (!user) return null;
 
@@ -89,6 +92,16 @@ export default function ProfilePage() {
           <p className="text-sm font-medium text-gray-900 mt-0.5">{t(ROLE_KEY[user.role] ?? "settings.roleStaff")}</p>
         </div>
       </div>
+
+      <button
+        onClick={logout}
+        className="flex items-center gap-4 w-full bg-white rounded-2xl px-4 h-16 border border-gray-100 text-red-500 active:scale-[0.98] transition"
+      >
+        <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-red-50">
+          <ArrowRightOnRectangleIcon className="w-5 h-5 text-red-500" />
+        </div>
+        <p className="text-sm font-semibold">{t("more.logout")}</p>
+      </button>
     </div>
   );
 }

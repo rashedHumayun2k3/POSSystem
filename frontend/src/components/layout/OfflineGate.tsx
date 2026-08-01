@@ -2,14 +2,27 @@
 
 import Link from "next/link";
 import { useLanguage } from "@/i18n/LanguageContext";
+import { useAuthStore } from "@/store/authStore";
 
 // Replaces a page's content entirely when offline and that route isn't one of the few that work
-// without a server round-trip (POS itself, and the static More menu/FAQ). Without this, pages that
-// fetch data with no isError handling just render nothing once their query fails — a blank screen
-// with no explanation. This makes the same situation explicit everywhere at once, from one place,
-// rather than patching every page's query individually.
+// without a server round-trip (POS/Night Entry, and the static More menu/FAQ). Without this, pages
+// that fetch data with no isError handling just render nothing once their query fails — a blank
+// screen with no explanation. This makes the same situation explicit everywhere at once, from one
+// place, rather than patching every page's query individually.
 export default function OfflineGate() {
   const { t } = useLanguage();
+
+  // Same isHawker check BottomTabBar uses to decide the "New Sale" tab's destination — Night
+  // Entry fully replaces POS for hawker-channel businesses, so linking to /pos for them isn't just
+  // the wrong label, it's a route they never otherwise visit, which likely hasn't been
+  // client-side-navigated to yet and so fails to load while offline.
+  const businesses = useAuthStore((s) => s.businesses);
+  const currentBusinessId = useAuthStore((s) => s.currentBusinessId);
+  const isHawker = businesses
+    .find((b) => b.id === currentBusinessId)
+    ?.salesChannels?.includes("HAWKER") ?? false;
+  const sellHref = isHawker ? "/hawker/night-entry" : "/pos";
+  const sellLabel = isHawker ? t("hawker.nightEntryTab") : t("connectivity.goToPos");
 
   return (
     <div className="flex flex-col items-center justify-center text-center px-6 py-20 gap-4 min-h-[60vh]">
@@ -24,10 +37,10 @@ export default function OfflineGate() {
         <p className="text-sm text-gray-500 mt-1.5 max-w-xs mx-auto">{t("connectivity.gateBody")}</p>
       </div>
       <Link
-        href="/pos"
+        href={sellHref}
         className="mt-2 inline-flex items-center justify-center px-5 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold active:scale-[0.98] transition"
       >
-        {t("connectivity.goToPos")}
+        {sellLabel}
       </Link>
     </div>
   );
