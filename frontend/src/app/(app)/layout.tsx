@@ -86,16 +86,20 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   // everything else in AppHeader) shows twice, stacked.
   const hasOwnHeader = /^\/orders\/[^/]+$/.test(pathname);
   const isOfflineSafe = OFFLINE_SAFE_PATHS.includes(pathname);
+  const showOfflineGate = !isOnline && !isOfflineSafe;
 
   return (
     <div className="max-w-[768px] mx-auto min-h-full bg-white shadow-sm flex flex-col min-h-screen">
       <div className="print:hidden">
         {!hasOwnHeader && <AppHeader title={title} backHref={backHref} />}
-        <ConnectivityBanner />
+        {/* OfflineGate below already explains "no internet" full-screen on this same trigger —
+            showing the banner too would just repeat it. The banner only earns its keep on pages
+            where OfflineGate doesn't render (POS, Night Entry, More, FAQ). */}
+        {!showOfflineGate && <ConnectivityBanner />}
         <TrialBanner />
       </div>
       <main className="flex-1 overflow-y-auto pb-20 print:pb-0 print:overflow-visible">
-        {!isOnline && !isOfflineSafe ? <OfflineGate /> : children}
+        {showOfflineGate ? <OfflineGate /> : children}
       </main>
       <div className="print:hidden">
         <BottomTabBar />
