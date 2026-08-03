@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
@@ -20,6 +20,8 @@ import { resolveMediaUrl } from '@/lib/media';
 import ImageUploadField from '@/components/ui/ImageUploadField';
 import ImageLightbox from '@/components/ui/ImageLightbox';
 import SlidePanel from '@/components/ui/SlidePanel';
+import CustomSelect from '@/components/ui/CustomSelect';
+import { usePressAndHold } from '@/hooks/usePressAndHold';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 
 type TabKey = 'info' | 'variants' | 'prices' | 'stock' | 'orders' | 'sales' | 'reviews' | 'marketplace';
@@ -1023,15 +1025,17 @@ function InfoTab({
               </div>
               <div>
                 <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">&nbsp;</label>
-                <select
-                  className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm"
-                  value={editForm.warrantyDurationUnit}
-                  onChange={(e) => setEditForm((f) => ({ ...f, warrantyDurationUnit: e.target.value }))}
-                >
-                  <option value="DAYS">{t('products.warrantyDays')}</option>
-                  <option value="MONTHS">{t('products.warrantyMonths')}</option>
-                  <option value="YEARS">{t('products.warrantyYears')}</option>
-                </select>
+                <div className="mt-1">
+                  <CustomSelect
+                    value={editForm.warrantyDurationUnit}
+                    onChange={(v) => setEditForm((f) => ({ ...f, warrantyDurationUnit: v }))}
+                    options={[
+                      { value: 'DAYS', label: t('products.warrantyDays') },
+                      { value: 'MONTHS', label: t('products.warrantyMonths') },
+                      { value: 'YEARS', label: t('products.warrantyYears') },
+                    ]}
+                  />
+                </div>
               </div>
             </div>
 
@@ -1523,16 +1527,13 @@ function VariantFieldInput({
 
   if (field.fieldType === 'DROPDOWN') {
     return (
-      <select
-        className="w-full border border-indigo-200 rounded-lg px-3 py-2 text-sm bg-white"
+      <CustomSelect
+        triggerClassName="w-full flex items-center justify-between gap-2 border border-indigo-200 rounded-lg px-3 py-2 text-sm bg-white text-left"
         value={value}
-        onChange={(e) => onChange(e.target.value)}
-      >
-        <option value="">{field.name}…</option>
-        {options.map((o) => (
-          <option key={o} value={o}>{o}</option>
-        ))}
-      </select>
+        onChange={onChange}
+        placeholder={`${field.name}…`}
+        options={options.map((o) => ({ value: o, label: o }))}
+      />
     );
   }
 
@@ -2184,6 +2185,7 @@ function PricesTab({
             <input
               type="number"
               step="0.01"
+              min="0"
               className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-white"
               placeholder={t('products.costPerUnitPlaceholder')}
               value={costPerUnit}
@@ -2807,6 +2809,18 @@ const REASON_KEYS: Record<StockAdjustReason, string> = {
   OTHER: 'products.stockReasonOther',
 };
 
+// Three distinct actions instead of one ambiguous field — the backend's "SET" mode replaces stock
+// with an absolute total (delta = value - currentStock internally), which reads as "increment by
+// this much" if the UI doesn't make that explicit. ADD/DEDUCT send DELTA mode (a true relative
+// change); only RECOUNT uses SET, since a physical recount genuinely is "here's the new total."
+type StockActionMode = 'ADD' | 'DEDUCT' | 'RECOUNT';
+
+const REASONS_BY_MODE: Record<StockActionMode, StockAdjustReason[]> = {
+  ADD: ['EXISTING_STOCK', 'FOUND_EXTRA', 'OTHER'],
+  DEDUCT: ['DAMAGED', 'LOST_THEFT', 'OTHER'],
+  RECOUNT: ['RECOUNT'],
+};
+
 function StockAdjustmentTab({
   variants,
   selectedVariant,
@@ -2818,13 +2832,20 @@ function StockAdjustmentTab({
   onSelectVariant: (v: Variant) => void;
   t: (key: string, params?: Record<string, string | number>) => string;
 }) {
-  const [showForm, setShowForm] = useState(false);
+  const [actionMode, setActionMode] = useState<StockActionMode | null>(null);
   const [reason, setReason] = useState<StockAdjustReason>('EXISTING_STOCK');
-  const [value, setValue] = useState('');
+  const [value, setValue] = useState('1');
   const [note, setNote] = useState('');
+  const [variantDropdownOpen, setVariantDropdownOpen] = useState(false);
   const qc = useQueryClient();
 
-  const active = selectedVariant ?? variants[0];
+  // Looked up fresh from the current `variants` prop by id, rather than trusting
+  // `selectedVariant` directly — that's a snapshot object captured once in the parent when a
+  // variant was picked, so it goes stale the moment the product query refetches (e.g. right after
+  // this very form submits) even though `variants` itself is already up to date by then. This is
+  // what was making "Current Stock" not update until a full page reload.
+  const active = variants.find((v) => v.id === selectedVariant?.id) ?? variants[0];
+  const currentStock = active?.stock ?? 0;
 
   const { data: history = [] } = useQuery<StockAdjustment[]>({
     queryKey: ['stockAdjustments', active?.id],
@@ -2832,55 +2853,114 @@ function StockAdjustmentTab({
     enabled: !!active,
   });
 
+  const closeForm = () => {
+    setActionMode(null);
+    setValue('1');
+    setNote('');
+  };
+
+  const openAction = (mode: StockActionMode) => {
+    setActionMode(mode);
+    setReason(REASONS_BY_MODE[mode][0]);
+    setValue(mode === 'RECOUNT' ? String(currentStock) : '1');
+    setNote('');
+  };
+
+  const enteredValue = parseFloat(value) || 0;
+  // What the stock will actually become after this submits — shown live so the number being
+  // typed is never ambiguous, regardless of which of the three actions is open.
+  const projectedStock =
+    actionMode === 'DEDUCT' ? Math.max(0, currentStock - enteredValue)
+    : actionMode === 'RECOUNT' ? enteredValue
+    : currentStock + enteredValue;
+
   const adjustMutation = useMutation({
-    mutationFn: () =>
-      adjustStock(active.id, {
-        reason,
-        mode: 'SET',
-        value: parseFloat(value),
-        note: note.trim() || null,
-      }),
+    mutationFn: () => {
+      if (actionMode === 'RECOUNT') {
+        return adjustStock(active.id, { reason: 'RECOUNT', mode: 'SET', value: enteredValue, note: note.trim() || null });
+      }
+      const signedValue = actionMode === 'DEDUCT' ? -enteredValue : enteredValue;
+      return adjustStock(active.id, { reason, mode: 'DELTA', value: signedValue, note: note.trim() || null });
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['stockAdjustments', active.id] });
       qc.invalidateQueries({ queryKey: ['product'] });
-      setValue('');
-      setNote('');
-      setShowForm(false);
+      closeForm();
     },
     onError: (err: unknown) => toastError(err, t('products.stockFailed')),
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!value || isNaN(parseFloat(value))) { useToastStore.getState().show(t('products.stockValueRequired'), 'error'); return; }
+  const handleSubmit = () => {
+    if (!value || isNaN(parseFloat(value)) || enteredValue < (actionMode === 'RECOUNT' ? 0 : 1)) {
+      useToastStore.getState().show(t('products.stockValueRequired'), 'error');
+      return;
+    }
     adjustMutation.mutate();
   };
+
+  const minValue = actionMode === 'RECOUNT' ? 0 : 1;
+  const decreaseValue = useCallback(() => {
+    setValue((v) => String(Math.max(minValue, (parseFloat(v) || 0) - 1)));
+  }, [minValue]);
+  const increaseValue = useCallback(() => {
+    setValue((v) => String((parseFloat(v) || 0) + 1));
+  }, []);
+  const valueDecreaseHold = usePressAndHold(decreaseValue);
+  const valueIncreaseHold = usePressAndHold(increaseValue);
 
   const fmtDateTime = (d: string) =>
     new Date(d).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 
   return (
     <div className="space-y-4">
-      {/* Variant selector */}
-      {variants.length > 1 && (
-        <div>
-          <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">{t('products.selectVariant')}</label>
-          <select
-            className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm"
-            value={active?.id ?? ''}
-            onChange={(e) => {
-              const v = variants.find((x) => x.id === e.target.value);
-              if (v) onSelectVariant(v);
-            }}
-          >
-            {variants.map((v) => {
-              const vals = JSON.parse(v.variantValuesJson || '{}') as Record<string, string>;
-              const label = Object.values(vals).filter(Boolean).join(' / ') || 'Default';
-              return <option key={v.id} value={v.id}>{label}</option>;
-            })}
-          </select>
-        </div>
-      )}
+      {/* Variant selector — a custom dropdown rather than a native <select>. A native select's
+          open popup is rendered by the browser/OS itself, not by this component's CSS, and was
+          overflowing past the screen edge on mobile; this version is fully width-constrained by
+          its own relative wrapper, the same fix already applied to the hawker/night-entry
+          category picker. */}
+      {variants.length > 1 && (() => {
+        const activeLabel = (() => {
+          const vals = JSON.parse(active?.variantValuesJson || '{}') as Record<string, string>;
+          return Object.values(vals).filter(Boolean).join(' / ') || 'Default';
+        })();
+        return (
+          <div className="relative">
+            <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">{t('products.selectVariant')}</label>
+            <button
+              type="button"
+              onClick={() => setVariantDropdownOpen((v) => !v)}
+              className="mt-1 w-full flex items-center justify-between gap-2 border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-white text-left"
+            >
+              <span className="truncate">{activeLabel}</span>
+              <svg className={`w-4 h-4 text-gray-400 shrink-0 transition-transform ${variantDropdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+
+            {variantDropdownOpen && (
+              <>
+                <button type="button" onClick={() => setVariantDropdownOpen(false)} className="fixed inset-0 z-40" aria-label="Close" />
+                <div className="absolute z-50 top-full left-0 mt-1 w-full max-h-64 overflow-y-auto bg-white border border-gray-200 rounded-xl shadow-lg py-1">
+                  {variants.map((v) => {
+                    const vals = JSON.parse(v.variantValuesJson || '{}') as Record<string, string>;
+                    const label = Object.values(vals).filter(Boolean).join(' / ') || 'Default';
+                    return (
+                      <button
+                        key={v.id}
+                        type="button"
+                        onClick={() => { onSelectVariant(v); setVariantDropdownOpen(false); }}
+                        className={`w-full text-left px-3 py-2.5 text-sm truncate ${v.id === active?.id ? 'bg-indigo-50 text-indigo-700 font-medium' : 'text-gray-700 active:bg-gray-50'}`}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Current stock */}
       <div className="bg-indigo-50 rounded-xl p-4">
@@ -2895,73 +2975,111 @@ function StockAdjustmentTab({
         )}
       </div>
 
-      {/* Adjust Stock trigger — form stays collapsed until asked for, so the tab doesn't open
-          straight into a data-entry form nobody asked to fill out yet. */}
-      {!showForm && (
+      {/* Three explicit actions instead of one ambiguous "change stock" field — Add/Deduct send a
+          true relative change (DELTA mode), Recount replaces the total outright (SET mode), and
+          each opens the same slide panel pre-configured for that action so there's never a
+          question of which direction a typed number moves the stock in. */}
+      <div className="grid grid-cols-3 gap-2">
         <button
           type="button"
-          onClick={() => setShowForm(true)}
-          className="w-full py-2.5 rounded-xl text-sm font-medium bg-indigo-50 text-indigo-600 border border-indigo-200"
+          onClick={() => openAction('ADD')}
+          className="py-2.5 rounded-xl text-sm font-medium bg-emerald-50 text-emerald-700 border border-emerald-200"
         >
-          + {t('products.stockAdjustButton')}
+          + {t('products.stockAddButton')}
         </button>
-      )}
+        <button
+          type="button"
+          onClick={() => openAction('DEDUCT')}
+          className="py-2.5 rounded-xl text-sm font-medium bg-red-50 text-red-600 border border-red-200"
+        >
+          − {t('products.stockDeductButton')}
+        </button>
+        <button
+          type="button"
+          onClick={() => openAction('RECOUNT')}
+          className="py-2.5 rounded-xl text-sm font-medium bg-indigo-50 text-indigo-600 border border-indigo-200"
+        >
+          {t('products.stockRecountButton')}
+        </button>
+      </div>
 
-      {/* Adjustment form */}
-      {showForm && (
-      <form onSubmit={handleSubmit} className="bg-white border border-gray-100 rounded-xl p-4 space-y-3">
-        <div>
-          <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">
-            {t('products.stockChangeLabel')}
-          </label>
-          <input
-            type="number"
-            step="0.01"
-            className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm"
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-          />
-        </div>
-
-        <div>
-          <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">{t('products.stockReasonLabel')}</label>
-          <select
-            className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm"
-            value={reason}
-            onChange={(e) => setReason(e.target.value as StockAdjustReason)}
-          >
-            {(Object.keys(REASON_KEYS) as StockAdjustReason[]).map((r) => (
-              <option key={r} value={r}>{t(REASON_KEYS[r])}</option>
-            ))}
-          </select>
-        </div>
-
-        <textarea
-          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none"
-          rows={2}
-          placeholder={t('products.stockNotePlaceholder')}
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-        />
-
-        <div className="flex gap-2">
+      <SlidePanel
+        open={actionMode !== null}
+        onClose={closeForm}
+        title={
+          actionMode === 'ADD' ? t('products.stockAddTitle')
+          : actionMode === 'DEDUCT' ? t('products.stockDeductTitle')
+          : t('products.stockRecountTitle')
+        }
+        footer={
           <button
             type="button"
-            onClick={() => { setShowForm(false); setValue(''); setNote(''); }}
-            className="flex-1 py-2.5 rounded-lg text-sm font-medium bg-gray-100 text-gray-600"
-          >
-            {t('common.cancel')}
-          </button>
-          <button
-            type="submit"
+            onClick={handleSubmit}
             disabled={adjustMutation.isPending}
-            className="flex-1 py-2.5 rounded-lg text-sm font-medium bg-indigo-600 text-white disabled:opacity-60"
+            className="w-full py-3 rounded-xl text-sm font-semibold text-white bg-indigo-600 disabled:opacity-50"
           >
             {adjustMutation.isPending ? t('products.stockSubmitting') : t('products.stockSubmit')}
           </button>
+        }
+      >
+        <div className="px-4 py-4 space-y-3">
+          <div>
+            <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+              {actionMode === 'RECOUNT' ? t('products.stockRecountQtyLabel') : t('products.stockQtyLabel')}
+            </label>
+            <div className="mt-1 flex items-center justify-center gap-3">
+              <button
+                type="button"
+                {...valueDecreaseHold}
+                className="shrink-0 w-16 h-16 rounded-full bg-orange-700 text-3xl font-semibold text-white active:bg-orange-800 select-none"
+              >
+                −
+              </button>
+              <input
+                type="number"
+                step="0.01"
+                min={minValue}
+                inputMode="decimal"
+                className="flex-1 min-w-0 text-2xl font-bold text-center border border-gray-200 rounded-2xl py-3 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+              />
+              <button
+                type="button"
+                {...valueIncreaseHold}
+                className="shrink-0 w-16 h-16 rounded-full bg-orange-700 text-3xl font-semibold text-white active:bg-orange-800 select-none"
+              >
+                +
+              </button>
+            </div>
+            <p className="text-xs text-gray-500 text-center mt-2">
+              {t('products.stockWillBeLabel')}: <span className="font-semibold text-gray-900">{projectedStock}</span>
+              <span className="text-gray-400"> ({t('products.stockCurrentLabel')}: {currentStock})</span>
+            </p>
+          </div>
+
+          {actionMode !== 'RECOUNT' && (
+            <div>
+              <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">{t('products.stockReasonLabel')}</label>
+              <div className="mt-1">
+                <CustomSelect
+                  value={reason}
+                  onChange={(v) => setReason(v as StockAdjustReason)}
+                  options={(actionMode ? REASONS_BY_MODE[actionMode] : []).map((r) => ({ value: r, label: t(REASON_KEYS[r]) }))}
+                />
+              </div>
+            </div>
+          )}
+
+          <textarea
+            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none"
+            rows={2}
+            placeholder={t('products.stockNotePlaceholder')}
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+          />
         </div>
-      </form>
-      )}
+      </SlidePanel>
 
       {/* Adjustment history */}
       <div>

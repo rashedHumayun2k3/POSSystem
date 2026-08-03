@@ -60,7 +60,8 @@ public class ProductsController : ControllerBase
     public async Task<IActionResult> Search([FromQuery] string? q, [FromQuery] bool onlyInStock = false)
     {
         if (string.IsNullOrWhiteSpace(q)) return Ok(Array.Empty<object>());
-        return Ok(await _svc.SearchAsync(q, onlyInStock));
+        var results = await _svc.SearchAsync(q, onlyInStock);
+        return Ok(_user.CanSeeCosts ? results : results.Select(StripCost));
     }
 
     [HttpGet("barcode/{barcode}")]
@@ -68,16 +69,36 @@ public class ProductsController : ControllerBase
     {
         var result = await _svc.GetByBarcodeAsync(barcode);
         if (result == null) return NotFound(new { message = $"No product found for barcode: {barcode}" });
-        return Ok(result);
+        return Ok(_user.CanSeeCosts ? result : StripCost(result));
     }
 
     [HttpGet("browse")]
     public async Task<IActionResult> Browse([FromQuery] Guid? categoryId, [FromQuery] bool onlyInStock = false)
-        => Ok(await _svc.BrowseAsync(categoryId, onlyInStock));
+    {
+        var results = await _svc.BrowseAsync(categoryId, onlyInStock);
+        return Ok(_user.CanSeeCosts ? results : results.Select(StripCost));
+    }
+
+    // AvgLandedCost deliberately omitted — STAFF must never see cost/profit (rule GTR-10). Search,
+    // barcode lookup, and browse all share this shape since STAFF reaches all three (POS, order
+    // creation, barcode scanning).
+    private static object StripCost(ProductSearchResultDto p) => new
+    {
+        p.Id, p.VariantId, p.Name, p.Sku, p.Barcode, p.EffectivePrice, p.ImageUrl, p.UnitCode,
+        p.VariantValuesJson, p.Stock, p.MarketPrice, p.WholesaleMinQty, p.WholesaleUnitPrice, p.CategoryId
+    };
 
     [HttpGet("today-sold")]
     public async Task<IActionResult> TodaySold()
         => Ok(await _svc.GetTodaySoldQtyByVariantAsync());
+
+    // Owner/Manager only — profit is cost-sensitive (GTR-10). Kept as its own endpoint rather than
+    // folded into TodaySold, which STAFF can also call — adding Profit there would leak cost data
+    // to STAFF in the raw response even though the UI hides it.
+    [HttpGet("today-hawker-profit")]
+    [Authorize(Roles = Roles.OwnerOrManager)]
+    public async Task<IActionResult> TodayHawkerProfit()
+        => Ok(await _svc.GetTodayHawkerProfitAsync());
 
     [HttpGet("recently-purchased")]
     public async Task<IActionResult> RecentlyPurchased([FromQuery] int limit = 5)

@@ -4,6 +4,7 @@ export interface ShopContextDto {
   shopName?: string;
   logoUrl?: string;
   bannerUrl?: string;
+  websiteUrl?: string;
 }
 
 export interface CategoryDto {

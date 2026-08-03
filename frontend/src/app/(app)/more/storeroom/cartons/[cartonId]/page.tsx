@@ -240,19 +240,19 @@ export default function CartonDetailPage() {
                   <div className="grid grid-cols-3 gap-2">
                     <div>
                       <p className="text-[10px] text-gray-400 mb-1">{t('storeroom.qty')}</p>
-                      <input type="number" inputMode="decimal" value={row.qty}
+                      <input type="number" inputMode="decimal" min="0" value={row.qty}
                         onChange={e => setOpenItems(prev => prev.map((r, i) => i === idx ? { ...r, qty: e.target.value } : r))}
                         className="w-full h-9 px-2 rounded-lg border border-gray-200 text-sm text-center" />
                     </div>
                     <div>
                       <p className="text-[10px] text-gray-400 mb-1">{t('storeroom.damaged')}</p>
-                      <input type="number" inputMode="decimal" value={row.damaged}
+                      <input type="number" inputMode="decimal" min="0" value={row.damaged}
                         onChange={e => setOpenItems(prev => prev.map((r, i) => i === idx ? { ...r, damaged: e.target.value } : r))}
                         className="w-full h-9 px-2 rounded-lg border border-gray-200 text-sm text-center" />
                     </div>
                     <div>
                       <p className="text-[10px] text-gray-400 mb-1">{t('storeroom.priceLabel')}</p>
-                      <input type="number" inputMode="decimal" value={row.price}
+                      <input type="number" inputMode="decimal" min="0" value={row.price}
                         onChange={e => setOpenItems(prev => prev.map((r, i) => i === idx ? { ...r, price: e.target.value } : r))}
                         className="w-full h-9 px-2 rounded-lg border border-gray-200 text-sm text-center" />
                     </div>
@@ -284,7 +284,7 @@ export default function CartonDetailPage() {
             </div>
             <div>
               <p className="text-xs text-gray-500 mb-1.5">{t('storeroom.qtyLabeledNow')}</p>
-              <input type="number" inputMode="decimal" value={labelQty} onChange={e => setLabelQty(e.target.value)}
+              <input type="number" inputMode="decimal" min="0" value={labelQty} onChange={e => setLabelQty(e.target.value)}
                 className="w-full h-12 px-3 rounded-xl border border-gray-200 text-lg text-center font-bold focus:outline-none focus:ring-2 focus:ring-indigo-400" />
             </div>
             <div className="flex gap-2">

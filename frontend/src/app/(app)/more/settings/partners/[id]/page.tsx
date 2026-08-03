@@ -457,7 +457,7 @@ export default function PartnerDetailPage() {
       >
         <div className="px-4 py-4 space-y-3">
           <input placeholder={t("partners.injectionAmount")} value={injectionForm.amountTaka}
-            type="number" inputMode="decimal"
+            type="number" inputMode="decimal" min="0"
             onChange={(e) => setInjectionForm((f) => ({ ...f, amountTaka: e.target.value }))}
             className="w-full h-11 px-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
           <input placeholder={t("partners.injectionLockInMonths")} value={injectionForm.lockInMonths}

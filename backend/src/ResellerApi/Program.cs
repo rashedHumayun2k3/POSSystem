@@ -76,6 +76,7 @@ builder.Services.AddScoped<IPopularityService, PopularityService>();
 builder.Services.AddScoped<IStockAdjustmentService, StockAdjustmentService>();
 // Phase 3 — Inventory / Purchases
 builder.Services.AddScoped<IPurchaseTripService, PurchaseTripService>();
+builder.Services.AddScoped<ISupplierReturnService, SupplierReturnService>();
 builder.Services.AddScoped<ISuppliersService, SuppliersService>();
 // Carton module
 builder.Services.AddScoped<ICartonService, CartonService>();
@@ -1207,6 +1208,24 @@ static async Task SeedAsync(AppDbContext db)
             new ResellerApi.Entities.ExpenseCategory { BusinessId = biz.Id, Code = "CUSTOM_PRODUCT_DAMAGE_LOSS", Name = "Product Damage Loss",  IsDefault = false, IsActive = true },
             // ── Catch-all ────────────────────────────────────────────────
             new ResellerApi.Entities.ExpenseCategory { BusinessId = biz.Id, Code = "CUSTOM_MISC",                Name = "Miscellaneous",        IsDefault = true,  IsActive = true }
+        );
+        await db.SaveChangesAsync();
+    }
+
+    // ── Seed courier catalog ──────────────────────────────────────────────
+    // Platform-wide (not per-business) — the well-known Bangladeshi couriers a shop can pick
+    // from in Settings > Couriers. Rates here are just starting defaults; each business gets its
+    // own independent copy (with its own rates) the moment it picks one.
+    if (!await db.CourierCatalogs.AnyAsync())
+    {
+        db.CourierCatalogs.AddRange(
+            new ResellerApi.Entities.CourierCatalog { Name = "Steadfast Courier",  InsideDhakaCharge = 60,  OutsideDhakaCharge = 120, ReturnCharge = 60,  CodFeeValue = 1 },
+            new ResellerApi.Entities.CourierCatalog { Name = "eCourier",           InsideDhakaCharge = 60,  OutsideDhakaCharge = 120, ReturnCharge = 60,  CodFeeValue = 1 },
+            new ResellerApi.Entities.CourierCatalog { Name = "Paperfly",           InsideDhakaCharge = 60,  OutsideDhakaCharge = 130, ReturnCharge = 60,  CodFeeValue = 1 },
+            new ResellerApi.Entities.CourierCatalog { Name = "Pathao Courier",     InsideDhakaCharge = 70,  OutsideDhakaCharge = 130, ReturnCharge = 60,  CodFeeValue = 1 },
+            new ResellerApi.Entities.CourierCatalog { Name = "RedX",               InsideDhakaCharge = 60,  OutsideDhakaCharge = 120, ReturnCharge = 60,  CodFeeValue = 1 },
+            new ResellerApi.Entities.CourierCatalog { Name = "SA Paribahan",       InsideDhakaCharge = 70,  OutsideDhakaCharge = 140, ReturnCharge = 70,  CodFeeValue = 1 },
+            new ResellerApi.Entities.CourierCatalog { Name = "Sundarban Courier",  InsideDhakaCharge = 70,  OutsideDhakaCharge = 140, ReturnCharge = 70,  CodFeeValue = 1 }
         );
         await db.SaveChangesAsync();
     }

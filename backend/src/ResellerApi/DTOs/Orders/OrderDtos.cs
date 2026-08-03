@@ -273,7 +273,8 @@ public record OrderListDto(
     bool IsRevised,
     Guid? CourierId,
     string? CourierName,
-    DateTime? HandedOverAt // used to compute "days in transit" on the delivery board
+    DateTime? HandedOverAt, // used to compute "days in transit" on the delivery board
+    string? CustomerAddress // frozen snapshot on the order itself, not a live Customer lookup (GTR-8)
 );
 
 public record OrderDetailDto(

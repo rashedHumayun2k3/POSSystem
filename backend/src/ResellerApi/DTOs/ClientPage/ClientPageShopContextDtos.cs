@@ -5,5 +5,6 @@ public record ClientPageShopContextDto(
     Guid? BusinessId,
     string? ShopName,
     string? LogoUrl,
-    string? BannerUrl
+    string? BannerUrl,
+    string? WebsiteUrl
 );

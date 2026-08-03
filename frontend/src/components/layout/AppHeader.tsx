@@ -10,6 +10,7 @@ import Image from "next/image";
 import { useLanguage, type Lang } from "@/i18n/LanguageContext";
 import Avatar from "@/components/ui/Avatar";
 import ConnectivityPill from "@/components/layout/ConnectivityPill";
+import CustomSelect from "@/components/ui/CustomSelect";
 import { listOrders } from "@/lib/ordersApi";
 
 interface Props {
@@ -67,15 +68,14 @@ export default function AppHeader({ title, backHref, extraActions }: Props) {
 
       {/* Business switcher — owner only */}
       {isOwner() && businesses.length > 1 ? (
-        <select
-          value={currentBusinessId ?? ""}
-          onChange={(e) => handleBusinessSwitch(e.target.value)}
-          className="text-sm font-semibold text-gray-900 border-none outline-none bg-transparent"
-        >
-          {businesses.map((b) => (
-            <option key={b.id} value={b.id}>{b.name}</option>
-          ))}
-        </select>
+        <div className="flex-1 min-w-0">
+          <CustomSelect
+            triggerClassName="w-full flex items-center gap-1 text-sm font-semibold text-gray-900 text-left"
+            value={currentBusinessId ?? ""}
+            onChange={handleBusinessSwitch}
+            options={businesses.map((b) => ({ value: b.id, label: b.name }))}
+          />
+        </div>
       ) : (
         <Link href="/dashboard" className="flex items-center flex-1">
           <Image src="/logo.png" alt="LavLokshan" width={152} height={152} className="rounded-md object-contain" />
@@ -86,16 +86,18 @@ export default function AppHeader({ title, backHref, extraActions }: Props) {
           OWNER/MANAGER get an "All Branches" option, others only see it once they have more
           than one assigned branch. */}
       {(canSeeCosts() ? branches.length > 0 : branches.length > 1) ? (
-        <select
-          value={currentBranchId ?? ""}
-          onChange={(e) => handleBranchChange(e.target.value)}
-          className="text-xs font-medium text-indigo-600 border-none outline-none bg-indigo-50 rounded-lg px-2 py-1 max-w-[110px]"
-        >
-          {canSeeCosts() && <option value="">All Branches</option>}
-          {branches.map((b) => (
-            <option key={b.id} value={b.id}>{b.name}</option>
-          ))}
-        </select>
+        <div className="max-w-[110px] shrink-0">
+          <CustomSelect
+            triggerClassName="w-full flex items-center gap-1 text-xs font-medium text-indigo-600 bg-indigo-50 rounded-lg px-2 py-1 text-left"
+            value={currentBranchId ?? ""}
+            onChange={handleBranchChange}
+            placeholder="All Branches"
+            options={[
+              ...(canSeeCosts() ? [{ value: "", label: "All Branches" }] : []),
+              ...branches.map((b) => ({ value: b.id, label: b.name })),
+            ]}
+          />
+        </div>
       ) : null}
 
       <div className="ml-auto flex items-center gap-3">

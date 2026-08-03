@@ -28,6 +28,7 @@ export function ShopContextProvider({ children }: { children: React.ReactNode })
     shopName: data?.shopName,
     logoUrl: data?.logoUrl,
     bannerUrl: data?.bannerUrl,
+    websiteUrl: data?.websiteUrl,
     shopSlug,
     isLoading,
   };

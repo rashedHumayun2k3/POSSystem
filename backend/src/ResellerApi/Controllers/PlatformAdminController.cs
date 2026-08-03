@@ -126,4 +126,54 @@ public class PlatformAdminController : ControllerBase
             return BadRequest(new { message = ex.Message });
         }
     }
+
+    // ── Courier catalog ──────────────────────────────────────────────────────
+
+    [HttpGet("courier-catalog")]
+    [Authorize(Roles = Roles.PlatformAdmin)]
+    public async Task<IActionResult> GetCourierCatalog()
+        => Ok(await _admin.GetCourierCatalogAsync());
+
+    [HttpPost("courier-catalog")]
+    [Authorize(Roles = Roles.PlatformAdmin)]
+    public async Task<IActionResult> CreateCourierCatalog([FromBody] CourierCatalogRequest request)
+        => Ok(await _admin.CreateCourierCatalogAsync(request));
+
+    [HttpPut("courier-catalog/{id:guid}")]
+    [Authorize(Roles = Roles.PlatformAdmin)]
+    public async Task<IActionResult> UpdateCourierCatalog(Guid id, [FromBody] CourierCatalogRequest request)
+    {
+        try
+        {
+            await _admin.UpdateCourierCatalogAsync(id, request);
+            return NoContent();
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new { message = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(new { message = ex.Message });
+        }
+    }
+
+    [HttpDelete("courier-catalog/{id:guid}")]
+    [Authorize(Roles = Roles.PlatformAdmin)]
+    public async Task<IActionResult> DeleteCourierCatalog(Guid id)
+    {
+        try
+        {
+            await _admin.DeleteCourierCatalogAsync(id);
+            return NoContent();
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new { message = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(new { message = ex.Message });
+        }
+    }
 }

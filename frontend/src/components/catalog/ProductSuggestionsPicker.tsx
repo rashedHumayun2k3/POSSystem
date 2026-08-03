@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import SlidePanel from "@/components/ui/SlidePanel";
+import CustomSelect from "@/components/ui/CustomSelect";
 import { listSuggestedProducts, addSuggestedProducts } from "@/lib/catalogTemplatesApi";
 import { listBranches } from "@/lib/branchesApi";
 import type { CategoryWithSuggestions } from "@/types/catalogTemplates";
@@ -153,16 +154,16 @@ export default function ProductSuggestionsPicker({ categories }: Props) {
           </p>
 
           {branches.length > 1 && (
-            <select
+            <CustomSelect
+              triggerClassName="w-full h-11 flex items-center justify-between gap-2 px-3 rounded-xl border border-gray-200 text-sm bg-white text-left"
               value={branchId}
-              onChange={(e) => setBranchId(e.target.value)}
-              className="w-full h-11 px-3 rounded-xl border border-gray-200 text-sm bg-white"
-            >
-              <option value="">{t("catalogTemplates.selectBranch")}</option>
-              {branches.map((b) => (
-                <option key={b.id} value={b.id}>{b.name}</option>
-              ))}
-            </select>
+              onChange={setBranchId}
+              placeholder={t("catalogTemplates.selectBranch")}
+              options={[
+                { value: '', label: t("catalogTemplates.selectBranch") },
+                ...branches.map((b) => ({ value: b.id, label: b.name })),
+              ]}
+            />
           )}
 
           {/* Suggested products */}
@@ -237,6 +238,7 @@ export default function ProductSuggestionsPicker({ categories }: Props) {
                       <div className="grid grid-cols-3 gap-2 mt-2">
                         <input
                           type="number"
+                          min="0"
                           placeholder={t("catalogTemplates.qty")}
                           value={selected[name].qty}
                           onChange={(e) => updateField(name, "qty", e.target.value)}
@@ -245,6 +247,7 @@ export default function ProductSuggestionsPicker({ categories }: Props) {
                         />
                         <input
                           type="number"
+                          min="0"
                           placeholder={t("catalogTemplates.unitCost")}
                           value={selected[name].unitCost}
                           onChange={(e) => updateField(name, "unitCost", e.target.value)}
@@ -253,6 +256,7 @@ export default function ProductSuggestionsPicker({ categories }: Props) {
                         />
                         <input
                           type="number"
+                          min="0"
                           placeholder={t("catalogTemplates.sellingPriceOptional")}
                           value={selected[name].price}
                           onChange={(e) => updateField(name, "price", e.target.value)}

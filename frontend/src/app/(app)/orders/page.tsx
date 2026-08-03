@@ -35,6 +35,7 @@ const CHANNEL_ICONS: Record<string, string> = {
   PHONE: "📞",
   SHOP: "🏪",
   HAWKER: "🏪", // Night-entry sales display as Shop (দোকান) — same walk-in-style channel visually
+  MYWEBSITE: "🌐",
   OTHER: "•",
 };
 
@@ -229,6 +230,12 @@ function OrdersPageInner() {
                   </span>
                 </div>
 
+                <p className="text-xs text-gray-500 mb-1 truncate">
+                  {t("orders.customerLabel")}: {order.customerName}
+                  {order.customerPhone && ` | ${order.customerPhone}`}
+                  {order.customerAddress && ` | ${order.customerAddress}`}
+                </p>
+
                 {/* Non-new orders (Packed/In Transit/Delivered/...) don't get the full per-item
                     breakdown below (status badges are the useful info at that stage), so this is
                     the only place product info shows for them — keep it there. New orders get
@@ -240,9 +247,23 @@ function OrdersPageInner() {
                 )}
 
                 {isNew ? (
-                  <div className="space-y-0.5">
+                  <div className="space-y-1">
                     {order.items.map((item, idx) => {
+                      const outOfStock = item.availableStock <= 0;
                       const short = item.availableStock < item.qty;
+                      if (outOfStock) {
+                        return (
+                          <div key={idx} className="bg-yellow-100 border border-yellow-300 rounded-lg px-2 py-1">
+                            <p className="text-xs truncate">
+                              <span className="text-gray-800 font-medium">{item.productName}</span>{" "}
+                              <span className="text-yellow-800 font-semibold">({t("orders.qty")}: {item.qty})</span>
+                            </p>
+                            <p className="text-[11px] text-yellow-800 font-semibold mt-0.5">
+                              {t("orders.outOfStockWarning")}
+                            </p>
+                          </div>
+                        );
+                      }
                       return (
                         <p key={idx} className="text-xs truncate">
                           <span className="text-gray-700 font-medium">{item.productName}</span>{" "}

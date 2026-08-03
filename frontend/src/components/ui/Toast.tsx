@@ -9,11 +9,11 @@ interface ToastProps {
 }
 
 export function Toast({ message, type = "success", onClose }: ToastProps) {
+  // Errors get longer on screen than success (more important, worth actually reading) but still
+  // auto-dismiss — a message that never goes away on its own just becomes something to ignore.
   useEffect(() => {
-    if (type === "success") {
-      const t = setTimeout(onClose, 2000);
-      return () => clearTimeout(t);
-    }
+    const t = setTimeout(onClose, type === "success" ? 2000 : 5000);
+    return () => clearTimeout(t);
   }, [type, onClose]);
 
   return (

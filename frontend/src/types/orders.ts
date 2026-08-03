@@ -56,7 +56,7 @@ export interface DeliveryManDto {
 }
 
 // ── Order ─────────────────────────────────────────────────────────────────────
-export type OrderChannel = 'FACEBOOK' | 'WHATSAPP' | 'INSTAGRAM' | 'PHONE' | 'SHOP' | 'HAWKER' | 'OTHER';
+export type OrderChannel = 'FACEBOOK' | 'WHATSAPP' | 'INSTAGRAM' | 'PHONE' | 'SHOP' | 'HAWKER' | 'MYWEBSITE' | 'OTHER';
 export type OrderStatus = 'OPEN' | 'COMPLETED' | 'CANCELLED';
 export type PaymentStatus = 'UNPAID' | 'PARTIALLY_PAID' | 'PAID' | 'REFUNDED';
 export type FulfillmentStatus = 'UNFULFILLED' | 'PACKED' | 'IN_TRANSIT' | 'DELIVERED' | 'RETURNED';
@@ -116,6 +116,7 @@ export interface OrderListItem {
   channel: OrderChannel;
   customerName: string;
   customerPhone: string;
+  customerAddress?: string;
   orderStatus: OrderStatus;
   paymentStatus: PaymentStatus;
   fulfillmentStatus: FulfillmentStatus;

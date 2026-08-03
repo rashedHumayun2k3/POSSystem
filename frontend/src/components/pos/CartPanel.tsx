@@ -16,6 +16,7 @@ import BarcodeScanner from '@/components/ui/BarcodeScanner';
 import ProductPicker from '@/components/purchases/ProductPicker';
 import CustomerPickerSlide, { type SelectedCustomer } from '@/components/orders/CustomerPickerSlide';
 import CustomerSummaryRow from '@/components/orders/CustomerSummaryRow';
+import CustomSelect from '@/components/ui/CustomSelect';
 
 interface Props {
   session: PosSession;
@@ -306,19 +307,17 @@ export default function CartPanel({ session, onPayClick }: Props) {
           </button>
         ) : (
           <div className="flex gap-2 items-center">
-            <select
-              value={session.discountType ?? 'PERCENT'}
-              onChange={e =>
-                handleDiscountChange(
-                  e.target.value as 'PERCENT' | 'FIXED',
-                  session.discountValue
-                )
-              }
-              className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none bg-white"
-            >
-              <option value="PERCENT">% Off</option>
-              <option value="FIXED">৳ Off</option>
-            </select>
+            <div className="w-24">
+              <CustomSelect
+                triggerClassName="w-full flex items-center gap-1 text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-left"
+                value={session.discountType ?? 'PERCENT'}
+                onChange={(v) => handleDiscountChange(v as 'PERCENT' | 'FIXED', session.discountValue)}
+                options={[
+                  { value: 'PERCENT', label: '% Off' },
+                  { value: 'FIXED', label: '৳ Off' },
+                ]}
+              />
+            </div>
             <input
               type="number"
               min="0"

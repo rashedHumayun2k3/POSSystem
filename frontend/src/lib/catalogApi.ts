@@ -142,9 +142,22 @@ export const searchProducts = async (q: string, onlyInStock = false): Promise<Pr
   return data.map(mapSearchResult);
 };
 
-// variantId -> qty sold today (business-scoped), for the hawker night-entry tile grid.
-export const getTodaySoldByVariant = async (): Promise<Record<string, number>> => {
-  const { data } = await api.get<Record<string, number>>('/products/today-sold');
+// variantId -> { qty, amount } sold today (business-scoped), for the hawker night-entry tile grid.
+// amount is the actual revenue at whatever price each sale went through at, not qty * today's
+// listed price — Night Entry lets a seller override the price per sale.
+export interface TodaySold {
+  qty: number;
+  amount: number;
+}
+
+export const getTodaySoldByVariant = async (): Promise<Record<string, TodaySold>> => {
+  const { data } = await api.get<Record<string, TodaySold>>('/products/today-sold');
+  return data;
+};
+
+// Owner/Manager only (403 for anyone else) — today's Night Entry (HAWKER channel) profit total.
+export const getTodayHawkerProfit = async (): Promise<number> => {
+  const { data } = await api.get<number>('/products/today-hawker-profit');
   return data;
 };
 

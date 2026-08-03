@@ -139,7 +139,7 @@ export default function TripCartonsPage() {
 
             {addMode === 'auto' ? (
               <div className="space-y-3">
-                <input type="number" inputMode="numeric" placeholder={t('storeroom.countPlaceholder')}
+                <input type="number" inputMode="numeric" min="0" placeholder={t('storeroom.countPlaceholder')}
                   value={count} onChange={e => setCount(e.target.value)}
                   className="w-full h-11 px-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" />
                 <p className="text-xs text-gray-400">{t('storeroom.autoNoteHint')}</p>

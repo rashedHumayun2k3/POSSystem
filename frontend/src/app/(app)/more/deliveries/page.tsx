@@ -604,6 +604,7 @@ function RecordRemittanceSlide({
             <input
               type="number"
               inputMode="decimal"
+              min="0"
               className="w-full border border-gray-200 rounded-xl pl-7 pr-3 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-400"
               placeholder={computedAmount.toString()}
               value={customAmount}

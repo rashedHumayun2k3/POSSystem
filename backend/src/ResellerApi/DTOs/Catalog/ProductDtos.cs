@@ -156,6 +156,11 @@ public record ProductSearchResultDto(
     Guid CategoryId
 );
 
+// Hawker night-entry tile grid — qty AND revenue sold today for a variant, at the actual price
+// each sale went through at (not today's listed price, which Night Entry lets a seller override
+// per sale).
+public record TodaySoldDto(decimal Qty, decimal Amount);
+
 // Variant field values (marked IsVariant) plus the opening quantity + cost owned for that
 // specific combination — every variant a product starts with gets its own cost basis up front.
 public record VariantCombinationInput(

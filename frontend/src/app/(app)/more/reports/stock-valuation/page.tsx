@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { getStockValuationReport } from '@/lib/reportsApi';
 import { getCategories } from '@/lib/catalogApi';
 import { useMounted } from '@/hooks/useMounted';
+import CustomSelect from '@/components/ui/CustomSelect';
 import type { StockValuationPreset, StockValuationCategory, StockValuationProduct } from '@/types/reports';
 
 const PRESETS: { key: StockValuationPreset; label: string }[] = [
@@ -140,16 +141,17 @@ export default function StockValuationReportPage() {
           </div>
         )}
 
-        <select
-          value={categoryId}
-          onChange={(e) => setCategoryId(e.target.value)}
-          className="mt-2 w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs"
-        >
-          <option value="">সব ক্যাটাগরি</option>
-          {categories.map((c) => (
-            <option key={c.id} value={c.id}>{c.name}</option>
-          ))}
-        </select>
+        <div className="mt-2">
+          <CustomSelect
+            triggerClassName="w-full flex items-center justify-between gap-2 border border-gray-200 rounded-lg px-2 py-1.5 text-xs bg-white text-left"
+            value={categoryId}
+            onChange={setCategoryId}
+            options={[
+              { value: '', label: 'সব ক্যাটাগরি' },
+              ...categories.map((c) => ({ value: c.id, label: c.name })),
+            ]}
+          />
+        </div>
 
         {data && (
           <p className="text-[11px] text-gray-400 mt-1.5">

@@ -63,7 +63,7 @@ export default function PrintLabelsPage() {
             <div className="flex items-center gap-4">
               <button onClick={() => setPrintQty(q => Math.max(1, q - 1))}
                 className="w-10 h-10 rounded-full border border-gray-200 text-xl text-gray-600 flex items-center justify-center">−</button>
-              <input type="number" inputMode="numeric" value={printQty}
+              <input type="number" inputMode="numeric" min="1" value={printQty}
                 onChange={e => setPrintQty(Math.max(1, parseInt(e.target.value) || 1))}
                 className="flex-1 h-12 text-center text-xl font-bold rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-400" />
               <button onClick={() => setPrintQty(q => q + 1)}

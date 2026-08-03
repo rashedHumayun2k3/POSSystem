@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { getCategories, createCategory, deleteCategory } from '@/lib/catalogApi';
+import CustomSelect from '@/components/ui/CustomSelect';
 import { useLanguage } from '@/i18n/LanguageContext';
 import { categoryDisplayName } from '@/lib/categoryDisplay';
 import { toastError } from '@/lib/toastError';
@@ -79,28 +80,29 @@ export default function CategoriesPage() {
           />
           <div className="flex gap-2 items-center">
             <label className="text-xs text-indigo-700 shrink-0">{t('categories.defaultUnit')}</label>
-            <select
-              className="flex-1 border border-indigo-200 rounded-lg px-2 py-1.5 text-sm bg-white"
-              value={newUnit}
-              onChange={(e) => setNewUnit(e.target.value)}
-            >
-              {['pcs', 'pair', 'set', 'dozen', 'kg', 'gm', 'liter', 'ml', 'meter', 'box'].map((u) => (
-                <option key={u} value={u}>{u}</option>
-              ))}
-            </select>
+            <div className="flex-1">
+              <CustomSelect
+                triggerClassName="w-full flex items-center justify-between gap-2 border border-indigo-200 rounded-lg px-2 py-1.5 text-sm bg-white text-left"
+                value={newUnit}
+                onChange={setNewUnit}
+                options={['pcs', 'pair', 'set', 'dozen', 'kg', 'gm', 'liter', 'ml', 'meter', 'box'].map((u) => ({ value: u, label: u }))}
+              />
+            </div>
           </div>
           <div className="flex gap-2 items-center">
             <label className="text-xs text-indigo-700 shrink-0">{t('categories.parentCategory')}</label>
-            <select
-              className="flex-1 border border-indigo-200 rounded-lg px-2 py-1.5 text-sm bg-white"
-              value={newParentId}
-              onChange={(e) => setNewParentId(e.target.value)}
-            >
-              <option value="">{t('categories.noneTopLevel')}</option>
-              {categories.filter((c) => !c.parentCategoryId).map((c) => (
-                <option key={c.id} value={c.id}>{categoryDisplayName(c, lang)}</option>
-              ))}
-            </select>
+            <div className="flex-1">
+              <CustomSelect
+                triggerClassName="w-full flex items-center justify-between gap-2 border border-indigo-200 rounded-lg px-2 py-1.5 text-sm bg-white text-left"
+                value={newParentId}
+                onChange={setNewParentId}
+                placeholder={t('categories.noneTopLevel')}
+                options={[
+                  { value: '', label: t('categories.noneTopLevel') },
+                  ...categories.filter((c) => !c.parentCategoryId).map((c) => ({ value: c.id, label: categoryDisplayName(c, lang) })),
+                ]}
+              />
+            </div>
           </div>
           <button
             onClick={() => {

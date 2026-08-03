@@ -185,4 +185,104 @@ public class PlatformAdminService : IPlatformAdminService
 
         return new PlatformAdminStatsDto(totalCompanies, newThisWeek, newThisMonth, trialingCount, activePaidCount, totalRevenue);
     }
+
+    // ── Courier catalog ──────────────────────────────────────────────────────
+
+    public async Task<List<CourierCatalogDto>> GetCourierCatalogAsync()
+    {
+        var inUseIds = (await _db.Couriers.IgnoreQueryFilters()
+            .Where(c => c.DeletedAt == null && c.CourierCatalogId != null)
+            .Select(c => c.CourierCatalogId!.Value)
+            .Distinct()
+            .ToListAsync())
+            .ToHashSet();
+
+        var catalog = await _db.CourierCatalogs.AsNoTracking().OrderBy(c => c.Name).ToListAsync();
+
+        return catalog.Select(c => new CourierCatalogDto(
+            c.Id, c.Name, c.InsideDhakaCharge, c.OutsideDhakaCharge, c.ReturnCharge,
+            c.CodFeeType, c.CodFeeValue, c.TrackingUrlTemplate, c.IsActive,
+            inUseIds.Contains(c.Id)
+        )).ToList();
+    }
+
+    public async Task<CourierCatalogDto> CreateCourierCatalogAsync(CourierCatalogRequest request)
+    {
+        var entry = new CourierCatalog
+        {
+            Name = request.Name.Trim(),
+            InsideDhakaCharge = request.InsideDhakaCharge,
+            OutsideDhakaCharge = request.OutsideDhakaCharge,
+            ReturnCharge = request.ReturnCharge,
+            CodFeeType = request.CodFeeType,
+            CodFeeValue = request.CodFeeValue,
+            TrackingUrlTemplate = request.TrackingUrlTemplate?.Trim(),
+            IsActive = request.IsActive
+        };
+        _db.CourierCatalogs.Add(entry);
+        await _db.SaveChangesAsync();
+
+        // Backfill every existing business with this courier too — businesses have no "add from
+        // catalog" step of their own (see Courier auto-provisioning in AuthService.CompleteSignupAsync
+        // for new businesses); a new active catalog entry needs to reach existing ones the same way.
+        if (entry.IsActive)
+        {
+            var businessIds = await _db.Businesses.Select(b => b.Id).ToListAsync();
+            foreach (var businessId in businessIds)
+            {
+                _db.Couriers.Add(new Courier
+                {
+                    BusinessId = businessId,
+                    CourierCatalogId = entry.Id,
+                    Name = entry.Name,
+                    InsideDhakaCharge = entry.InsideDhakaCharge,
+                    OutsideDhakaCharge = entry.OutsideDhakaCharge,
+                    ReturnCharge = entry.ReturnCharge,
+                    CodFeeType = entry.CodFeeType,
+                    CodFeeValue = entry.CodFeeValue,
+                    TrackingUrlTemplate = entry.TrackingUrlTemplate,
+                    IsActive = true
+                });
+            }
+            await _db.SaveChangesAsync();
+        }
+
+        return new CourierCatalogDto(
+            entry.Id, entry.Name, entry.InsideDhakaCharge, entry.OutsideDhakaCharge, entry.ReturnCharge,
+            entry.CodFeeType, entry.CodFeeValue, entry.TrackingUrlTemplate, entry.IsActive, false
+        );
+    }
+
+    public async Task UpdateCourierCatalogAsync(Guid id, CourierCatalogRequest request)
+    {
+        var entry = await _db.CourierCatalogs.FirstOrDefaultAsync(c => c.Id == id)
+            ?? throw new KeyNotFoundException("Courier catalog entry not found.");
+        if (await IsCourierCatalogInUseAsync(id))
+            throw new InvalidOperationException("This courier is already in use by a business — it cannot be edited.");
+
+        entry.Name = request.Name.Trim();
+        entry.InsideDhakaCharge = request.InsideDhakaCharge;
+        entry.OutsideDhakaCharge = request.OutsideDhakaCharge;
+        entry.ReturnCharge = request.ReturnCharge;
+        entry.CodFeeType = request.CodFeeType;
+        entry.CodFeeValue = request.CodFeeValue;
+        entry.TrackingUrlTemplate = request.TrackingUrlTemplate?.Trim();
+        entry.IsActive = request.IsActive;
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task DeleteCourierCatalogAsync(Guid id)
+    {
+        var entry = await _db.CourierCatalogs.FirstOrDefaultAsync(c => c.Id == id)
+            ?? throw new KeyNotFoundException("Courier catalog entry not found.");
+        if (await IsCourierCatalogInUseAsync(id))
+            throw new InvalidOperationException("This courier is already in use by a business — it cannot be deleted.");
+
+        entry.DeletedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+    }
+
+    private async Task<bool> IsCourierCatalogInUseAsync(Guid catalogId) =>
+        await _db.Couriers.IgnoreQueryFilters()
+            .AnyAsync(c => c.CourierCatalogId == catalogId && c.DeletedAt == null);
 }

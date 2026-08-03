@@ -34,3 +34,27 @@ public record PlatformAdminStatsDto(
     int ActivePaidCount,
     decimal TotalRevenueCollected
 );
+
+public record CourierCatalogDto(
+    Guid Id,
+    string Name,
+    decimal InsideDhakaCharge,
+    decimal OutsideDhakaCharge,
+    decimal ReturnCharge,
+    string CodFeeType,
+    decimal CodFeeValue,
+    string? TrackingUrlTemplate,
+    bool IsActive,
+    bool InUse // true if any business currently has a Courier row copied from this entry
+);
+
+public record CourierCatalogRequest(
+    string Name,
+    decimal InsideDhakaCharge,
+    decimal OutsideDhakaCharge,
+    decimal ReturnCharge,
+    string CodFeeType,
+    decimal CodFeeValue,
+    string? TrackingUrlTemplate,
+    bool IsActive
+);

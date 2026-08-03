@@ -9,6 +9,7 @@ import { useAuthStore } from '@/store/authStore';
 import type { ProductSummary } from '@/types/catalog';
 import { useLanguage } from '@/i18n/LanguageContext';
 import { resolveMediaUrl } from '@/lib/media';
+import CustomSelect from '@/components/ui/CustomSelect';
 
 export default function ProductsPage() {
   const canSeeCosts = useAuthStore((s) => s.canSeeCosts());
@@ -70,27 +71,29 @@ export default function ProductsPage() {
 
         {/* Filters */}
         <div className="flex gap-2 mt-2 overflow-x-auto pb-1 scrollbar-hide">
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="text-xs border border-gray-200 rounded-md px-2 py-1 shrink-0"
-          >
-            <option value="">{t('products.allStatus')}</option>
-            <option value="ACTIVE">{t('products.active')}</option>
-            <option value="ARCHIVED">{t('products.archived')}</option>
-          </select>
-          <select
-            value={categoryFilter}
-            onChange={(e) => setCategoryFilter(e.target.value)}
-            className="text-xs border border-gray-200 rounded-md px-2 py-1 shrink-0"
-          >
-            <option value="">{t('products.allCategories')}</option>
-            {categories.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
+          <div className="shrink-0 w-32">
+            <CustomSelect
+              triggerClassName="w-full flex items-center gap-1 text-xs border border-gray-200 rounded-md px-2 py-1 bg-white text-left"
+              value={statusFilter}
+              onChange={setStatusFilter}
+              options={[
+                { value: '', label: t('products.allStatus') },
+                { value: 'ACTIVE', label: t('products.active') },
+                { value: 'ARCHIVED', label: t('products.archived') },
+              ]}
+            />
+          </div>
+          <div className="shrink-0 w-36">
+            <CustomSelect
+              triggerClassName="w-full flex items-center gap-1 text-xs border border-gray-200 rounded-md px-2 py-1 bg-white text-left"
+              value={categoryFilter}
+              onChange={setCategoryFilter}
+              options={[
+                { value: '', label: t('products.allCategories') },
+                ...categories.map((c) => ({ value: c.id, label: c.name })),
+              ]}
+            />
+          </div>
         </div>
       </div>
 

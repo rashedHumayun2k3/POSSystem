@@ -16,6 +16,13 @@ const STATUS_COLORS: Record<string, string> = {
   CANCELLED: 'bg-red-100 text-red-600',
 };
 
+const RETURN_STATUS_COLORS: Record<string, string> = {
+  DRAFT: 'bg-gray-100 text-gray-500',
+  SUBMITTED: 'bg-amber-100 text-amber-700',
+  RESOLVED: 'bg-green-100 text-green-700',
+  CANCELLED: 'bg-red-100 text-red-600',
+};
+
 const isFiniteNumber = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value);
 
@@ -50,6 +57,13 @@ export default function PurchasesPage() {
     RECEIVING:        t('purchases.statusReceiving'),
     COMPLETED:        t('purchases.statusCompleted'),
     CANCELLED:        t('purchases.statusCancelled'),
+  };
+
+  const RETURN_STATUS_LABELS: Record<string, string> = {
+    DRAFT:     t('supplierReturns.statusDraft'),
+    SUBMITTED: t('supplierReturns.statusSubmitted'),
+    RESOLVED:  t('supplierReturns.statusResolved'),
+    CANCELLED: t('supplierReturns.statusCancelled'),
   };
 
   const { data: trips = [], isLoading } = useQuery({
@@ -116,12 +130,20 @@ export default function PurchasesPage() {
                   </div>
                   <p className="text-[11px] text-gray-400 mt-0.5 truncate">
                     {SOURCE_LABELS[trip.sourceType] ?? trip.sourceType}
-                    {' · '}{trip.itemCount} {trip.itemCount !== 1 ? t('purchases.items') : t('purchases.item')}
-                    {' · '}৳{cost}
-                    {trip.status === 'COMPLETED' && isFiniteNumber(trip.totalQtyDamaged) && trip.totalQtyDamaged > 0 && (
-                      <> · {t('purchases.damaged')} {formatQty(trip.totalQtyDamaged)}</>
-                    )}
                   </p>
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1 text-[11px] text-gray-500">
+                    <span className="flex items-center gap-0.5">📦 {trip.itemCount}</span>
+                    <span className="flex items-center gap-0.5">💰 ৳{cost}</span>
+                    <span className="flex items-center gap-0.5">🚚 {formatQty(trip.totalQtyUsable)}/{formatQty(trip.totalQtyBought)}</span>
+                    {isFiniteNumber(trip.totalQtyDamaged) && trip.totalQtyDamaged > 0 && (
+                      <span className="flex items-center gap-0.5 text-red-500 font-medium">⚠ {formatQty(trip.totalQtyDamaged)}</span>
+                    )}
+                    {trip.supplierReturnStatus && (
+                      <span className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded-full font-medium ${RETURN_STATUS_COLORS[trip.supplierReturnStatus] ?? 'bg-gray-100 text-gray-600'}`}>
+                        ↩️ {RETURN_STATUS_LABELS[trip.supplierReturnStatus] ?? trip.supplierReturnStatus}
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <svg className="w-4 h-4 text-gray-300 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -132,16 +154,20 @@ export default function PurchasesPage() {
         )}
       </div>
 
-      {/* FAB */}
-      <Link
-        href="/more/purchases/new"
-        className="fixed bottom-20 right-4 flex items-center gap-2 bg-indigo-600 text-white px-4 py-3 rounded-full shadow-lg text-sm font-semibold active:scale-95 transition"
-      >
-        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-        </svg>
-        {t('purchases.newOrder')}
-      </Link>
+      {/* FAB — wrapped in a full-width-up-to-768px centered strip so the button anchors to the
+          app shell's own right edge instead of the browser viewport's, which on screens wider
+          than the shell (max-w-[768px]) would otherwise leave it floating outside the layout. */}
+      <div className="fixed bottom-20 inset-x-0 max-w-[768px] mx-auto pointer-events-none">
+        <Link
+          href="/more/purchases/new"
+          className="pointer-events-auto absolute bottom-0 right-4 flex items-center gap-2 bg-indigo-600 text-white px-4 py-3 rounded-full shadow-lg text-sm font-semibold active:scale-95 transition"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+          </svg>
+          {t('purchases.newOrder')}
+        </Link>
+      </div>
     </div>
   );
 }

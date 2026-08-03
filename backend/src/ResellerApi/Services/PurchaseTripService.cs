@@ -71,7 +71,17 @@ public class PurchaseTripService : IPurchaseTripService
             q = q.Where(t => t.Status == status.ToUpper());
 
         var trips = await q.OrderByDescending(t => t.CreatedAt).ToListAsync();
-        return trips.Select(MapSummary).ToList();
+
+        var tripIds = trips.Select(t => t.Id).ToList();
+        var latestReturnStatusByTrip = (await _db.SupplierReturns.AsNoTracking()
+            .Where(r => r.TripId != null && tripIds.Contains(r.TripId.Value))
+            .OrderByDescending(r => r.CreatedAt)
+            .Select(r => new { TripId = r.TripId!.Value, r.Status })
+            .ToListAsync())
+            .GroupBy(r => r.TripId)
+            .ToDictionary(g => g.Key, g => g.First().Status);
+
+        return trips.Select(t => MapSummary(t, latestReturnStatusByTrip.GetValueOrDefault(t.Id))).ToList();
     }
 
     public async Task<PurchaseTripDetailDto> GetAsync(Guid id)
@@ -87,7 +97,15 @@ public class PurchaseTripService : IPurchaseTripService
             .FirstOrDefaultAsync(t => t.Id == id)
             ?? throw new KeyNotFoundException("Purchase trip not found.");
 
-        return MapDetail(trip);
+        var returnsByVariant = (await _db.SupplierReturnItems.AsNoTracking()
+            .Where(sri => sri.DeletedAt == null && sri.Return.TripId == id)
+            .OrderByDescending(sri => sri.CreatedAt)
+            .Select(sri => new VariantReturnInfo(sri.VariantId, sri.ReturnId, sri.Return.SupplierReturnNo, sri.Return.Status, sri.QtyReturned))
+            .ToListAsync())
+            .GroupBy(x => x.VariantId)
+            .ToDictionary(g => g.Key, g => g.First());
+
+        return MapDetail(trip, returnsByVariant);
     }
 
     public async Task<PurchaseTripDetailDto> UpdateHeaderAsync(Guid tripId, UpdateTripHeaderRequest request, Guid userId)
@@ -679,7 +697,7 @@ public class PurchaseTripService : IPurchaseTripService
             throw new ArgumentException($"Must specify at least some quantity for item {item.Id}.");
     }
 
-    private static PurchaseTripSummaryDto MapSummary(PurchaseTrip t)
+    private static PurchaseTripSummaryDto MapSummary(PurchaseTrip t, string? supplierReturnStatus = null)
     {
         var activeItems = t.Items.Where(i => i.DeletedAt == null).ToList();
         return new PurchaseTripSummaryDto(
@@ -690,30 +708,39 @@ public class PurchaseTripService : IPurchaseTripService
             activeItems.Sum(i => i.QtyDamaged),
             activeItems.Sum(i => i.TotalCost),
             t.Costs.Where(c => c.DeletedAt == null && !c.IsPostCompletion).Sum(c => c.Amount),
-            t.CreatedAt
+            t.CreatedAt,
+            supplierReturnStatus
         );
     }
 
-    private static PurchaseTripDetailDto MapDetail(PurchaseTrip t) => new(
+    private sealed record VariantReturnInfo(Guid VariantId, Guid ReturnId, string SupplierReturnNo, string Status, decimal QtyReturned);
+
+    private static PurchaseTripDetailDto MapDetail(PurchaseTrip t, Dictionary<Guid, VariantReturnInfo>? returnsByVariant = null) => new(
         t.Id, t.TripNo, t.SourceType, t.Status, t.Note,
         t.ExpectedDeliveryDate, t.SupplierPoRef,
         t.CreatedAt, t.CompletedAt, t.ForceCompleteReason,
-        t.Items.Where(i => i.DeletedAt == null).Select(MapItem).ToList(),
+        t.Items.Where(i => i.DeletedAt == null).Select(i => MapItem(i, returnsByVariant)).ToList(),
         t.Costs.Where(c => c.DeletedAt == null).Select(MapCost).ToList(),
         t.Sessions.Where(s => s.DeletedAt == null).OrderBy(s => s.ReceivedAt).Select(MapSession).ToList()
     );
 
-    private static PurchaseItemDto MapItem(PurchaseItem i) => new(
-        i.Id, i.VariantId,
-        i.Variant?.Sku ?? "",
-        i.Variant?.Product?.Name ?? "",
-        i.Variant?.Product?.UnitCode ?? "pcs",
-        i.QtyBought, i.QtyUsable, i.QtyDamaged, i.TotalCost,
-        i.SupplierId, i.Supplier?.Name ?? i.ShopName, i.Supplier?.Address,
-        i.MemoPhotoUrl,
-        i.PaidNow, i.DueAmount, i.PromisedDate,
-        i.AllocatedSharedCost, i.LandedUnitCost
-    );
+    private static PurchaseItemDto MapItem(PurchaseItem i, Dictionary<Guid, VariantReturnInfo>? returnsByVariant = null)
+    {
+        VariantReturnInfo? ret = null;
+        returnsByVariant?.TryGetValue(i.VariantId, out ret);
+        return new(
+            i.Id, i.VariantId,
+            i.Variant?.Sku ?? "",
+            i.Variant?.Product?.Name ?? "",
+            i.Variant?.Product?.UnitCode ?? "pcs",
+            i.QtyBought, i.QtyUsable, i.QtyDamaged, i.TotalCost,
+            i.SupplierId, i.Supplier?.Name ?? i.ShopName, i.Supplier?.Address,
+            i.MemoPhotoUrl,
+            i.PaidNow, i.DueAmount, i.PromisedDate,
+            i.AllocatedSharedCost, i.LandedUnitCost,
+            ret?.ReturnId, ret?.SupplierReturnNo, ret?.Status, ret?.QtyReturned
+        );
+    }
 
     private static PurchaseTripCostDto MapCost(PurchaseTripCost c) => new(
         c.Id, c.CostType, c.Amount, c.Note, c.PhotoUrl, c.PaidBy, c.IsPostCompletion

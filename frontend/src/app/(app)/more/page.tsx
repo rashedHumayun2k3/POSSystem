@@ -14,6 +14,7 @@ import {
   RectangleStackIcon,
   QuestionMarkCircleIcon,
   ChatBubbleLeftRightIcon,
+  ArrowUturnLeftIcon,
 } from "@heroicons/react/24/outline";
 import { useLanguage } from "@/i18n/LanguageContext";
 
@@ -28,6 +29,7 @@ export default function MorePage() {
     { href: "/more/categories", labelKey: "more.categories", Icon: TagIcon,         descKey: "more.categoriesDesc" },
     { href: "/more/catalog-templates", labelKey: "more.catalogTemplates", Icon: RectangleStackIcon, descKey: "more.catalogTemplatesDesc" },
     { href: "/more/purchases",  labelKey: "more.purchases",  Icon: TruckIcon,       descKey: "more.purchasesDesc" },
+    { href: "/more/supplier-returns", labelKey: "more.supplierReturns", Icon: ArrowUturnLeftIcon, descKey: "more.supplierReturnsDesc" },
     { href: "/more/storeroom",  labelKey: "more.storeroom",  Icon: ArchiveBoxIcon,  descKey: "more.storeroomDesc" },
     { href: "/more/deliveries", labelKey: "more.deliveries", Icon: TruckIcon,       descKey: "more.deliveriesDesc" },
     { href: "/more/expenses",   labelKey: "more.expenses",   Icon: BanknotesIcon,   descKey: "more.expensesDesc" },
@@ -41,6 +43,7 @@ export default function MorePage() {
 
   const managerLinks = [
     { href: "/more/purchases",  labelKey: "more.purchases",  Icon: TruckIcon,     descKey: "more.purchasesDesc" },
+    { href: "/more/supplier-returns", labelKey: "more.supplierReturns", Icon: ArrowUturnLeftIcon, descKey: "more.supplierReturnsDesc" },
     { href: "/more/deliveries", labelKey: "more.deliveries", Icon: TruckIcon,     descKey: "more.deliveriesDesc" },
     { href: "/more/expenses",   labelKey: "more.expenses",   Icon: BanknotesIcon, descKey: "more.expensesDesc" },
     { href: "/more/reports",    labelKey: "more.reports",    Icon: ChartBarIcon,  descKey: "more.reportsDesc" },

@@ -6,6 +6,7 @@ import { useRequestSignupCode, useVerifySignupCode, useVerifySignupEmailViaGoogl
 import { useLanguage } from "@/i18n/LanguageContext";
 import { toastError } from "@/lib/toastError";
 import GoogleSignInButton from "@/components/GoogleSignInButton";
+import CustomSelect from "@/components/ui/CustomSelect";
 
 type Step = "email" | "code" | "details";
 const STEPS: Step[] = ["email", "code", "details"];
@@ -276,17 +277,12 @@ export default function SignUpPage() {
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 {t("auth.signup.country")} <span className="text-gray-400">({t("auth.signup.optional")})</span>
               </label>
-              <select
+              <CustomSelect
+                triggerClassName="w-full h-12 flex items-center justify-between gap-2 px-4 rounded-xl border border-gray-200 text-sm bg-white text-left"
                 value={country}
-                onChange={(e) => setCountry(e.target.value)}
-                className="w-full h-12 px-4 rounded-xl border border-gray-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              >
-                {COUNTRY_OPTIONS.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
+                onChange={setCountry}
+                options={COUNTRY_OPTIONS.map((c) => ({ value: c, label: c }))}
+              />
             </div>
             <button
               type="submit"

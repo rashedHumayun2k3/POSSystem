@@ -40,6 +40,7 @@ public class AppDbContext : DbContext
 
     // ── Settings ──────────────────────────────────────────────────────────
     public DbSet<Courier> Couriers => Set<Courier>();
+    public DbSet<CourierCatalog> CourierCatalogs => Set<CourierCatalog>();
     public DbSet<ExpenseCategory> ExpenseCategories => Set<ExpenseCategory>();
 
     // ── Phase 7 — Expenses ────────────────────────────────────────────────
@@ -59,6 +60,8 @@ public class AppDbContext : DbContext
     public DbSet<VariantInventory> VariantInventories => Set<VariantInventory>();
     public DbSet<PurchaseReceiveSession> PurchaseReceiveSessions => Set<PurchaseReceiveSession>();
     public DbSet<PurchaseReceiveItem> PurchaseReceiveItems => Set<PurchaseReceiveItem>();
+    public DbSet<SupplierReturn> SupplierReturns => Set<SupplierReturn>();
+    public DbSet<SupplierReturnItem> SupplierReturnItems => Set<SupplierReturnItem>();
 
     // ── Branch/Location support ───────────────────────────────────────────
     public DbSet<Branch> Branches => Set<Branch>();
@@ -197,6 +200,7 @@ public class AppDbContext : DbContext
             e.Property(x => x.Subdomain).HasMaxLength(63);
             e.Property(x => x.LogoUrl).HasMaxLength(500);
             e.Property(x => x.BannerUrl).HasMaxLength(500);
+            e.Property(x => x.ExternalWebsiteUrl).HasMaxLength(500);
             e.HasIndex(x => x.Subdomain).IsUnique().HasFilter("[Subdomain] IS NOT NULL");
             e.HasOne(x => x.Company).WithMany(c => c.Businesses)
                 .HasForeignKey(x => x.CompanyId).OnDelete(DeleteBehavior.Restrict);
@@ -573,6 +577,48 @@ public class AppDbContext : DbContext
             e.Property(x => x.Notes).HasMaxLength(1000);
         });
 
+        // ── SupplierReturn ──────────────────────────────────────────────────
+        modelBuilder.Entity<SupplierReturn>(e =>
+        {
+            e.ToTable("supplier_returns");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
+            e.Property(x => x.SupplierReturnNo).HasMaxLength(20).IsRequired();
+            e.HasIndex(x => new { x.BusinessId, x.SupplierReturnNo }).IsUnique();
+            e.Property(x => x.Status).HasMaxLength(20).IsRequired();
+            e.Property(x => x.Note).HasMaxLength(500);
+            e.Property(x => x.BranchId).IsRequired();
+            e.HasOne(x => x.Supplier).WithMany()
+                .HasForeignKey(x => x.SupplierId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.Trip).WithMany()
+                .HasForeignKey(x => x.TripId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.CreatedByUser).WithMany()
+                .HasForeignKey(x => x.CreatedBy).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.ResolvedByUser).WithMany()
+                .HasForeignKey(x => x.ResolvedBy).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.Branch).WithMany()
+                .HasForeignKey(x => x.BranchId).OnDelete(DeleteBehavior.NoAction);
+        });
+
+        // ── SupplierReturnItem ──────────────────────────────────────────────
+        modelBuilder.Entity<SupplierReturnItem>(e =>
+        {
+            e.ToTable("supplier_return_items");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
+            e.Property(x => x.QtyReturned).HasColumnType("DECIMAL(12,3)");
+            e.Property(x => x.UnitCost).HasColumnType("DECIMAL(14,2)");
+            e.Property(x => x.ResolutionType).HasMaxLength(20).IsRequired();
+            e.Property(x => x.ResolutionAmount).HasColumnType("DECIMAL(14,2)");
+            e.Property(x => x.Note).HasMaxLength(500);
+            e.HasOne(x => x.Return).WithMany(r => r.Items)
+                .HasForeignKey(x => x.ReturnId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.Variant).WithMany()
+                .HasForeignKey(x => x.VariantId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.ReplacementTrip).WithMany()
+                .HasForeignKey(x => x.ReplacementTripId).OnDelete(DeleteBehavior.Restrict);
+        });
+
         // ── PurchaseTripCost ────────────────────────────────────────────────
         modelBuilder.Entity<PurchaseTripCost>(e =>
         {
@@ -715,6 +761,23 @@ public class AppDbContext : DbContext
             e.Property(x => x.CodFeeValue).HasColumnType("DECIMAL(14,4)");
             e.Property(x => x.TrackingUrlTemplate).HasMaxLength(500);
             e.Property(x => x.Contact).HasMaxLength(100);
+            e.HasOne(x => x.CourierCatalog).WithMany()
+                .HasForeignKey(x => x.CourierCatalogId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        // ── CourierCatalog ───────────────────────────────────────────────────
+        modelBuilder.Entity<CourierCatalog>(e =>
+        {
+            e.ToTable("courier_catalog");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
+            e.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            e.Property(x => x.InsideDhakaCharge).HasColumnType("DECIMAL(14,2)");
+            e.Property(x => x.OutsideDhakaCharge).HasColumnType("DECIMAL(14,2)");
+            e.Property(x => x.ReturnCharge).HasColumnType("DECIMAL(14,2)");
+            e.Property(x => x.CodFeeType).HasMaxLength(4).HasDefaultValue("PCT");
+            e.Property(x => x.CodFeeValue).HasColumnType("DECIMAL(14,4)");
+            e.Property(x => x.TrackingUrlTemplate).HasMaxLength(500);
         });
 
         // ── Customer ─────────────────────────────────────────────────────────

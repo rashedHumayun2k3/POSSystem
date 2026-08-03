@@ -16,6 +16,7 @@ export interface PurchaseTripSummary {
   totalItemCost: number;
   totalSharedCost: number;
   createdAt: string;
+  supplierReturnStatus: string | null;
 }
 
 export interface PurchaseItemDto {
@@ -37,6 +38,10 @@ export interface PurchaseItemDto {
   promisedDate: string | null;
   allocatedSharedCost: number;
   landedUnitCost: number;
+  supplierReturnId: string | null;
+  supplierReturnNo: string | null;
+  supplierReturnStatus: string | null;
+  supplierReturnQty: number | null;
 }
 
 export interface PurchaseTripCostDto {

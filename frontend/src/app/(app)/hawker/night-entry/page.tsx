@@ -1,20 +1,22 @@
 "use client";
 
-import { useEffect, useCallback, useRef, useState } from "react";
+import { useEffect, useCallback, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createOrder, addOrderPayment } from "@/lib/ordersApi";
-import { enqueueOfflineSale, isNetworkError, useOfflineSyncEngine, usePendingSalesCount } from "@/lib/posSync";
+import { enqueueOfflineSale, isNetworkError, useOfflineSyncEngine, usePendingSalesCount, usePendingSaleItems } from "@/lib/posSync";
 import {
   browseProductsWithFallback,
   searchProductsWithFallback,
   getActiveCategoriesWithFallback,
   getTodaySoldWithFallback,
+  getTodayHawkerProfitWithFallback,
   useCatalogAutoSync,
 } from "@/lib/localDb/catalogCache";
 import { resolveMediaUrl } from "@/lib/media";
 import { useLanguage } from "@/i18n/LanguageContext";
 import { useToastStore } from "@/store/toastStore";
 import { useAuthStore } from "@/store/authStore";
+import { usePressAndHold } from "@/hooks/usePressAndHold";
 import type { ProductSearchResult } from "@/types/catalog";
 import CustomerPickerSlide, { type SelectedCustomer } from "@/components/orders/CustomerPickerSlide";
 import CustomerSummaryRow from "@/components/orders/CustomerSummaryRow";
@@ -38,44 +40,6 @@ function extractErrorMessage(err: unknown, fallback: string): string {
 }
 
 const PRICE_STEP = 10;
-const HOLD_DELAY_MS = 400;
-const HOLD_REPEAT_MS = 100;
-
-// Tap = one step. Press and hold past HOLD_DELAY_MS = repeats every HOLD_REPEAT_MS until
-// released. firedRef distinguishes the two: once the hold has actually repeated at least once,
-// the click event that fires on release is suppressed — otherwise every hold would end with one
-// extra, unwanted step on top of whatever the repeat already applied.
-function usePressAndHold(onStep: () => void) {
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const firedRef = useRef(false);
-
-  const clear = useCallback(() => {
-    if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    if (intervalRef.current) clearInterval(intervalRef.current);
-    timeoutRef.current = null;
-    intervalRef.current = null;
-  }, []);
-
-  const onPointerDown = useCallback(() => {
-    firedRef.current = false;
-    timeoutRef.current = setTimeout(() => {
-      firedRef.current = true;
-      onStep();
-      intervalRef.current = setInterval(onStep, HOLD_REPEAT_MS);
-    }, HOLD_DELAY_MS);
-  }, [onStep]);
-
-  const onClick = useCallback(() => {
-    if (firedRef.current) {
-      firedRef.current = false;
-      return;
-    }
-    onStep();
-  }, [onStep]);
-
-  return { onPointerDown, onPointerUp: clear, onPointerLeave: clear, onPointerCancel: clear, onClick };
-}
 
 export default function NightEntryPage() {
   const { t } = useLanguage();
@@ -87,18 +51,17 @@ export default function NightEntryPage() {
   // call here, sales queued offline while on this screen would never sync back at all.
   useOfflineSyncEngine();
   const pendingSalesCount = usePendingSalesCount();
+  // Line items across every sale still sitting in the offline queue (not yet synced to the
+  // server) — read live from the persisted queue (SQLite/Dexie), not a React-state tally. That's
+  // the fix for the reload bug: a plain in-memory counter forgets everything the instant the page
+  // remounts, even though the queued sales themselves are still safely on disk.
+  const pendingItems = usePendingSaleItems();
 
   const [active, setActive] = useState<ProductSearchResult | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [price, setPrice] = useState("");
   const [qty, setQty] = useState(1);
   const [note, setNote] = useState("");
-  const [sessionProfit, setSessionProfit] = useState(0);
-  // Additive per-variant tally of sales made this session — merged on top of whatever
-  // todaySold/stock the query returned so the tile grid reflects a just-made sale immediately,
-  // whether it synced right away or is still sitting in the offline queue (which won't show up in
-  // a server-computed "today sold" figure until it actually syncs).
-  const [sessionSoldDelta, setSessionSoldDelta] = useState<Record<string, number>>({});
   const [addCustomer, setAddCustomer] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<SelectedCustomer | null>(null);
   const [customerPickerOpen, setCustomerPickerOpen] = useState(false);
@@ -114,19 +77,18 @@ export default function NightEntryPage() {
     return () => clearTimeout(timer);
   }, [search]);
 
-  // The moment the offline queue finishes draining (pending count drops to 0 having been >0),
-  // the server's own todaySold/stock figures now include everything this session sold — so the
-  // local session tally has done its job and needs to clear, or it would double-count on top of
-  // the now-current server numbers. Refetching here (rather than waiting for the next 5-minute
-  // auto-sync) makes the tile snap to the true number right away instead of sitting on a stale
-  // double-counted one until the next scheduled refresh.
+  // Closes the brief gap between "a queued sale just synced" and "the server aggregate reflects
+  // it": the sale disappears from pendingItems immediately once synced, but todaySold/profit are
+  // cached for 15s (staleTime) so they wouldn't otherwise pick up the change until that expires —
+  // without this, the tile could briefly under-count right after a sync finishes. Only refetches
+  // (no longer resets any session state — there isn't any left to reset).
   const prevPendingRef = useRef(pendingSalesCount);
   useEffect(() => {
     if (prevPendingRef.current > 0 && pendingSalesCount === 0) {
-      setSessionSoldDelta({});
       queryClient.invalidateQueries({ queryKey: ["hawker-night-entry-products"] });
       queryClient.invalidateQueries({ queryKey: ["hawker-night-entry-search"] });
       queryClient.invalidateQueries({ queryKey: ["hawker-night-entry-today-sold"] });
+      queryClient.invalidateQueries({ queryKey: ["hawker-night-entry-today-profit"] });
     }
     prevPendingRef.current = pendingSalesCount;
   }, [pendingSalesCount, queryClient]);
@@ -138,7 +100,7 @@ export default function NightEntryPage() {
 
   const isSearching = searchMode && debouncedSearch.trim().length > 0;
 
-  const { data: products = [], isLoading } = useQuery({
+  const { data: allProducts = [], isLoading } = useQuery({
     queryKey: isSearching
       ? ["hawker-night-entry-search", debouncedSearch]
       : ["hawker-night-entry-products", selectedCategoryId],
@@ -148,11 +110,53 @@ export default function NightEntryPage() {
         : browseProductsWithFallback(selectedCategoryId ?? undefined, true),
   });
 
+  // Night Entry is built around the market-price/discount workflow ("Sell Price" set on the
+  // product, struck through against the negotiated price) — a product with no Sell Price has
+  // nothing for that workflow to show, so it's left out of this grid entirely rather than
+  // appearing with a blank discount area.
+  const products = allProducts.filter((p) => p.marketPrice != null);
+
   const { data: todaySold = {} } = useQuery({
     queryKey: ["hawker-night-entry-today-sold"],
     queryFn: getTodaySoldWithFallback,
     staleTime: 15_000,
   });
+
+  const { data: todayServerProfit = 0 } = useQuery({
+    queryKey: ["hawker-night-entry-today-profit"],
+    queryFn: getTodayHawkerProfitWithFallback,
+    enabled: canSeeCosts(),
+    staleTime: 15_000,
+  });
+
+  // Per-variant qty/revenue still queued (not yet synced) — merged on top of the server's
+  // todaySold so the tile reflects a just-made sale immediately, synced or not, and survives a
+  // reload since it's recomputed from the persisted queue every time this hook re-reads it.
+  const pendingByVariant = useMemo(() => {
+    const agg: Record<string, { qty: number; amount: number }> = {};
+    for (const item of pendingItems) {
+      const entry = agg[item.variantId] ?? { qty: 0, amount: 0 };
+      entry.qty += item.qty;
+      entry.amount += item.qty * item.unitPrice;
+      agg[item.variantId] = entry;
+    }
+    return agg;
+  }, [pendingItems]);
+
+  // Profit for queued-but-unsynced sales, approximated with each item's *current* avgLandedCost
+  // (the queue only stores variantId/qty/unitPrice, not a cost snapshot) — looked up against
+  // whatever's currently loaded in allProducts, so a pending item for a variant outside the
+  // presently selected category/search won't resolve until that filter changes; it self-corrects
+  // the moment the sale actually syncs and the server total takes over anyway.
+  const pendingProfit = useMemo(() => {
+    if (!canSeeCosts()) return 0;
+    return pendingItems.reduce((sum, item) => {
+      const cost = allProducts.find((p) => p.variantId === item.variantId)?.avgLandedCost ?? 0;
+      return sum + (item.unitPrice - cost) * item.qty;
+    }, 0);
+  }, [pendingItems, allProducts, canSeeCosts]);
+
+  const todayHawkerProfit = todayServerProfit + pendingProfit;
 
   const openTile = (p: ProductSearchResult) => {
     setActive(p);
@@ -166,13 +170,9 @@ export default function NightEntryPage() {
 
   const save = useMutation({
     mutationFn: async () => {
-      if (!active) return { total: 0, profit: 0, variantId: "", qty: 0, offline: false };
+      if (!active) return { offline: false };
       const unitPrice = parseFloat(price) || 0;
       const total = unitPrice * qty;
-      // Landed-cost based, same as the tile's avgLandedCost — an approximation (no packaging
-      // cost subtracted, unlike the backend's report/dashboard profit figures) good enough for a
-      // running session total; Owner/Manager only, never sent to STAFF's eyes (see canSeeCosts gate below).
-      const profit = (unitPrice - active.avgLandedCost) * qty;
       const saleId = crypto.randomUUID();
 
       try {
@@ -192,12 +192,14 @@ export default function NightEntryPage() {
           businessDate: todayStr(),
         });
         await addOrderPayment(order.id, { method: "CASH", amount: total });
-        return { total, profit, variantId: active.variantId, qty, offline: false };
+        return { offline: false };
       } catch (err) {
         if (!isNetworkError(err)) throw err;
         // No network — queue the sale locally instead of blocking the seller. saleId doubles as
         // the eventual order's Idempotency-Key/ClientUid, same pattern the regular POS offline
-        // queue uses (see lib/posSync.ts).
+        // queue uses (see lib/posSync.ts). The tile/profit numbers pick this up immediately via
+        // pendingItems (usePendingSaleItems reacts to the queue live) — no manual state update
+        // needed here.
         await enqueueOfflineSale({
           id: saleId,
           channel: "HAWKER",
@@ -211,14 +213,10 @@ export default function NightEntryPage() {
           businessDate: todayStr(),
           createdAt: Date.now(),
         });
-        return { total, profit, variantId: active.variantId, qty, offline: true };
+        return { offline: true };
       }
     },
-    onSuccess: ({ profit, variantId, qty: soldQty, offline }) => {
-      setSessionProfit((sum) => sum + profit);
-      if (variantId) {
-        setSessionSoldDelta((prev) => ({ ...prev, [variantId]: (prev[variantId] ?? 0) + soldQty }));
-      }
+    onSuccess: ({ offline }) => {
       setActive(null);
       setAddCustomer(false);
       setSelectedCustomer(null);
@@ -228,6 +226,7 @@ export default function NightEntryPage() {
         queryClient.invalidateQueries({ queryKey: ["hawker-night-entry-products"] });
         queryClient.invalidateQueries({ queryKey: ["hawker-night-entry-search"] });
         queryClient.invalidateQueries({ queryKey: ["hawker-night-entry-today-sold"] });
+        queryClient.invalidateQueries({ queryKey: ["hawker-night-entry-today-profit"] });
       }
     },
     onError: (err) => useToastStore.getState().show(extractErrorMessage(err, t("hawker.saveFailed")), "error"),
@@ -236,11 +235,17 @@ export default function NightEntryPage() {
   // Caps the qty stepper against what's actually left after this session's own (possibly still
   // offline-queued) sales, not just the last-synced stock figure.
   const activeRemainingStock = active
-    ? Math.max(0, active.stock - (sessionSoldDelta[active.variantId] ?? 0))
+    ? Math.max(0, active.stock - (pendingByVariant[active.variantId]?.qty ?? 0))
     : 0;
   const activeHasDiscount = !!active && active.marketPrice != null && active.marketPrice > active.sellingPrice;
   const activeDiscountPct = activeHasDiscount
     ? Math.round(((active!.marketPrice! - active!.sellingPrice) / active!.marketPrice!) * 100)
+    : 0;
+  const activeSoldToday = active
+    ? (todaySold[active.variantId]?.qty ?? 0) + (pendingByVariant[active.variantId]?.qty ?? 0)
+    : 0;
+  const activeSoldTodayAmount = active
+    ? (todaySold[active.variantId]?.amount ?? 0) + (pendingByVariant[active.variantId]?.amount ?? 0)
     : 0;
 
   const decreasePrice = useCallback(() => {
@@ -257,7 +262,7 @@ export default function NightEntryPage() {
       <div className="px-4 py-4 space-y-2">
         {canSeeCosts() && (
           <p className="text-xs text-emerald-600 font-medium">
-            {t("hawker.todaysProfit")}: ৳{sessionProfit.toLocaleString()}
+            {t("hawker.todaysProfit")}: ৳{todayHawkerProfit.toLocaleString()}
           </p>
         )}
 
@@ -352,7 +357,8 @@ export default function NightEntryPage() {
                 ? Math.round(((p.marketPrice! - p.sellingPrice) / p.marketPrice!) * 100)
                 : 0;
               const displayName = stripDiscountSuffix(p.productName);
-              const soldToday = (todaySold[p.variantId] ?? 0) + (sessionSoldDelta[p.variantId] ?? 0);
+              const soldToday = (todaySold[p.variantId]?.qty ?? 0) + (pendingByVariant[p.variantId]?.qty ?? 0);
+              const soldTodayAmount = (todaySold[p.variantId]?.amount ?? 0) + (pendingByVariant[p.variantId]?.amount ?? 0);
 
               return (
                 <button
@@ -379,9 +385,9 @@ export default function NightEntryPage() {
                   <span className="text-sm font-medium text-gray-700 text-center leading-tight line-clamp-2">
                     {displayName}
                   </span>
-                  <div className="flex items-center justify-between text-xs text-gray-400">
-                    <span>{t("hawker.todaySale")}</span>
-                    <span className="font-medium text-gray-600">{soldToday} {p.unitCode || "pcs"}</span>
+                  <div className="flex items-center justify-between text-xs bg-orange-700 text-white rounded-lg px-2 py-1">
+                    <span className="text-orange-100">{t("hawker.todaySale")}</span>
+                    <span className="font-semibold">৳{soldTodayAmount.toLocaleString()} ({soldToday} {p.unitCode || "pcs"})</span>
                   </div>
                 </button>
               );
@@ -401,30 +407,34 @@ export default function NightEntryPage() {
               </button>
             </div>
 
-            <div>
-              <p className="text-xs text-gray-400 text-center mb-1">
-                {t("hawker.currentPrice")}: ৳{active.sellingPrice.toLocaleString()}
-              </p>
+            <p className="text-xs text-orange-700 font-medium text-center">
+              {t("hawker.alreadySoldToday")} ৳{activeSoldTodayAmount.toLocaleString()} ({activeSoldToday} {active.unitCode || "pcs"})
+              <br />
+              {t("hawker.currentPrice")}: ৳{active.sellingPrice.toLocaleString()}
               {activeHasDiscount && (
-                <p className="text-xs text-center mb-1">
-                  <span className="text-gray-400 line-through">৳{active.marketPrice!.toLocaleString()}</span>
+                <>
+                  {" "}
+                  <span className="line-through">৳{active.marketPrice!.toLocaleString()}</span>
                   {" "}
                   <span className="text-green-600 font-semibold">{t("hawker.discount")} -{activeDiscountPct}%</span>
-                </p>
+                </>
               )}
+            </p>
+
+            <div>
               <label className="text-xs text-gray-500 font-medium block mb-1">{t("hawker.soldPrice")}</label>
               <div className="flex items-center justify-center gap-3">
                 <button
                   type="button"
                   {...priceDecreaseHold}
-                  className="shrink-0 w-16 h-16 rounded-full bg-gray-100 text-3xl font-semibold text-gray-600 active:bg-gray-200 select-none"
+                  className="shrink-0 w-16 h-16 rounded-full bg-orange-700 text-3xl font-semibold text-white active:bg-orange-800 select-none"
                 >
                   −
                 </button>
                 <input
                   type="number"
                   inputMode="decimal"
-                  autoFocus
+                  min="0"
                   value={price}
                   onChange={(e) => setPrice(e.target.value)}
                   className="flex-1 min-w-0 text-2xl font-bold text-center border border-gray-200 rounded-2xl py-3 focus:outline-none focus:ring-2 focus:ring-indigo-300"
@@ -432,7 +442,7 @@ export default function NightEntryPage() {
                 <button
                   type="button"
                   {...priceIncreaseHold}
-                  className="shrink-0 w-16 h-16 rounded-full bg-indigo-100 text-3xl font-semibold text-indigo-600 active:bg-indigo-200 select-none"
+                  className="shrink-0 w-16 h-16 rounded-full bg-orange-700 text-3xl font-semibold text-white active:bg-orange-800 select-none"
                 >
                   +
                 </button>
@@ -450,12 +460,12 @@ export default function NightEntryPage() {
               )}
             </div>
 
-            <div className="bg-gray-50 rounded-2xl px-4 py-3">
-              <label className="text-xs text-gray-500 font-medium block mb-1 text-center">{t("hawker.quantity")}</label>
-              <div className="flex items-center justify-center gap-4">
+            <div className="bg-gray-100 rounded-2xl px-3 py-2 flex items-center justify-between">
+              <label className="text-xs text-gray-500 font-medium">{t("hawker.quantity")}</label>
+              <div className="flex items-center gap-4">
                 <button
                   onClick={() => setQty((q) => Math.max(1, q - 1))}
-                  className="w-10 h-10 rounded-full bg-gray-100 text-lg"
+                  className="w-10 h-10 rounded-full bg-white text-lg"
                 >
                   −
                 </button>
@@ -542,9 +552,9 @@ export default function NightEntryPage() {
                 <span className="text-xs text-gray-400">{t("hawker.soldPrice")}</span>
                 <span className="text-sm font-medium text-gray-900">৳{(parseFloat(price) || 0).toLocaleString()}</span>
               </div>
-              <div className="flex items-center justify-between px-4 py-3">
-                <span className="text-xs text-gray-500 font-semibold">{t("hawker.total")}</span>
-                <span className="text-base font-bold text-indigo-700">৳{((parseFloat(price) || 0) * qty).toLocaleString()}</span>
+              <div className="flex items-center justify-between px-4 py-3 bg-orange-700 rounded-b-2xl">
+                <span className="text-xs text-orange-100 font-semibold">{t("hawker.total")}</span>
+                <span className="text-lg font-bold text-white">৳{((parseFloat(price) || 0) * qty).toLocaleString()}</span>
               </div>
             </div>
 

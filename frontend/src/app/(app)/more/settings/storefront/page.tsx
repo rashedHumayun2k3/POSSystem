@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getStorefrontSettings, updateStorefrontSettings, setSubdomain, setStorefrontEnabled, updateBusinessLogo } from "@/lib/storefrontApi";
+import { getStorefrontSettings, updateStorefrontSettings, setSubdomain, setStorefrontEnabled, updateBusinessLogo, updateWebsite } from "@/lib/storefrontApi";
 import { toastError } from "@/lib/toastError";
 import { useLanguage } from "@/i18n/LanguageContext";
 import ImageUploadField from "@/components/ui/ImageUploadField";
@@ -36,11 +36,16 @@ export default function StorefrontSettingsPage() {
   const { t } = useLanguage();
   const qc = useQueryClient();
   const [subdomainInput, setSubdomainInput] = useState("");
+  const [websiteInput, setWebsiteInput] = useState("");
 
   const { data, isLoading } = useQuery({
     queryKey: ["storefront-settings"],
     queryFn: getStorefrontSettings,
   });
+
+  useEffect(() => {
+    if (data) setWebsiteInput(data.externalWebsiteUrl ?? "");
+  }, [data]);
 
   const marketplaceMutation = useMutation({
     mutationFn: (value: boolean) => updateStorefrontSettings(value),
@@ -69,6 +74,14 @@ export default function StorefrontSettingsPage() {
 
   const logoMutation = useMutation({
     mutationFn: (value: string | null) => updateBusinessLogo(value),
+    onSuccess: (result) => {
+      qc.setQueryData(["storefront-settings"], (prev: typeof data) => (prev ? { ...prev, ...result } : prev));
+    },
+    onError: (err) => toastError(err, t("settings.failedSaveStorefront")),
+  });
+
+  const websiteMutation = useMutation({
+    mutationFn: (value: string) => updateWebsite(value.trim() || null),
     onSuccess: (result) => {
       qc.setQueryData(["storefront-settings"], (prev: typeof data) => (prev ? { ...prev, ...result } : prev));
     },
@@ -110,6 +123,29 @@ export default function StorefrontSettingsPage() {
                 errorLabel={t("settings.logoUploadFailed")}
                 removeLabel={t("settings.logoRemove")}
               />
+            </div>
+
+            <div className="bg-white border border-gray-100 rounded-xl px-4 py-4 space-y-2">
+              <div>
+                <p className="text-sm font-semibold text-gray-900">{t("settings.businessWebsite")}</p>
+                <p className="text-xs text-gray-400 mt-1">{t("settings.businessWebsiteDesc")}</p>
+              </div>
+              <div className="flex gap-2">
+                <input
+                  type="url"
+                  value={websiteInput}
+                  onChange={(e) => setWebsiteInput(e.target.value)}
+                  placeholder={t("settings.websitePlaceholder")}
+                  className="flex-1 border border-gray-200 rounded-xl px-3 py-2.5 text-sm"
+                />
+                <button
+                  onClick={() => websiteMutation.mutate(websiteInput)}
+                  disabled={websiteMutation.isPending || websiteInput.trim() === (data?.externalWebsiteUrl ?? "")}
+                  className="px-4 py-2.5 rounded-xl text-sm font-medium bg-indigo-600 text-white disabled:opacity-50"
+                >
+                  {websiteMutation.isPending ? t("common.saving") : t("common.save")}
+                </button>
+              </div>
             </div>
 
             <div className="bg-white border border-gray-100 rounded-xl px-4 py-4 flex items-center gap-4">

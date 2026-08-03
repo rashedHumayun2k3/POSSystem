@@ -63,6 +63,21 @@ export async function getPendingCountNative(): Promise<number> {
   return (result.values?.[0]?.cnt as number) ?? 0;
 }
 
+// Flattened line items across every not-yet-synced sale — the source of truth for "what's still
+// queued, per product" (e.g. hawker/night-entry's tile numbers), read straight from the persisted
+// queue rather than a React state tally that would reset on reload.
+export async function getPendingSaleItemsNative(): Promise<OfflineSaleItem[]> {
+  const db = await getLocalDb();
+  const result = await db.query(
+    `SELECT itemsJson FROM offline_sales WHERE status IN ('PENDING','SYNCING','FAILED')`
+  );
+  const items: OfflineSaleItem[] = [];
+  for (const row of result.values ?? []) {
+    items.push(...(JSON.parse(row.itemsJson as string) as OfflineSaleItem[]));
+  }
+  return items;
+}
+
 async function getSyncableSales(): Promise<OfflineSale[]> {
   const db = await getLocalDb();
   const result = await db.query(

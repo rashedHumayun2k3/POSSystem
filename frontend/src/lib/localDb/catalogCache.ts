@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { getLocalDb } from './sqliteClient';
-import { browseProducts, searchProducts, lookupBarcode, getCategories, getActiveCategories, getTodaySoldByVariant } from '../catalogApi';
+import { browseProducts, searchProducts, lookupBarcode, getCategories, getActiveCategories, getTodaySoldByVariant, getTodayHawkerProfit, type TodaySold } from '../catalogApi';
 import { getCustomerCache, searchCustomers } from '../ordersApi';
 import { isNetworkError } from '../networkError';
 import { isNativeApp } from '../platform';
@@ -130,7 +130,7 @@ function todayStr(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-async function getLocalTodaySold(): Promise<Record<string, number>> {
+async function getLocalTodaySold(): Promise<Record<string, TodaySold>> {
   const db = await getLocalDb();
   const result = await db.query('SELECT key, value FROM catalog_meta WHERE key IN (?, ?)', ['todaySold', 'todaySoldDate']);
   const rows = result.values ?? [];
@@ -141,16 +141,48 @@ async function getLocalTodaySold(): Promise<Record<string, number>> {
 }
 
 // Native only, live-first — falls back to the last-synced "sold today" snapshot on a network
-// error. That snapshot won't include sales made during the current offline stretch itself; callers
-// combine this with their own session-local tally for that (see hawker/night-entry's
-// sessionSoldDelta) rather than this module trying to track per-page session state.
-export async function getTodaySoldWithFallback(): Promise<Record<string, number>> {
+// error. That snapshot won't include sales still sitting in the offline queue unsynced; callers
+// combine this with the queue's own pending totals for that (see posSync.ts's
+// usePendingSaleItems) rather than this module trying to track per-page session state — a plain
+// in-memory tally doesn't survive a reload/navigation, which is exactly the bug this replaced.
+export async function getTodaySoldWithFallback(): Promise<Record<string, TodaySold>> {
   if (!isNativeApp()) return getTodaySoldByVariant();
   try {
     return await getTodaySoldByVariant();
   } catch (err) {
     if (!isNetworkError(err)) throw err;
     return getLocalTodaySold();
+  }
+}
+
+// Same caching shape as todaySold above, one key/value pair since this is a single business-wide
+// total rather than a per-variant map. Owner/Manager only — callers must gate both the sync and
+// the read behind canSeeCosts() themselves (this module doesn't know about roles), since even
+// attempting the request as STAFF would 403.
+export async function syncTodayHawkerProfitFromServer(): Promise<void> {
+  const profit = await getTodayHawkerProfit();
+  const db = await getLocalDb();
+  await db.run('INSERT OR REPLACE INTO catalog_meta (key, value) VALUES (?, ?)', ['todayHawkerProfit', String(profit)]);
+  await db.run('INSERT OR REPLACE INTO catalog_meta (key, value) VALUES (?, ?)', ['todayHawkerProfitDate', todayStr()]);
+}
+
+async function getLocalTodayHawkerProfit(): Promise<number> {
+  const db = await getLocalDb();
+  const result = await db.query('SELECT key, value FROM catalog_meta WHERE key IN (?, ?)', ['todayHawkerProfit', 'todayHawkerProfitDate']);
+  const rows = result.values ?? [];
+  const cachedDate = rows.find((r) => r.key === 'todayHawkerProfitDate')?.value as string | undefined;
+  if (cachedDate !== todayStr()) return 0;
+  const raw = rows.find((r) => r.key === 'todayHawkerProfit')?.value as string | undefined;
+  return raw ? Number(raw) : 0;
+}
+
+export async function getTodayHawkerProfitWithFallback(): Promise<number> {
+  if (!isNativeApp()) return getTodayHawkerProfit();
+  try {
+    return await getTodayHawkerProfit();
+  } catch (err) {
+    if (!isNetworkError(err)) throw err;
+    return getLocalTodayHawkerProfit();
   }
 }
 

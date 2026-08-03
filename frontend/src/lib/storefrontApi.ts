@@ -5,6 +5,7 @@ export interface StorefrontSettings {
   subdomain: string | null;
   storefrontEnabled: boolean;
   logoUrl: string | null;
+  externalWebsiteUrl: string | null;
 }
 
 export const getStorefrontSettings = async (): Promise<StorefrontSettings> => {
@@ -30,5 +31,10 @@ export const setStorefrontEnabled = async (enabled: boolean): Promise<{ storefro
 // Also used as the logo on the A4 online-order invoice — not just storefront branding.
 export const updateBusinessLogo = async (logoUrl: string | null): Promise<{ logoUrl: string | null }> => {
   const { data } = await api.patch("/businesses/logo", { logoUrl });
+  return data;
+};
+
+export const updateWebsite = async (websiteUrl: string | null): Promise<{ externalWebsiteUrl: string | null }> => {
+  const { data } = await api.patch("/businesses/website", { websiteUrl });
   return data;
 };

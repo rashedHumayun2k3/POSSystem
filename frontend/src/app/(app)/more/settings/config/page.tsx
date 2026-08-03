@@ -106,14 +106,14 @@ export default function BusinessConfigPage() {
         </ConfigRow>
 
         <ConfigRow label={t("settings.refundThreshold")} hint={t("settings.refundThresholdHint")} settingKey="refund_threshold" value={refundThreshold}>
-          <input type="number" inputMode="decimal" value={refundThreshold}
+          <input type="number" inputMode="decimal" min="0" value={refundThreshold}
             onChange={(e) => setRefundThreshold(e.target.value)}
             placeholder="e.g. 500"
             className="w-full h-10 px-3 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
         </ConfigRow>
 
         <ConfigRow label={t("settings.lowStockDefault")} hint={t("settings.lowStockHint")} settingKey="low_stock_default" value={lowStockDefault}>
-          <input type="number" inputMode="decimal" value={lowStockDefault}
+          <input type="number" inputMode="decimal" min="0" value={lowStockDefault}
             onChange={(e) => setLowStockDefault(e.target.value)}
             placeholder="e.g. 5"
             className="w-full h-10 px-3 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />

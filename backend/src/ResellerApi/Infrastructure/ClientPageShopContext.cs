@@ -13,4 +13,5 @@ public class ClientPageShopContext
     public string? ShopName { get; set; }
     public string? LogoUrl { get; set; }
     public string? BannerUrl { get; set; }
+    public string? WebsiteUrl { get; set; }
 }

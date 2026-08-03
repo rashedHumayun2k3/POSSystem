@@ -32,7 +32,7 @@ const CartIcon = () => (
 );
 
 export default function TopHeader({ initialQuery }: { initialQuery?: string }) {
-  const { mode, shopName, logoUrl, shopSlug } = useShopContext();
+  const { mode, shopName, logoUrl, shopSlug, websiteUrl } = useShopContext();
   const router = useRouter();
   const [q, setQ] = useState(initialQuery ?? "");
   const [logoFailed, setLogoFailed] = useState(false);
@@ -129,6 +129,21 @@ export default function TopHeader({ initialQuery }: { initialQuery?: string }) {
                 className="object-contain"
               />
             </Link>
+          )}
+          {mode === "shop" && websiteUrl && (
+            <a
+              href={websiteUrl}
+              target="_blank"
+              rel="noreferrer"
+              title={websiteUrl}
+              aria-label="Visit business website"
+              className="hidden sm:flex items-center justify-center w-6 h-6 rounded-full hover:bg-white/10 shrink-0 text-white/80"
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="9" />
+                <path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18" strokeLinecap="round" />
+              </svg>
+            </a>
           )}
           <Link href="/cart" aria-label="Cart" className="lg:hidden ml-auto relative p-1.5 rounded-full hover:bg-white/10 shrink-0">
             <CartIcon />

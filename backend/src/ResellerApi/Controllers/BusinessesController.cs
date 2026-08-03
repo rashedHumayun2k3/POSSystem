@@ -31,7 +31,10 @@ public class BusinessesController : ControllerBase
     {
         var business = await _db.Businesses.FindAsync(_businessContext.CurrentBusinessId);
         if (business is null) return NotFound();
-        return Ok(new { business.ShowOnMarketplace, business.Subdomain, business.StorefrontEnabled, business.LogoUrl });
+        return Ok(new {
+            business.ShowOnMarketplace, business.Subdomain, business.StorefrontEnabled, business.LogoUrl,
+            business.ExternalWebsiteUrl
+        });
     }
 
     [HttpPatch("storefront-settings")]
@@ -96,6 +99,25 @@ public class BusinessesController : ControllerBase
         return Ok(new { business.Subdomain, business.StorefrontEnabled });
     }
 
+    [HttpPatch("website")]
+    public async Task<IActionResult> UpdateWebsite([FromBody] UpdateWebsiteRequest request)
+    {
+        var business = await _db.Businesses.FindAsync(_businessContext.CurrentBusinessId);
+        if (business is null) return NotFound();
+
+        var url = request.WebsiteUrl?.Trim();
+        if (!string.IsNullOrEmpty(url) && !Uri.IsWellFormedUriString(url, UriKind.Absolute))
+            return BadRequest(new { message = "Enter a full URL, e.g. https://example.com" });
+
+        var before = new { business.ExternalWebsiteUrl };
+        business.ExternalWebsiteUrl = string.IsNullOrEmpty(url) ? null : url;
+        await _db.SaveChangesAsync();
+        await _activityLog.LogAsync(_businessContext.CurrentBusinessId, _currentUser.UserId,
+            "UPDATE", "Business", business.Id, before, new { business.ExternalWebsiteUrl });
+
+        return Ok(new { business.ExternalWebsiteUrl });
+    }
+
     [HttpPatch("storefront-enabled")]
     public async Task<IActionResult> SetStorefrontEnabled([FromBody] SetStorefrontEnabledRequest request)
     {
@@ -119,3 +141,4 @@ public record StorefrontSettingsRequest(bool ShowOnMarketplace);
 public record SetSubdomainRequest(string Subdomain);
 public record SetStorefrontEnabledRequest(bool Enabled);
 public record UpdateLogoRequest(string? LogoUrl);
+public record UpdateWebsiteRequest(string? WebsiteUrl);

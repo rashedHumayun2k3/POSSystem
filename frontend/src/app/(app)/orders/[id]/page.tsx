@@ -11,6 +11,7 @@ import {
 } from "@/lib/ordersApi";
 import AppHeader from "@/components/layout/AppHeader";
 import SlidePanel from "@/components/ui/SlidePanel";
+import CustomSelect from "@/components/ui/CustomSelect";
 import StatusBadge from "@/components/ui/StatusBadge";
 import { PhoneIcon, MapPinIcon, PencilSquareIcon } from "@heroicons/react/24/outline";
 import { useLanguage } from "@/i18n/LanguageContext";
@@ -19,7 +20,20 @@ import { useToastStore } from "@/store/toastStore";
 import { formatVariantLabel } from "@/lib/format";
 import type { OrderDetail, ReturnItemInput, ReturnReasonType, ReviseReasonType, ReviseOrderItemInput } from "@/types/orders";
 
-type Tab = "overview" | "history" | "payments";
+type Tab = "overview" | "lifecycle" | "history" | "payments";
+
+type LifecycleStepStatus = "done" | "current" | "pending";
+interface LifecycleStep {
+  key: string;
+  label: string;
+  date: string | null;
+  status: LifecycleStepStatus;
+}
+
+function formatStepDate(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  return new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+}
 
 export default function OrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -261,6 +275,48 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
   const os = order.orderStatus;
   const isTerminal = os === "COMPLETED" || os === "CANCELLED";
 
+  // Lifecycle tab — "how far along" is just an index into the normal happy path
+  // (Created → Confirmed → Packed → Handed over → Delivered); the furthest reached step is
+  // "current", everything before it is "done", everything after is "pending". Cancel/Return are
+  // deviations from that path, so they're appended as their own final "current" step instead.
+  const lifecycleSteps: LifecycleStep[] = (() => {
+    const FS_ORDER = ["UNFULFILLED", "PACKED", "IN_TRANSIT", "DELIVERED"];
+    const isCancelled = os === "CANCELLED";
+    const isReturned = fs === "RETURNED";
+    const stageIndex = isReturned ? 3 : Math.max(FS_ORDER.indexOf(fs), 0);
+    const confirmedReached = !order.isDraft || !!order.confirmedAt;
+
+    const base = [
+      { key: "created", label: t("orders.stepCreated"), date: order.createdAt as string | null, reachedAt: 0 },
+      { key: "confirmed", label: t("orders.stepConfirmed"), date: order.confirmedAt ?? null, reachedAt: confirmedReached ? 1 : 99 },
+      { key: "packed", label: t("orders.stepPacked"), date: null, reachedAt: stageIndex >= 1 ? 2 : 99 },
+      { key: "handedOver", label: t("orders.stepHandedOver"), date: order.handedOverAt ?? null, reachedAt: stageIndex >= 2 ? 3 : 99 },
+      { key: "delivered", label: t("orders.stepDelivered"), date: order.deliveredAt ?? null, reachedAt: stageIndex >= 3 ? 4 : 99 },
+    ];
+
+    const reachedValues = base.filter((s) => s.reachedAt !== 99).map((s) => s.reachedAt);
+    const maxReached = reachedValues.length > 0 ? Math.max(...reachedValues) : -1;
+
+    const steps: LifecycleStep[] = base.map((s) => ({
+      key: s.key,
+      label: s.label,
+      date: s.date,
+      status: s.reachedAt === 99 ? "pending" : s.reachedAt === maxReached ? "current" : "done",
+    }));
+
+    if (isCancelled || isReturned) {
+      steps.forEach((s) => { if (s.status === "current") s.status = "done"; });
+      steps.push({
+        key: isCancelled ? "cancelled" : "returned",
+        label: isCancelled ? t("orders.stepCancelled") : t("orders.stepReturned"),
+        date: isCancelled ? null : (order.returnedAt ?? null),
+        status: "current",
+      });
+    }
+
+    return steps;
+  })();
+
   // Live preview while revising — mirrors the backend's ComputeDiscount/ComputeTotal so the
   // number shown here matches what the server will actually save.
   const revisedSubtotal = order.items.reduce((sum, i) => sum + (reviseQtys[i.id] ?? i.qty) * i.unitPrice, 0);
@@ -281,6 +337,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
   const PAYMENT_METHODS = ["CASH", "BKASH", "NAGAD", "CARD", "BAKI", "COD"];
   const TABS: { key: Tab; label: string }[] = [
     { key: "overview", label: t("orders.overview") },
+    { key: "lifecycle", label: t("orders.lifecycle") },
     { key: "history", label: t("orders.history") },
     { key: "payments", label: t("orders.payments") },
   ];
@@ -587,6 +644,41 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
             </>
           )}
 
+          {/* ── LIFECYCLE ── */}
+          {tab === "lifecycle" && (
+            <div className="bg-white rounded-xl border border-gray-100 px-4 py-5">
+              {lifecycleSteps.map((step, idx) => {
+                const isLast = idx === lifecycleSteps.length - 1;
+                const filled = step.status === "done" || step.status === "current";
+                return (
+                  <div key={step.key} className="flex gap-3">
+                    <div className="flex flex-col items-center">
+                      <div className={`w-4 h-4 rounded-full border-2 shrink-0 ${
+                        filled ? "bg-orange-800 border-orange-800" : "bg-white border-orange-200"
+                      }`} />
+                      {!isLast && (
+                        <div className={`w-0.5 flex-1 min-h-[32px] ${filled ? "bg-orange-800" : "bg-orange-100"}`} />
+                      )}
+                    </div>
+                    <div className={isLast ? "pb-0" : "pb-6"}>
+                      <p className={`text-sm font-medium ${filled ? "text-gray-900" : "text-gray-400"}`}>
+                        {step.label}
+                        {step.status === "current" && (
+                          <span className="ml-2 text-[10px] font-semibold text-orange-700 bg-orange-50 px-1.5 py-0.5 rounded-full align-middle">
+                            {t("orders.currentStatusTag")}
+                          </span>
+                        )}
+                      </p>
+                      {step.date && (
+                        <p className="text-xs text-gray-400 mt-0.5">{formatStepDate(step.date)}</p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
           {/* ── HISTORY ── */}
           {tab === "history" && (
             <div className="space-y-2">
@@ -682,7 +774,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
             {fs === "PACKED" && (
               <>
                 <button
-                  onClick={() => setShowHandover(true)}
+                  onClick={() => { setHandoverCourierId(order.courierId ?? ""); setShowHandover(true); }}
                   className="flex-1 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold"
                 >
                   {t("orders.handover")}
@@ -797,15 +889,14 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
       >
         <div className="p-4 space-y-4">
           <div>
-            <label className="text-xs text-gray-500 mb-1 block">{t("orders.courierName")} *</label>
-            <select
-              value={handoverCourierId}
-              onChange={(e) => setHandoverCourierId(e.target.value)}
-              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
-            >
-              <option value="">— select courier —</option>
-              {couriers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
+            <label className="text-xs text-gray-500 mb-1 block">{t("orders.courierName")}</label>
+            {order.courierName ? (
+              <div className="px-3 py-2.5 rounded-xl bg-gray-50 border border-gray-200 text-sm text-gray-700">
+                {order.courierName}
+              </div>
+            ) : (
+              <p className="text-xs text-amber-600">{t("orders.setCourierFirst")}</p>
+            )}
           </div>
           <div>
             <label className="text-xs text-gray-500 mb-1 block">{t("orders.trackingNo")} *</label>
@@ -829,14 +920,12 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                 {t("orders.addDeliveryMan")}
               </button>
             </div>
-            <select
+            <CustomSelect
               value={handoverDeliveryManId}
-              onChange={(e) => setHandoverDeliveryManId(e.target.value)}
-              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
-            >
-              <option value="">— none —</option>
-              {deliveryMen.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-            </select>
+              onChange={setHandoverDeliveryManId}
+              placeholder="— none —"
+              options={deliveryMen.map((d) => ({ value: d.id, label: d.name }))}
+            />
 
             {showAddDeliveryMan && (
               <div className="mt-2 p-3 rounded-lg border border-gray-200 bg-gray-50 space-y-2">
@@ -856,6 +945,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                 />
                 <input
                   type="number"
+                  min="0"
                   value={newDmCost}
                   onChange={(e) => setNewDmCost(e.target.value)}
                   placeholder={t("orders.deliveryManCostPlaceholder")}
@@ -1035,6 +1125,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                       type="number" inputMode="decimal"
                       value={returnRefundAmount}
                       onChange={(e) => setReturnRefundAmount(e.target.value)}
+                      min={0}
                       max={totalPaid}
                       placeholder="0"
                       className="flex-1 px-3 py-1.5 text-sm border border-indigo-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
@@ -1519,14 +1610,14 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
             <label className="text-xs text-gray-500 mb-1 block">
               {t("orders.courierName")} <span className="text-gray-300">({t("common.optional")})</span>
             </label>
-            <select
+            <CustomSelect
               value={editForm.courierId}
-              onChange={(e) => setEditForm((f) => ({ ...f, courierId: e.target.value }))}
-              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
-            >
-              <option value="">— none —</option>
-              {couriers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
+              onChange={(v) => setEditForm((f) => ({ ...f, courierId: v }))}
+              placeholder="— none —"
+              options={couriers
+                .filter((c) => c.isActive || c.id === editForm.courierId)
+                .map((c) => ({ value: c.id, label: c.name }))}
+            />
           </div>
           <div>
             <label className="text-xs text-gray-500 mb-1 block">

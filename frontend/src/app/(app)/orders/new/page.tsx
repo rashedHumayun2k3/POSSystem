@@ -6,24 +6,30 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { createOrder as createOrderApi, listCouriers } from "@/lib/ordersApi";
 import { useAuthStore } from "@/store/authStore";
 import AppHeader from "@/components/layout/AppHeader";
-import { XMarkIcon, PlusIcon, MinusIcon, ChevronRightIcon } from "@heroicons/react/24/outline";
+import { XMarkIcon, PlusIcon, MinusIcon, ChevronRightIcon, Cog6ToothIcon, CubeIcon } from "@heroicons/react/24/outline";
 import { useLanguage } from "@/i18n/LanguageContext";
 import CustomerPickerSlide, { type SelectedCustomer } from "@/components/orders/CustomerPickerSlide";
 import ProductPicker from "@/components/purchases/ProductPicker";
 import type { ProductSearchResult } from "@/types/catalog";
 import { useToastStore } from "@/store/toastStore";
+import SlidePanel from "@/components/ui/SlidePanel";
+import CourierManager from "@/components/settings/CourierManager";
+import { resolveMediaUrl } from "@/lib/media";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 interface CartLine {
   variantId: string;
   productName: string;
   variantLabel: string;
+  variantSku: string;
+  imageUrl: string | null;
   unitPrice: number;
+  marketPrice: number | null;
   qty: number;
   available: number;
 }
 
-const CHANNELS = ["FACEBOOK", "WHATSAPP", "INSTAGRAM", "PHONE", "SHOP", "OTHER"] as const;
+const CHANNELS = ["FACEBOOK", "WHATSAPP", "INSTAGRAM", "PHONE", "SHOP", "MYWEBSITE", "OTHER"] as const;
 type Channel = (typeof CHANNELS)[number];
 
 const CHANNEL_LABELS: Record<Channel, string> = {
@@ -32,6 +38,7 @@ const CHANNEL_LABELS: Record<Channel, string> = {
   INSTAGRAM: "📷 Instagram",
   PHONE: "📞 Phone",
   SHOP: "🏪 Shop",
+  MYWEBSITE: "🌐 MyWebsite",
   OTHER: "Other",
 };
 
@@ -41,6 +48,7 @@ const CHANNEL_ACTIVE_CLS: Record<Channel, string> = {
   INSTAGRAM: "bg-pink-600   text-white border-pink-600",
   PHONE:     "bg-slate-600  text-white border-slate-600",
   SHOP:      "bg-amber-500  text-white border-amber-500",
+  MYWEBSITE: "bg-teal-600   text-white border-teal-600",
   OTHER:     "bg-gray-500   text-white border-gray-500",
 };
 
@@ -52,6 +60,7 @@ const CHANNEL_INACTIVE_CLS: Record<Channel, string> = {
   INSTAGRAM: "bg-pink-200   text-pink-900   border-pink-300",
   PHONE:     "bg-slate-300  text-slate-900  border-slate-400",
   SHOP:      "bg-amber-200  text-amber-900  border-amber-300",
+  MYWEBSITE: "bg-teal-200   text-teal-900   border-teal-300",
   OTHER:     "bg-gray-300   text-gray-900   border-gray-400",
 };
 
@@ -87,6 +96,7 @@ export default function NewOrderPage() {
   // ── Cart state ──────────────────────────────────────────────────────────
   const [cart, setCart] = useState<CartLine[]>([]);
   const [productPickerOpen, setProductPickerOpen] = useState(false);
+  const [showCourierManager, setShowCourierManager] = useState(false);
 
   // ── Customer state ──────────────────────────────────────────────────────
   const [customer, setCustomer] = useState<SelectedCustomer | null>(null);
@@ -96,7 +106,7 @@ export default function NewOrderPage() {
   const [channel, setChannel] = useState<Channel>("FACEBOOK");
   const [courierId, setCourierId] = useState("");
   const [deliveryAddress, setDeliveryAddress] = useState("");
-  const [discountType, setDiscountType] = useState<"NONE" | "PERCENT" | "FIXED">("NONE");
+  const [discountType, setDiscountType] = useState<"NONE" | "PERCENT" | "FIXED">("PERCENT");
   const [discountValue, setDiscountValue] = useState("");
   const [deliveryCharge, setDeliveryCharge] = useState("0");
   const [advancePaid, setAdvancePaid] = useState("0");
@@ -105,15 +115,25 @@ export default function NewOrderPage() {
   const [showDiscountSheet, setShowDiscountSheet] = useState(false);
 
   // ── Couriers ────────────────────────────────────────────────────────────
-  const { data: couriers = [] } = useQuery({
+  // GetAll returns every courier a business has (active + inactive) — that's right for the
+  // settings management view, but here we're picking one to actually use, so only active ones
+  // are real options.
+  const { data: allCouriers = [] } = useQuery({
     queryKey: ["couriers"],
     queryFn: listCouriers,
     staleTime: 60_000,
   });
+  const couriers = allCouriers.filter((c) => c.isActive);
   const selectedCourier = couriers.find((c) => c.id === courierId) ?? null;
 
   // ── Money calculations ──────────────────────────────────────────────────
   const subtotal = cart.reduce((s, l) => s + l.unitPrice * l.qty, 0);
+
+  // Per-product offers already baked into each line's unitPrice (vs. its marketPrice) — shown in
+  // the discount sheet as "already applied" before staff considers stacking an order-level one.
+  const actualPriceTotal = cart.reduce((s, l) => s + (l.marketPrice ?? l.unitPrice) * l.qty, 0);
+  const existingDiscountAmount = Math.max(actualPriceTotal - subtotal, 0);
+  const existingDiscountPct = actualPriceTotal > 0 ? Math.round((existingDiscountAmount / actualPriceTotal) * 100) : 0;
 
   const discountAmount = (() => {
     const v = parseFloat(discountValue) || 0;
@@ -150,7 +170,10 @@ export default function NewOrderPage() {
         variantId: result.variantId,
         productName: result.productName,
         variantLabel,
+        variantSku: result.variantSku,
+        imageUrl: result.imageUrl,
         unitPrice: result.sellingPrice,
+        marketPrice: result.marketPrice,
         qty: 1,
         available: result.stock,
       }];
@@ -182,8 +205,8 @@ export default function NewOrderPage() {
         isDraft,
         courierId: courierId || undefined,
         advancePaymentMethod: parseFloat(advancePaid) > 0 ? advanceMethod : undefined,
-        discountType: discountType === "NONE" ? undefined : discountType,
-        discountValue: discountType !== "NONE" ? (parseFloat(discountValue) || 0) : undefined,
+        discountType: discountAmount > 0 ? discountType : undefined,
+        discountValue: discountAmount > 0 ? (parseFloat(discountValue) || 0) : undefined,
         deliveryChargeCustomer: deliveryNum,
         advancePaid: parseFloat(advancePaid) || 0,
         note: note.trim() || undefined,
@@ -237,54 +260,104 @@ export default function NewOrderPage() {
             </button>
           ) : (
             <div className="mt-3 space-y-2">
-              {cart.map((line) => (
-                <div key={line.variantId} className="bg-indigo-50 rounded-xl border border-indigo-100 px-3 py-3 flex gap-3 items-start">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-indigo-800 truncate">{line.productName}</p>
-                    {line.variantLabel && <p className="text-xs text-indigo-400">{line.variantLabel}</p>}
-                    <div className="flex items-center gap-2 mt-2">
-                      <span className="text-xs text-gray-400">{t("orders.priceLabel")}</span>
+              {cart.map((line) => {
+                const hasDiscount = line.marketPrice != null && line.marketPrice > line.unitPrice;
+                const discountPct = hasDiscount
+                  ? Math.round(((line.marketPrice! - line.unitPrice) / line.marketPrice!) * 100)
+                  : null;
+                return (
+                <div key={line.variantId} className="relative bg-indigo-50 rounded-xl border border-indigo-100 px-3 py-3 flex flex-col items-center gap-2 text-center">
+                  <button onClick={() => setCart((p) => p.filter((l) => l.variantId !== line.variantId))}
+                    className="absolute top-2 right-2 text-gray-300 hover:text-red-500">
+                    <XMarkIcon className="w-4 h-4" />
+                  </button>
+
+                  {/* Row 1: image (left) + product name (right) */}
+                  <div className="w-full flex items-center gap-3 text-left">
+                    <div className="w-16 h-16 rounded-lg bg-white overflow-hidden shrink-0 flex items-center justify-center border border-indigo-100">
+                      {line.imageUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={resolveMediaUrl(line.imageUrl) ?? ''} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        <span className="text-2xl">📦</span>
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-indigo-800">{line.productName}</p>
+                      {line.variantLabel && <p className="text-xs text-indigo-400">{line.variantLabel}</p>}
+                      <p className="text-[11px] text-gray-400 mt-0.5">{line.variantSku}</p>
+                      <span className={`flex items-center gap-1 text-xs font-medium mt-0.5 ${
+                        line.available - line.qty <= 2 ? "text-red-500" : "text-green-600"
+                      }`}>
+                        <CubeIcon className="w-3.5 h-3.5" />
+                        {t("orders.inStockCount", { n: line.available - line.qty })}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Row 3: price (left) / quantity (right) */}
+                  <div className="w-full flex items-start justify-center gap-8 bg-indigo-100/70 rounded-xl py-2.5">
+                    <div>
+                      <p className="text-[11px] text-gray-400 mb-1">{t("orders.pricePerUnitLabel")}</p>
                       <input
                         type="number"
                         inputMode="decimal"
+                        min="0"
                         value={line.unitPrice}
                         onChange={(e) => updatePrice(line.variantId, e.target.value)}
-                        className="w-20 h-7 border border-gray-200 rounded-lg text-sm px-2 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                        className="w-20 h-8 border border-gray-200 rounded-lg text-sm px-2 text-center focus:outline-none focus:ring-1 focus:ring-indigo-400"
                       />
                     </div>
-                  </div>
-                  <div className="flex flex-col items-end gap-1">
-                    <div className="flex items-center gap-2">
-                      <button onClick={() => updateQty(line.variantId, -1)}
-                        className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center">
-                        <MinusIcon className="w-4 h-4 text-gray-600" />
-                      </button>
-                      <span className="text-sm font-semibold w-5 text-center">{line.qty}</span>
-                      <button onClick={() => updateQty(line.variantId, 1)}
-                        disabled={line.qty >= line.available}
-                        className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center disabled:opacity-40">
-                        <PlusIcon className="w-4 h-4 text-indigo-600" />
-                      </button>
-                      <span className="text-sm font-semibold text-indigo-700 w-16 text-right">
-                        ৳{(line.unitPrice * line.qty).toFixed(0)}
-                      </span>
-                      <button onClick={() => setCart((p) => p.filter((l) => l.variantId !== line.variantId))}
-                        className="ml-1 text-gray-300 hover:text-red-500">
-                        <XMarkIcon className="w-4 h-4" />
-                      </button>
+                    <div>
+                      <p className="text-[11px] text-gray-400 mb-1">{t("orders.quantityLabel")}</p>
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => updateQty(line.variantId, -1)}
+                          className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center">
+                          <MinusIcon className="w-4 h-4 text-gray-600" />
+                        </button>
+                        <span className="text-sm font-semibold w-5 text-center">{line.qty}</span>
+                        <button onClick={() => updateQty(line.variantId, 1)}
+                          disabled={line.qty >= line.available}
+                          className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center disabled:opacity-40">
+                          <PlusIcon className="w-4 h-4 text-indigo-600" />
+                        </button>
+                      </div>
                     </div>
-                    <span className={`text-[10px] font-medium ${
-                      line.available - line.qty <= 2 ? "text-red-500" : "text-gray-400"
-                    }`}>
-                      {line.available - line.qty} left in stock
+                  </div>
+
+                  {hasDiscount && (
+                    <div className="w-full flex items-center justify-center gap-1.5">
+                      <span className="text-xs text-gray-400 line-through">
+                        {t("orders.actualPriceLabel")} ৳{line.marketPrice!.toLocaleString()}
+                      </span>
+                      <span className="inline-block text-[11px] font-semibold px-1.5 py-0.5 bg-orange-50 text-orange-600 rounded-full">
+                        {discountPct}% {t("products.discountOffSuffix")}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Row 4: breakdown = total, one centered line */}
+                  <div className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-orange-800">
+                    <span className="text-sm text-orange-200">
+                      ৳{line.unitPrice.toLocaleString()} × {line.qty} {t("orders.pcsUnit")}
+                    </span>
+                    <span className="text-sm text-orange-200">=</span>
+                    <span className="text-base font-semibold text-white">
+                      {t("orders.totalLabel")} ৳{(line.unitPrice * line.qty).toFixed(2)}
                     </span>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </section>
 
+        {/* Customer/Channel/Courier/Payment/Note only matter once there's actually something to
+            sell — showing them against an empty cart just front-loads decisions before the one
+            thing that actually determines them (what's being ordered) exists yet. */}
+        {cart.length > 0 && (
+        <>
         {/* ── 2. Customer ──────────────────────────────────────── */}
         <section className="bg-gray-100 border border-gray-400 rounded-2xl p-4">
           <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">
@@ -378,9 +451,19 @@ export default function NewOrderPage() {
 
         {/* ── 4. Courier service ───────────────────────────────── */}
         <section className="bg-gray-100 border border-gray-400 rounded-2xl p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">
-            {t("orders.courierSection")}
-          </p>
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+              {t("orders.courierSection")}
+            </p>
+            <button
+              type="button"
+              onClick={() => setShowCourierManager(true)}
+              className="text-gray-600 p-1 -m-1 rounded-lg active:bg-gray-200"
+              aria-label={t("orders.manageCouriers")}
+            >
+              <Cog6ToothIcon className="w-4 h-4" />
+            </button>
+          </div>
           <div className="flex flex-wrap gap-2 mb-3">
             <button
               onClick={() => { setCourierId(""); setDeliveryCharge("0"); }}
@@ -447,7 +530,7 @@ export default function NewOrderPage() {
               onClick={() => setShowDiscountSheet(true)}
               className="text-sm text-indigo-600 font-medium"
             >
-              {discountType === "NONE"
+              {discountAmount <= 0
                 ? t("orders.addDiscount")
                 : t("orders.discountActive", {
                     summary: discountType === "PERCENT" ? `${discountValue}%` : `৳${discountValue}`,
@@ -458,7 +541,7 @@ export default function NewOrderPage() {
             <div className="flex items-center gap-3">
               <label className="text-sm text-gray-500 flex-1">{t("orders.deliveryChargeOverride")}</label>
               <input
-                type="number" inputMode="decimal" value={deliveryCharge}
+                type="number" inputMode="decimal" min="0" value={deliveryCharge}
                 onChange={(e) => setDeliveryCharge(e.target.value)}
                 className="w-24 h-9 border border-gray-200 rounded-lg text-sm px-2 text-right focus:outline-none focus:ring-1 focus:ring-indigo-400"
               />
@@ -467,7 +550,7 @@ export default function NewOrderPage() {
             <div className="flex items-center gap-3">
               <label className="text-sm text-gray-500 flex-1">{t("orders.advancePaid")}</label>
               <input
-                type="number" inputMode="decimal" value={advancePaid}
+                type="number" inputMode="decimal" min="0" value={advancePaid}
                 onChange={(e) => setAdvancePaid(e.target.value)}
                 className="w-24 h-9 border border-gray-200 rounded-lg text-sm px-2 text-right focus:outline-none focus:ring-1 focus:ring-indigo-400"
               />
@@ -512,6 +595,8 @@ export default function NewOrderPage() {
             className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none bg-white"
           />
         </section>
+        </>
+        )}
 
       </div>
 
@@ -529,7 +614,7 @@ export default function NewOrderPage() {
           disabled={createOrder.isPending || !canConfirm}
           className="flex-[2] h-12 rounded-xl bg-indigo-600 text-white font-semibold text-sm disabled:opacity-40"
         >
-          {createOrder.isPending ? t("common.saving") : `${t("orders.confirmOrder")} ৳${total.toFixed(0)}`}
+          {createOrder.isPending ? t("common.saving") : `${t("orders.confirmOrder")} ৳${total.toFixed(2)}`}
         </button>
       </div>
 
@@ -539,6 +624,8 @@ export default function NewOrderPage() {
         onClose={() => setProductPickerOpen(false)}
         onSelect={(r) => { addToCart(r); setProductPickerOpen(false); }}
         cartVariantIds={new Set(cart.map((l) => l.variantId))}
+        showRecentlyPurchased={false}
+        showSellingPrice
       />
 
       {/* ── Customer picker slide ─────────────────────────────────── */}
@@ -549,6 +636,18 @@ export default function NewOrderPage() {
         selectedPhone={customer?.phone}
       />
 
+      {/* ── Courier settings popup — same manager component as /more/settings/couriers,
+          just opened in place so an in-progress order draft is never lost by navigating away ── */}
+      <SlidePanel
+        open={showCourierManager}
+        onClose={() => setShowCourierManager(false)}
+        title={t("orders.courierSection")}
+      >
+        <div className="px-4 py-4">
+          <CourierManager />
+        </div>
+      </SlidePanel>
+
       {/* ── Discount bottom sheet ─────────────────────────────────── */}
       {showDiscountSheet && (
         <div className="fixed inset-0 z-50 flex flex-col justify-end">
@@ -557,14 +656,37 @@ export default function NewOrderPage() {
             <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto mb-2" />
             <p className="text-base font-semibold text-gray-900">{t("orders.discountLabel")}</p>
 
+            {/* Price breakdown — what's already applied at the product level, before staff
+                considers stacking an order-level discount on top. */}
+            <div className="bg-orange-800 rounded-xl px-4 py-3 space-y-1.5">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-orange-200">{t("orders.actualPriceLabel")}</span>
+                <span className="text-orange-100">৳{actualPriceTotal.toLocaleString()}</span>
+              </div>
+              {existingDiscountAmount > 0 && (
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-orange-200">{t("orders.currentOfferLabel")}</span>
+                  <span className="text-white font-medium">
+                    {existingDiscountPct}% = −৳{existingDiscountAmount.toLocaleString()}
+                  </span>
+                </div>
+              )}
+              <div className="flex items-center justify-between text-sm pt-1.5 border-t border-orange-700">
+                <span className="font-semibold text-orange-100">{t("products.currentPriceSlotDetailsTitle")}</span>
+                <span className="font-semibold text-white">৳{subtotal.toLocaleString()}</span>
+              </div>
+            </div>
+
+            <p className="text-sm text-gray-500">{t("orders.addMoreDiscountHint")}</p>
+
             <div className="flex rounded-xl overflow-hidden border border-gray-200">
-              {(["NONE", "PERCENT", "FIXED"] as const).map((dtype) => (
+              {(["PERCENT", "FIXED"] as const).map((dtype) => (
                 <button
                   key={dtype}
                   onClick={() => setDiscountType(dtype)}
                   className={`flex-1 py-2.5 text-sm font-medium transition ${discountType === dtype ? "bg-indigo-600 text-white" : "text-gray-600"}`}
                 >
-                  {dtype === "NONE" ? t("orders.discountNone") : dtype === "PERCENT" ? t("orders.discountPercent") : t("orders.discountFixed")}
+                  {dtype === "PERCENT" ? t("orders.discountPercent") : t("orders.discountFixed")}
                 </button>
               ))}
             </div>
@@ -572,7 +694,7 @@ export default function NewOrderPage() {
             {discountType !== "NONE" && (
               <div>
                 <input
-                  type="number" inputMode="decimal"
+                  type="number" inputMode="decimal" min="0"
                   placeholder={discountType === "PERCENT" ? "e.g. 10" : "e.g. 50"}
                   value={discountValue}
                   onChange={(e) => setDiscountValue(e.target.value)}
@@ -587,12 +709,20 @@ export default function NewOrderPage() {
               </div>
             )}
 
-            <button
-              onClick={() => setShowDiscountSheet(false)}
-              className="w-full h-12 rounded-xl bg-indigo-600 text-white font-semibold text-sm"
-            >
-              {t("orders.apply")}
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={() => { setDiscountValue(""); setShowDiscountSheet(false); }}
+                className="flex-1 h-12 rounded-xl border border-gray-200 text-gray-600 font-semibold text-sm"
+              >
+                {t("orders.discountSkip")}
+              </button>
+              <button
+                onClick={() => setShowDiscountSheet(false)}
+                className="flex-1 h-12 rounded-xl bg-indigo-600 text-white font-semibold text-sm"
+              >
+                {t("orders.apply")}
+              </button>
+            </div>
           </div>
         </div>
       )}

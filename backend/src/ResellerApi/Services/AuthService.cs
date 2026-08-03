@@ -271,16 +271,32 @@ public class AuthService : IAuthService
 
             // Every business gets a working delivery charge out of the box — otherwise the
             // ClientPage storefront silently charges ৳0 delivery until an owner thinks to visit
-            // Settings → Couriers. Rates are editable there like any other courier.
-            _db.Couriers.Add(new Courier
+            // Settings → Couriers. Auto-provisioned from the platform's courier catalog (managed
+            // by PlatformAdmin) rather than a single hardcoded courier, so a new business starts
+            // with the same real options (Steadfast, Pathao, ...) everyone else has — each is its
+            // own row from here on, rates editable like any other courier.
+            var catalogCouriers = await _db.CourierCatalogs
+                .Where(c => c.IsActive && c.DeletedAt == null)
+                .OrderBy(c => c.CreatedAt)
+                .ToListAsync();
+            for (var i = 0; i < catalogCouriers.Count; i++)
             {
-                BusinessId = business.Id,
-                Name = "Default Courier",
-                InsideDhakaCharge = 60,
-                OutsideDhakaCharge = 120,
-                IsDefault = true,
-                IsActive = true
-            });
+                var entry = catalogCouriers[i];
+                _db.Couriers.Add(new Courier
+                {
+                    BusinessId = business.Id,
+                    CourierCatalogId = entry.Id,
+                    Name = entry.Name,
+                    InsideDhakaCharge = entry.InsideDhakaCharge,
+                    OutsideDhakaCharge = entry.OutsideDhakaCharge,
+                    ReturnCharge = entry.ReturnCharge,
+                    CodFeeType = entry.CodFeeType,
+                    CodFeeValue = entry.CodFeeValue,
+                    TrackingUrlTemplate = entry.TrackingUrlTemplate,
+                    IsDefault = i == 0,
+                    IsActive = true
+                });
+            }
 
             foreach (var (key, value) in DefaultAppSettings)
             {

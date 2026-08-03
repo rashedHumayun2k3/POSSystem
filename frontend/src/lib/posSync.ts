@@ -7,10 +7,11 @@ import { isNativeApp } from './platform';
 import {
   enqueueOfflineSaleNative,
   getPendingCountNative,
+  getPendingSaleItemsNative,
   syncOfflineSalesNative,
   subscribeNativeQueueChanged,
 } from './localDb/offlineSalesNative';
-import type { OfflineSale } from '@/types/offlineSale';
+import type { OfflineSale, OfflineSaleItem } from '@/types/offlineSale';
 
 export { isNetworkError };
 
@@ -169,6 +170,39 @@ export function usePendingSalesCount(): number {
   }, []);
 
   return isNativeApp() ? nativeCount : (dexieCount ?? 0);
+}
+
+// Flattened line items across every not-yet-synced sale, live — the persisted-storage source of
+// truth for "what's queued right now, per product." Exists so a screen like hawker/night-entry can
+// show pending offline sales in its numbers without keeping its own React-state tally, which would
+// reset to nothing on every reload/navigation even though the sales themselves are still safely
+// queued. Same always-call-both-hooks reasoning as usePendingSalesCount above.
+const EMPTY_ITEMS: OfflineSaleItem[] = [];
+
+export function usePendingSaleItems(): OfflineSaleItem[] {
+  const dexieSales = useLiveQuery(
+    () => posDb.offlineSales.where('status').anyOf('PENDING', 'SYNCING', 'FAILED').toArray(),
+    [],
+    []
+  );
+
+  const [nativeItems, setNativeItems] = useState<OfflineSaleItem[]>(EMPTY_ITEMS);
+  useEffect(() => {
+    if (!isNativeApp()) return;
+    let cancelled = false;
+    const refresh = () => { getPendingSaleItemsNative().then((items) => { if (!cancelled) setNativeItems(items); }); };
+    refresh();
+    const interval = setInterval(refresh, 4000);
+    const unsubscribe = subscribeNativeQueueChanged(refresh);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      unsubscribe();
+    };
+  }, []);
+
+  if (isNativeApp()) return nativeItems;
+  return (dexieSales ?? []).flatMap((sale) => sale.items);
 }
 
 function subscribeToConnectivity(callback: () => void): () => void {

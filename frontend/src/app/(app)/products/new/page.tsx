@@ -8,6 +8,7 @@ import { getAppSettings } from '@/lib/settingsApi';
 import type { Category, CategoryField } from '@/types/catalog';
 import { useLanguage } from '@/i18n/LanguageContext';
 import ImageUploadField from '@/components/ui/ImageUploadField';
+import CustomSelect from '@/components/ui/CustomSelect';
 import { categoryDisplayName } from '@/lib/categoryDisplay';
 import { toastError } from '@/lib/toastError';
 import { useToastStore } from '@/store/toastStore';
@@ -218,27 +219,23 @@ export default function NewProductPage() {
         {/* Category */}
         <div>
           <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">{t('products.categoryLabel')}</label>
-          <select
-            className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm"
-            value={form.categoryId}
-            onChange={(e) => setForm((f) => ({ ...f, categoryId: e.target.value }))}
-            required
-          >
-            <option value="">{t('products.selectCategory')}</option>
-            {categories.filter((c) => !c.parentCategoryId).map((top) => {
-              const subs = categories.filter((c) => c.parentCategoryId === top.id);
-              const topName = categoryDisplayName(top, lang);
-              if (subs.length === 0) return <option key={top.id} value={top.id}>{topName}</option>;
-              return (
-                <optgroup key={top.id} label={topName}>
-                  <option value={top.id}>{topName}</option>
-                  {subs.map((sub) => (
-                    <option key={sub.id} value={sub.id}>{'— '}{categoryDisplayName(sub, lang)}</option>
-                  ))}
-                </optgroup>
-              );
-            })}
-          </select>
+          <div className="mt-1">
+            <CustomSelect
+              value={form.categoryId}
+              onChange={(v) => setForm((f) => ({ ...f, categoryId: v }))}
+              options={[
+                { value: '', label: t('products.selectCategory') },
+                ...categories.filter((c) => !c.parentCategoryId).flatMap((top) => {
+                  const subs = categories.filter((c) => c.parentCategoryId === top.id);
+                  const topName = categoryDisplayName(top, lang);
+                  return [
+                    { value: top.id, label: topName },
+                    ...subs.map((sub) => ({ value: sub.id, label: `— ${categoryDisplayName(sub, lang)}` })),
+                  ];
+                }),
+              ]}
+            />
+          </div>
         </div>
 
         {/* Name */}
@@ -267,15 +264,13 @@ export default function NewProductPage() {
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">{t('products.unitLabel')}</label>
-            <select
-              className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm"
-              value={form.unitCode}
-              onChange={(e) => setForm((f) => ({ ...f, unitCode: e.target.value }))}
-            >
-              {units.map((u) => (
-                <option key={u.code} value={u.code}>{u.name}</option>
-              ))}
-            </select>
+            <div className="mt-1">
+              <CustomSelect
+                value={form.unitCode}
+                onChange={(v) => setForm((f) => ({ ...f, unitCode: v }))}
+                options={units.map((u) => ({ value: u.code, label: u.name }))}
+              />
+            </div>
           </div>
           <div>
             <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">{t('products.sellingPriceLabel')}</label>
@@ -422,7 +417,7 @@ export default function NewProductPage() {
               <input
                 type="number"
                 min="0"
-                step="0.01"
+                step="any"
                 className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm"
                 value={variantCombinations[0]?.qty ?? ''}
                 onChange={(e) => updateVariantQty(0, e.target.value)}
@@ -459,15 +454,17 @@ export default function NewProductPage() {
           </div>
           <div>
             <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">&nbsp;</label>
-            <select
-              className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm"
-              value={form.warrantyDurationUnit}
-              onChange={(e) => setForm((f) => ({ ...f, warrantyDurationUnit: e.target.value }))}
-            >
-              <option value="DAYS">{t('products.warrantyDays')}</option>
-              <option value="MONTHS">{t('products.warrantyMonths')}</option>
-              <option value="YEARS">{t('products.warrantyYears')}</option>
-            </select>
+            <div className="mt-1">
+              <CustomSelect
+                value={form.warrantyDurationUnit}
+                onChange={(v) => setForm((f) => ({ ...f, warrantyDurationUnit: v }))}
+                options={[
+                  { value: 'DAYS', label: t('products.warrantyDays') },
+                  { value: 'MONTHS', label: t('products.warrantyMonths') },
+                  { value: 'YEARS', label: t('products.warrantyYears') },
+                ]}
+              />
+            </div>
           </div>
         </div>
 
@@ -599,16 +596,13 @@ function VariantFieldInput({
 
   if (field.fieldType === 'DROPDOWN') {
     return (
-      <select
-        className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm"
+      <CustomSelect
+        triggerClassName="w-full flex items-center justify-between gap-2 border border-gray-200 rounded-lg px-2 py-1.5 text-sm bg-white text-left"
         value={value}
-        onChange={(e) => onChange(e.target.value)}
-      >
-        <option value="">{field.name}</option>
-        {options.map((o) => (
-          <option key={o} value={o}>{o}</option>
-        ))}
-      </select>
+        onChange={onChange}
+        placeholder={field.name}
+        options={options.map((o) => ({ value: o, label: o }))}
+      />
     );
   }
 
@@ -635,16 +629,12 @@ function CategoryFieldInput({
 
   if (field.fieldType === 'DROPDOWN') {
     return (
-      <select
-        className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm"
+      <CustomSelect
         value={value}
-        onChange={(e) => onChange(e.target.value)}
-      >
-        <option value="">{field.name}…</option>
-        {options.map((o) => (
-          <option key={o} value={o}>{o}</option>
-        ))}
-      </select>
+        onChange={onChange}
+        placeholder={`${field.name}…`}
+        options={options.map((o) => ({ value: o, label: o }))}
+      />
     );
   }
 

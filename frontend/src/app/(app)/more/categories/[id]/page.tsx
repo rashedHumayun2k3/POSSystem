@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { getCategory, getCategories, updateCategory, addCategoryField, updateCategoryField, deleteCategoryField } from '@/lib/catalogApi';
+import CustomSelect from '@/components/ui/CustomSelect';
 import type { CategoryField } from '@/types/catalog';
 import { useLanguage } from '@/i18n/LanguageContext';
 import { categoryDisplayName, parentCategoryDisplayName } from '@/lib/categoryDisplay';
@@ -111,26 +112,23 @@ export default function CategoryDetailPage() {
               onChange={(e) => setEditNameBn(e.target.value)}
               placeholder={t('categories.namePlaceholderBn')}
             />
-            <select
-              className="w-full border border-indigo-200 rounded-lg px-3 py-2 text-sm bg-white"
+            <CustomSelect
+              triggerClassName="w-full flex items-center justify-between gap-2 border border-indigo-200 rounded-lg px-3 py-2 text-sm bg-white text-left"
               value={editUnit}
-              onChange={(e) => setEditUnit(e.target.value)}
-            >
-              {['pcs', 'pair', 'set', 'dozen', 'kg', 'gm', 'liter', 'ml', 'meter', 'box'].map((u) => (
-                <option key={u} value={u}>{u}</option>
-              ))}
-            </select>
+              onChange={setEditUnit}
+              options={['pcs', 'pair', 'set', 'dozen', 'kg', 'gm', 'liter', 'ml', 'meter', 'box'].map((u) => ({ value: u, label: u }))}
+            />
             {!hasSubcategories && (
-              <select
-                className="w-full border border-indigo-200 rounded-lg px-3 py-2 text-sm bg-white"
+              <CustomSelect
+                triggerClassName="w-full flex items-center justify-between gap-2 border border-indigo-200 rounded-lg px-3 py-2 text-sm bg-white text-left"
                 value={editParentId}
-                onChange={(e) => setEditParentId(e.target.value)}
-              >
-                <option value="">{t('categories.noneTopLevel')}</option>
-                {topLevelCategories.map((c) => (
-                  <option key={c.id} value={c.id}>{categoryDisplayName(c, lang)}</option>
-                ))}
-              </select>
+                onChange={setEditParentId}
+                placeholder={t('categories.noneTopLevel')}
+                options={[
+                  { value: '', label: t('categories.noneTopLevel') },
+                  ...topLevelCategories.map((c) => ({ value: c.id, label: categoryDisplayName(c, lang) })),
+                ]}
+              />
             )}
             <button
               onClick={() => updateMeta.mutate()}
@@ -276,13 +274,12 @@ function FieldForm({
         value={form.name ?? ''}
         onChange={(e) => setForm({ ...form, name: e.target.value })}
       />
-      <select
-        className="w-full border border-indigo-200 rounded-lg px-3 py-2 text-sm bg-white"
+      <CustomSelect
+        triggerClassName="w-full flex items-center justify-between gap-2 border border-indigo-200 rounded-lg px-3 py-2 text-sm bg-white text-left"
         value={form.fieldType ?? 'TEXT'}
-        onChange={(e) => setForm({ ...form, fieldType: e.target.value as any })}
-      >
-        {FIELD_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-      </select>
+        onChange={(v) => setForm({ ...form, fieldType: v as any })}
+        options={FIELD_TYPES.map((ft) => ({ value: ft, label: ft }))}
+      />
       {form.fieldType === 'DROPDOWN' && (
         <textarea
           className="w-full border border-indigo-200 rounded-lg px-3 py-2 text-sm bg-white resize-none"

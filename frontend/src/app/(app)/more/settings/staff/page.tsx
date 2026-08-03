@@ -247,7 +247,7 @@ export default function StaffPage() {
             </div>
             <input
               placeholder={t("settings.salaryPlaceholder")} value={form.monthlySalary}
-              type="number" inputMode="decimal"
+              type="number" inputMode="decimal" min="0"
               onChange={(e) => setForm((f) => ({ ...f, monthlySalary: e.target.value }))}
               className="w-full h-11 px-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />

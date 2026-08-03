@@ -81,7 +81,8 @@ public record PurchaseTripSummaryDto(
     decimal TotalQtyDamaged,
     decimal TotalItemCost,
     decimal TotalSharedCost,
-    DateTime CreatedAt
+    DateTime CreatedAt,
+    string? SupplierReturnStatus // status of the most recent supplier return linked to this trip, if any
 );
 
 public record PurchaseItemDto(
@@ -102,7 +103,14 @@ public record PurchaseItemDto(
     decimal DueAmount,
     DateTime? PromisedDate,
     decimal AllocatedSharedCost,
-    decimal LandedUnitCost
+    decimal LandedUnitCost,
+    // The most recent supplier return (if any) that has claimed damaged units of this variant
+    // on this trip — lets the UI hide "Add for return" once it's already been submitted, and
+    // link straight to that return instead.
+    Guid? SupplierReturnId,
+    string? SupplierReturnNo,
+    string? SupplierReturnStatus,
+    decimal? SupplierReturnQty
 );
 
 public record PurchaseTripCostDto(

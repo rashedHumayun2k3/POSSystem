@@ -357,10 +357,11 @@ public class ProductService : IProductService
         return variants.Select(v => MapSearchResult(v, inv, v.AvgLandedCost)).ToList();
     }
 
-    // For the hawker night-entry tile grid — "sold today" per variant, business-scoped via the
-    // Orders join (OrderItem itself has no BusinessId). Kept out of BrowseAsync/MapSearchResult
-    // since those are on the hot path for POS/search too and don't need this aggregate on every call.
-    public async Task<Dictionary<Guid, decimal>> GetTodaySoldQtyByVariantAsync()
+    // For the hawker night-entry tile grid — qty AND revenue "sold today" per variant,
+    // business-scoped via the Orders join (OrderItem itself has no BusinessId). Kept out of
+    // BrowseAsync/MapSearchResult since those are on the hot path for POS/search too and don't
+    // need this aggregate on every call.
+    public async Task<Dictionary<Guid, TodaySoldDto>> GetTodaySoldQtyByVariantAsync()
     {
         var todayUtc = DateTime.UtcNow.Date;
         var tomorrowUtc = todayUtc.AddDays(1);
@@ -370,8 +371,26 @@ public class ProductService : IProductService
             .Join(_db.Orders.AsNoTracking().Where(OrderFinancials.SoldOrderFilter(todayUtc, tomorrowUtc)),
                 i => i.OrderId, o => o.Id, (i, o) => i)
             .GroupBy(i => i.VariantId)
-            .Select(g => new { VariantId = g.Key, Qty = g.Sum(x => x.Qty) })
-            .ToDictionaryAsync(x => x.VariantId, x => x.Qty);
+            .Select(g => new { VariantId = g.Key, Qty = g.Sum(x => x.Qty), Amount = g.Sum(x => x.Qty * x.UnitPrice) })
+            .ToDictionaryAsync(x => x.VariantId, x => new TodaySoldDto(x.Qty, x.Amount));
+    }
+
+    // Owner/Manager only (enforced at the controller — GTR-10). Scoped to HAWKER channel
+    // specifically, matching what Night Entry's "Today's Profit" tile has always meant (today's
+    // door-to-door sales profit), not shop POS or online-channel profit.
+    public async Task<decimal> GetTodayHawkerProfitAsync()
+    {
+        var todayUtc = DateTime.UtcNow.Date;
+        var tomorrowUtc = todayUtc.AddDays(1);
+
+        return await _db.OrderItems.AsNoTracking()
+            .Where(i => i.DeletedAt == null)
+            .Join(
+                _db.Orders.AsNoTracking()
+                    .Where(OrderFinancials.SoldOrderFilter(todayUtc, tomorrowUtc))
+                    .Where(o => o.Channel == "HAWKER"),
+                i => i.OrderId, o => o.Id, (i, o) => i)
+            .SumAsync(i => i.Qty * (i.UnitPrice - (i.UnitCostSnapshot ?? 0)));
     }
 
     public async Task<List<ProductSearchResultDto>> RecentlyPurchasedAsync(int limit)

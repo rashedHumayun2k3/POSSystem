@@ -16,10 +16,11 @@ import { useLanguage } from "@/i18n/LanguageContext";
 // The only routes that render without needing a server round-trip: POS and Hawker Night Entry
 // (the "New Sale" destination — Night Entry replaces POS entirely for hawker-channel businesses,
 // see BottomTabBar's isHawker branch) both have their own offline-sale/local-cache path built for
-// exactly this, and the More menu + FAQ are static links with no data fetching. Every other route
+// exactly this, and the FAQ is static content with no data fetching. Every other route — including
+// the More menu itself, since almost everything it links to needs a server round-trip anyway —
 // shows OfflineGate instead of mounting its content when offline, rather than letting each page's
 // own query silently fail into a blank screen.
-const OFFLINE_SAFE_PATHS = ["/pos", "/hawker/night-entry", "/more", "/more/faq"];
+const OFFLINE_SAFE_PATHS = ["/pos", "/hawker/night-entry", "/more/faq"];
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const user = useAuthStore((s) => s.user);

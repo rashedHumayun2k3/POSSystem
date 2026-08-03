@@ -1,6 +1,7 @@
 'use client';
 
 import { use, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -20,6 +21,7 @@ import {
   previewSession,
   updateTripHeader,
 } from '@/lib/purchasesApi';
+import { createSupplierReturn, addSupplierReturnItem } from '@/lib/supplierReturnsApi';
 import type {
   PurchaseItemDto,
   CostType,
@@ -33,6 +35,8 @@ import type { SupplierDto } from '@/types/supplier';
 import { useAuthStore } from '@/store/authStore';
 import SupplierPicker from '@/components/purchases/SupplierPicker';
 import ProductPicker from '@/components/purchases/ProductPicker';
+import CustomSelect from '@/components/ui/CustomSelect';
+import SlidePanel from '@/components/ui/SlidePanel';
 import { useLanguage } from '@/i18n/LanguageContext';
 import { useToastStore } from '@/store/toastStore';
 
@@ -58,7 +62,7 @@ const STATUS_COLORS: Record<string, string> = {
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
-type Tab = 'items' | 'costs' | 'receive';
+type Tab = 'items' | 'costs' | 'receive' | 'damage';
 
 interface SessionItemEntry {
   qtyUsable: string;
@@ -77,6 +81,13 @@ function getApiErrorMessage(error: unknown, fallback: string) {
 
 const formatQty = (value: number) =>
   value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+
+const RETURN_STATUS_COLORS: Record<string, string> = {
+  DRAFT: 'bg-gray-100 text-gray-500',
+  SUBMITTED: 'bg-amber-100 text-amber-700',
+  RESOLVED: 'bg-green-100 text-green-700',
+  CANCELLED: 'bg-red-100 text-red-600',
+};
 
 const formatDate = (iso: string) =>
   new Date(iso).toLocaleString(undefined, { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
@@ -104,6 +115,20 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
   const [showProductPicker, setShowProductPicker] = useState(false);
   const [showSupplierPicker, setShowSupplierPicker] = useState(false);
 
+  // Damage → supplier return
+  const [selectedForReturnIds, setSelectedForReturnIds] = useState<Set<string>>(new Set());
+  const toggleSelectForReturn = (itemId: string) => {
+    setSelectedForReturnIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(itemId)) next.delete(itemId);
+      else next.add(itemId);
+      return next;
+    });
+  };
+  const [showCreateReturn, setShowCreateReturn] = useState(false);
+  const [showReturnSupplierPicker, setShowReturnSupplierPicker] = useState(false);
+  const [returnSupplier, setReturnSupplier] = useState<SupplierDto | null>(null);
+
   // Session form
   const [showAddSession, setShowAddSession] = useState(false);
   const [sessionFormMeta, setSessionFormMeta] = useState({
@@ -113,6 +138,38 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
     note: '',
   });
   const [sessionItemEntries, setSessionItemEntries] = useState<Record<string, SessionItemEntry>>({});
+  // Which pending items the user has picked to receive right now — the "+ Record Goods" trigger
+  // stays hidden until at least one is picked, and the session form (once opened) only shows entry
+  // rows for these, instead of every still-outstanding item in the trip.
+  const [selectedForReceiveIds, setSelectedForReceiveIds] = useState<Set<string>>(new Set());
+  // Selecting an item seeds sensible defaults for it — packets = the whole remaining qty in one
+  // packet, so সঠিক প্রডাক্ট পরিমাণ starts out equal to রিসিভ অপেক্ষমাণ and the user only has to
+  // touch নষ্ট প্রডাক্ট পরিমাণ if some of it turned out damaged.
+  const toggleSelectForReceive = (itemId: string, remaining: number) => {
+    const isSelected = selectedForReceiveIds.has(itemId);
+    setSelectedForReceiveIds((prev) => {
+      const next = new Set(prev);
+      if (isSelected) next.delete(itemId);
+      else next.add(itemId);
+      return next;
+    });
+    if (!isSelected) {
+      setSessionItemEntries((s) => ({
+        ...s,
+        [itemId]: s[itemId] ?? {
+          packets: String(remaining),
+          itemsPerPacket: '1',
+          qtyUsable: String(remaining),
+          qtyDamaged: '',
+        },
+      }));
+    }
+  };
+  const resetReceiveSelection = () => {
+    setShowAddSession(false);
+    setSessionItemEntries({});
+    setSelectedForReceiveIds(new Set());
+  };
 
   // Session review
   const [previewData, setPreviewData] = useState<{ sessionId: string; data: SessionPreview } | null>(null);
@@ -217,6 +274,26 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
     onSuccess: () => invalidate(),
   });
 
+  const createReturnMutation = useMutation({
+    mutationFn: async () => {
+      if (!returnSupplier) throw new Error(t('purchases.selectSupplierFirst'));
+      const selected = (trip?.items ?? []).filter((i) => selectedForReturnIds.has(i.id));
+      const ret = await createSupplierReturn({ supplierId: returnSupplier.id, tripId: id });
+      for (const item of selected) {
+        const remainingUnclaimed = item.qtyDamaged - (item.supplierReturnQty ?? 0);
+        await addSupplierReturnItem(ret.id, {
+          variantId: item.variantId,
+          qtyReturned: remainingUnclaimed,
+          unitCost: item.landedUnitCost,
+          resolutionType: 'WRITE_OFF',
+        });
+      }
+      return ret;
+    },
+    onSuccess: (ret) => router.push(`/more/supplier-returns/${ret.id}`),
+    onError: (err) => useToastStore.getState().show(getApiErrorMessage(err, t('purchases.failedCreateReturn')), 'error'),
+  });
+
   const resetItemForm = () => {
     setItemForm({ qtyBought: '', totalCost: '' });
     setWantsDue(false);
@@ -314,8 +391,7 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
     },
     onSuccess: () => {
       invalidate();
-      setShowAddSession(false);
-      setSessionItemEntries({});
+      resetReceiveSelection();
       setSessionFormMeta({ receivedAt: new Date().toISOString().slice(0, 16), transportMode: 'TRUCK', vehicleOrTrackingNo: '', note: '' });
     },
     onError: (err) => useToastStore.getState().show(getApiErrorMessage(err, t('common.error')), 'error'),
@@ -423,11 +499,55 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
   const hasValidTotalCost = Number.isFinite(totalCostNumber) && totalCostNumber > 0;
   const canSaveItem = hasSelectedVariant && hasValidQty && hasValidTotalCost && !dueError && !isSavingItem;
 
+  // Not blocked — the same variant showing up twice is a real scenario (e.g. same item bought
+  // from two suppliers, or a second batch at a different cost within the same trip), so this is
+  // only a heads-up in case it was actually a mistake, not a hard stop. Only relevant while adding
+  // a NEW item (editingItem already IS one of the existing entries, so it would always "duplicate"
+  // itself).
+  const duplicateItemCount = !editingItem && selectedVariant
+    ? (trip.items ?? []).filter((i) => i.variantId === selectedVariant.variantId).length
+    : 0;
+
   const itemsWithRemaining = (trip.items ?? []).filter(
     (i) => i.qtyBought - i.qtyUsable - i.qtyDamaged > 0
   );
+  // Just the ones picked via the per-item "Add for receive" button — what the session form
+  // actually shows entry rows for, instead of every outstanding item in the trip at once.
+  const itemsSelectedForSession = itemsWithRemaining.filter((i) => selectedForReceiveIds.has(i.id));
 
   const pendingSessions = (trip.sessions ?? []).filter((s) => s.status === 'PENDING_APPROVAL');
+
+  // Damage → supplier return — a plain array (not `trip.items` directly) so the mutation closure
+  // below doesn't have to re-read the possibly-undefined `trip` binding from inside a nested
+  // function, which TypeScript won't narrow across that boundary.
+  const damagedItems = (trip.items ?? []).filter((i) => i.qtyDamaged > 0);
+
+  const RETURN_STATUS_LABELS: Record<string, string> = {
+    DRAFT:     t('supplierReturns.statusDraft'),
+    SUBMITTED: t('supplierReturns.statusSubmitted'),
+    RESOLVED:  t('supplierReturns.statusResolved'),
+    CANCELLED: t('supplierReturns.statusCancelled'),
+  };
+
+  const openCreateReturn = () => {
+    const selected = damagedItems.filter((i) => selectedForReturnIds.has(i.id));
+    const supplierIds = new Set(selected.map((i) => i.supplierId).filter((v): v is string => !!v));
+    if (supplierIds.size === 1) {
+      const first = selected.find((i) => i.supplierId)!;
+      setReturnSupplier({
+        id: first.supplierId!,
+        name: first.supplierName ?? '',
+        address: first.supplierAddress,
+        phone: null,
+        notes: null,
+        usageCount: 0,
+        lastUsedAt: null,
+      });
+    } else {
+      setReturnSupplier(null);
+    }
+    setShowCreateReturn(true);
+  };
 
   return (
     <div className="pb-32 overflow-x-hidden">
@@ -466,35 +586,37 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
       </div>
 
       {/* Summary bar */}
-      <div className="bg-indigo-50 px-4 py-3 flex gap-5 text-sm flex-wrap">
+      <div className="bg-orange-800 px-4 py-3 flex gap-5 text-sm flex-wrap">
         <div>
-          <p className="text-[10px] text-indigo-400">{t('purchases.itemsCost')}</p>
-          <p className="font-semibold text-indigo-800 text-sm">৳{totalItemCost.toLocaleString()}</p>
+          <p className="text-[10px] text-orange-200">{t('purchases.itemsCost')}</p>
+          <p className="font-semibold text-white text-sm">৳{totalItemCost.toLocaleString()}</p>
         </div>
         <div>
-          <p className="text-[10px] text-indigo-400">{t('purchases.sharedCosts')}</p>
-          <p className="font-semibold text-indigo-800 text-sm">৳{totalSharedCost.toLocaleString()}</p>
+          <p className="text-[10px] text-orange-200">{t('purchases.sharedCosts')}</p>
+          <p className="font-semibold text-white text-sm">৳{totalSharedCost.toLocaleString()}</p>
         </div>
         {totalLateCost > 0 && (
           <div>
-            <p className="text-[10px] text-amber-500">{t('purchases.lateCosts')}</p>
-            <p className="font-semibold text-amber-700 text-sm">৳{totalLateCost.toLocaleString()}</p>
+            <p className="text-[10px] text-amber-200">{t('purchases.lateCosts')}</p>
+            <p className="font-semibold text-amber-100 text-sm">৳{totalLateCost.toLocaleString()}</p>
           </div>
         )}
         <div>
-          <p className="text-[10px] text-indigo-400">
+          <p className="text-[10px] text-orange-200">
             {t('purchases.total')} ({t('purchases.itemsCost')} + {t('purchases.sharedCosts')}
             {totalLateCost > 0 ? ` + ${t('purchases.lateCosts')}` : ''})
           </p>
-          <p className="font-bold text-indigo-900 text-sm">৳{(totalItemCost + totalSharedCost + totalLateCost).toLocaleString()}</p>
+          <p className="font-bold text-white text-sm">৳{(totalItemCost + totalSharedCost + totalLateCost).toLocaleString()}</p>
         </div>
       </div>
 
       {/* Order info row */}
-      {(() => {
-        const editable = trip.status === 'DRAFT' || trip.status === 'RECEIVING';
-        const showDelivery = editable || Boolean(trip.expectedDeliveryDate);
-        const showPoRef = editable || Boolean(trip.supplierPoRef);
+      {/* TODO: hidden for now per owner request — we may show this again later. */}
+      {false && (() => {
+        const tripSafe = trip!;
+        const editable = tripSafe.status === 'DRAFT' || tripSafe.status === 'RECEIVING';
+        const showDelivery = editable || Boolean(tripSafe.expectedDeliveryDate);
+        const showPoRef = editable || Boolean(tripSafe.supplierPoRef);
         if (!showDelivery && !showPoRef) return null;
         return (
           <div className="px-4 py-2.5 border-b border-gray-100 flex gap-3">
@@ -511,7 +633,7 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
                   />
                 ) : (
                   <p className="text-xs text-gray-700">
-                    {new Date(trip.expectedDeliveryDate!).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                    {new Date(tripSafe.expectedDeliveryDate!).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
                   </p>
                 )}
               </div>
@@ -529,7 +651,7 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
                     className="w-full text-xs text-gray-700 border border-gray-200 rounded-lg px-2 py-1 bg-white"
                   />
                 ) : (
-                  <p className="text-xs text-gray-700">{trip.supplierPoRef}</p>
+                  <p className="text-xs text-gray-700">{tripSafe.supplierPoRef}</p>
                 )}
               </div>
             )}
@@ -543,10 +665,14 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
           items:   { label: t('purchases.tabItems'),   text: 'text-blue-600',    border: 'border-blue-500',    dot: 'bg-blue-500'    },
           costs:   { label: t('purchases.tabCosts'),   text: 'text-amber-600',   border: 'border-amber-500',   dot: 'bg-amber-500'   },
           receive: { label: t('purchases.tabReceive'), text: 'text-emerald-600', border: 'border-emerald-500', dot: 'bg-emerald-500' },
+          damage:  { label: t('purchases.tabDamage'),  text: 'text-rose-600',    border: 'border-rose-500',    dot: 'bg-rose-500'    },
         };
+        const TAB_LIST: Tab[] = damagedItems.length > 0
+          ? ['items', 'costs', 'receive', 'damage']
+          : ['items', 'costs', 'receive'];
         return (
           <div className="flex border-b border-indigo-200 bg-indigo-100">
-            {(['items', 'costs', 'receive'] as Tab[]).map((t2) => {
+            {TAB_LIST.map((t2) => {
               const m = TAB_META[t2];
               const active = tab === t2;
               return (
@@ -560,11 +686,14 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
                   <span className={`w-5 h-5 rounded-full text-[10px] flex items-center justify-center font-bold transition-colors ${
                     active ? `${m.dot} text-white` : 'bg-gray-100 text-gray-500'
                   }`}>
-                    {t2 === 'items' ? '📦' : t2 === 'costs' ? '💰' : '🚚'}
+                    {t2 === 'items' ? '📦' : t2 === 'costs' ? '💰' : t2 === 'receive' ? '🚚' : '↩️'}
                   </span>
                   {m.label}
                   {t2 === 'receive' && pendingSessions.length > 0 && (
                     <span className="bg-amber-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">{pendingSessions.length}</span>
+                  )}
+                  {t2 === 'damage' && damagedItems.length > 0 && (
+                    <span className="bg-rose-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">{damagedItems.length}</span>
                   )}
                 </button>
               );
@@ -578,10 +707,18 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
         <div className="px-4 pt-3 space-y-2">
           {isDraft && (
             <>
-              {(showAddItem || editingItem) ? (
-                <div className="bg-indigo-50 rounded-xl p-4 space-y-3">
-                  <p className="text-sm font-medium text-indigo-800">{editingItem ? t('purchases.editItem') : t('purchases.addItem')}</p>
-
+              <SlidePanel
+                open={showAddItem || !!editingItem}
+                onClose={() => { resetItemForm(); setShowAddItem(false); setEditingItem(null); }}
+                title={editingItem ? t('purchases.editItem') : t('purchases.addItem')}
+                footer={
+                  <button onClick={() => { if (canSaveItem) { if (editingItem) updateItemMutation.mutate(); else addItemMutation.mutate(); } }}
+                    disabled={!canSaveItem} className="w-full bg-indigo-600 text-white py-3 rounded-xl text-sm font-semibold disabled:opacity-50">
+                    {isSavingItem ? t('common.saving') : editingItem ? t('common.update') : t('common.add')}
+                  </button>
+                }
+              >
+                <div className="px-4 py-4 space-y-3">
                   {editingItem ? (
                     <p className="text-sm text-gray-700 font-medium">
                       {editingItem.productName}{' '}
@@ -590,13 +727,21 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
                   ) : (
                     <div>
                       {selectedVariant ? (
-                        <div className="flex items-center justify-between bg-white border border-indigo-200 rounded-xl px-3 py-2">
-                          <div>
-                            <p className="text-sm font-medium text-gray-900">{selectedVariant.productName}</p>
-                            <p className="text-xs text-gray-400">{selectedVariant.variantSku}</p>
+                        <>
+                          <div className="flex items-center justify-between bg-white border border-indigo-200 rounded-xl px-3 py-2">
+                            <div>
+                              <p className="text-sm font-medium text-gray-900">{selectedVariant.productName}</p>
+                              <p className="text-xs text-gray-400">{selectedVariant.variantSku}</p>
+                            </div>
+                            <button onClick={() => setShowProductPicker(true)} className="text-xs text-indigo-600 font-medium shrink-0 ml-2">{t('common.change')}</button>
                           </div>
-                          <button onClick={() => setShowProductPicker(true)} className="text-xs text-indigo-600 font-medium shrink-0 ml-2">{t('common.change')}</button>
-                        </div>
+                          {duplicateItemCount > 0 && (
+                            <p className="text-xs text-amber-600 mt-1.5 flex items-start gap-1">
+                              <span>⚠</span>
+                              <span>{t('purchases.duplicateItemWarning', { count: duplicateItemCount })}</span>
+                            </p>
+                          )}
+                        </>
                       ) : (
                         <button
                           onClick={() => setShowProductPicker(true)}
@@ -611,103 +756,99 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
                     </div>
                   )}
 
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="text-xs text-gray-500 mb-1 block">{t('purchases.qtyBought')} <span className="text-red-500">*</span></label>
-                      <div className="relative">
-                        <input type="number" required className="w-full border border-indigo-200 rounded-lg px-3 py-2 pr-12 text-sm bg-white" placeholder="100"
-                          value={itemForm.qtyBought} onChange={(e) => setItemForm((f) => ({ ...f, qtyBought: e.target.value }))} />
-                        {selectedVariant?.unitCode && (
-                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">
-                            {selectedVariant.unitCode}
-                          </span>
+                  {(editingItem || selectedVariant) && (
+                    <>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-xs text-gray-500 mb-1 block">{t('purchases.qtyBought')} <span className="text-red-500">*</span></label>
+                          <div className="relative">
+                            <input type="number" required min="0" className="w-full border border-indigo-200 rounded-lg px-3 py-2 pr-12 text-sm bg-white" placeholder="100"
+                              value={itemForm.qtyBought} onChange={(e) => setItemForm((f) => ({ ...f, qtyBought: e.target.value }))} />
+                            {selectedVariant?.unitCode && (
+                              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">
+                                {selectedVariant.unitCode}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div>
+                          <label className="text-xs text-gray-500 mb-1 block">{t('purchases.totalCost')} <span className="text-red-500">*</span></label>
+                          <input type="number" required min="0" className="w-full border border-indigo-200 rounded-lg px-3 py-2 text-sm bg-white" placeholder="10000"
+                            value={itemForm.totalCost} onChange={(e) => setItemForm((f) => ({ ...f, totalCost: e.target.value }))} />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="text-xs text-gray-500 mb-1 block">{t('purchases.supplier')}</label>
+                        {selectedSupplier ? (
+                          <div className="flex items-center justify-between bg-white border border-indigo-200 rounded-xl px-3 py-2">
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium text-gray-900 truncate">{selectedSupplier.name}</p>
+                              {selectedSupplier.address && <p className="text-xs text-gray-400 truncate">{selectedSupplier.address}</p>}
+                            </div>
+                            <div className="flex gap-2 shrink-0 ml-2">
+                              <button onClick={() => setShowSupplierPicker(true)} className="text-xs text-indigo-600 font-medium">{t('common.change')}</button>
+                              <button onClick={() => setSelectedSupplier(null)} className="text-xs text-gray-400">✕</button>
+                            </div>
+                          </div>
+                        ) : (
+                          <button onClick={() => setShowSupplierPicker(true)}
+                            className="w-full flex items-center justify-between bg-white border border-dashed border-indigo-300 rounded-xl px-3 py-2.5 text-sm text-indigo-500 font-medium">
+                            <span>{t('purchases.chooseSupplier')}</span>
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                            </svg>
+                          </button>
                         )}
                       </div>
-                    </div>
-                    <div>
-                      <label className="text-xs text-gray-500 mb-1 block">{t('purchases.totalCost')} <span className="text-red-500">*</span></label>
-                      <input type="number" required className="w-full border border-indigo-200 rounded-lg px-3 py-2 text-sm bg-white" placeholder="10000"
-                        value={itemForm.totalCost} onChange={(e) => setItemForm((f) => ({ ...f, totalCost: e.target.value }))} />
-                    </div>
-                  </div>
 
-                  <div>
-                    <label className="text-xs text-gray-500 mb-1 block">{t('purchases.supplier')}</label>
-                    {selectedSupplier ? (
-                      <div className="flex items-center justify-between bg-white border border-indigo-200 rounded-xl px-3 py-2">
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium text-gray-900 truncate">{selectedSupplier.name}</p>
-                          {selectedSupplier.address && <p className="text-xs text-gray-400 truncate">{selectedSupplier.address}</p>}
-                        </div>
-                        <div className="flex gap-2 shrink-0 ml-2">
-                          <button onClick={() => setShowSupplierPicker(true)} className="text-xs text-indigo-600 font-medium">{t('common.change')}</button>
-                          <button onClick={() => setSelectedSupplier(null)} className="text-xs text-gray-400">✕</button>
-                        </div>
-                      </div>
-                    ) : (
-                      <button onClick={() => setShowSupplierPicker(true)}
-                        className="w-full flex items-center justify-between bg-white border border-dashed border-indigo-300 rounded-xl px-3 py-2.5 text-sm text-indigo-500 font-medium">
-                        <span>{t('purchases.chooseSupplier')}</span>
-                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                        </svg>
-                      </button>
-                    )}
-                  </div>
-
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={wantsDue}
-                      onChange={(e) => { setWantsDue(e.target.checked); if (!e.target.checked) setDueInput(''); }}
-                      className="w-4 h-4 rounded border-gray-300 text-indigo-600"
-                    />
-                    <span className="text-sm text-gray-700">{t('purchases.wantsDueLabel')}</span>
-                  </label>
-
-                  <div className={wantsDue ? 'grid grid-cols-2 gap-2' : ''}>
-                    {wantsDue && (
-                      <div>
-                        <label className={`text-xs mb-1 block ${dueError ? 'text-red-500' : 'text-gray-500'}`}>{t('purchases.due')}</label>
+                      <label className="flex items-center gap-2 cursor-pointer">
                         <input
-                          type="number"
-                          placeholder="0"
-                          value={dueInput}
-                          onChange={(e) => setDueInput(e.target.value)}
-                          className={`w-full border rounded-lg px-3 py-2 text-sm bg-white ${
-                            dueError ? 'border-red-400 focus:outline-red-400' : 'border-indigo-200'
-                          }`}
+                          type="checkbox"
+                          checked={wantsDue}
+                          onChange={(e) => { setWantsDue(e.target.checked); if (!e.target.checked) setDueInput(''); }}
+                          className="w-4 h-4 rounded border-gray-300 text-indigo-600"
                         />
-                      </div>
-                    )}
-                    <div>
-                      <label className="text-xs text-gray-500 mb-1 block">{t('purchases.paidNow')}</label>
-                      <input type="number" className="w-full border border-indigo-100 rounded-lg px-3 py-2 text-sm bg-indigo-50 text-gray-600"
-                        value={paidNowComputed} readOnly />
-                      <p className="text-[11px] text-gray-400 mt-1">
-                        {wantsDue ? t('purchases.dueHint') : t('purchases.fullyPaidHint')}
-                      </p>
-                    </div>
-                  </div>
-                  {dueError && (
-                    <p className="text-xs text-red-500 -mt-1">{dueError}</p>
-                  )}
+                        <span className="text-sm text-gray-700">{t('purchases.wantsDueLabel')}</span>
+                      </label>
 
-                  <div className="flex gap-2">
-                    <button onClick={() => { if (canSaveItem) { if (editingItem) updateItemMutation.mutate(); else addItemMutation.mutate(); } }}
-                      disabled={!canSaveItem} className="flex-1 bg-indigo-600 text-white py-2 rounded-lg text-sm font-medium disabled:opacity-50">
-                      {isSavingItem ? t('common.saving') : editingItem ? t('common.update') : t('common.add')}
-                    </button>
-                    <button onClick={() => { resetItemForm(); setShowAddItem(false); setEditingItem(null); }}
-                      className="px-4 py-2 rounded-lg text-sm text-gray-500 border border-gray-200">{t('common.cancel')}</button>
-                  </div>
+                      <div className={wantsDue ? 'grid grid-cols-2 gap-2' : ''}>
+                        {wantsDue && (
+                          <div>
+                            <label className={`text-xs mb-1 block ${dueError ? 'text-red-500' : 'text-gray-500'}`}>{t('purchases.due')}</label>
+                            <input
+                              type="number"
+                              min="0"
+                              placeholder="0"
+                              value={dueInput}
+                              onChange={(e) => setDueInput(e.target.value)}
+                              className={`w-full border rounded-lg px-3 py-2 text-sm bg-white ${
+                                dueError ? 'border-red-400 focus:outline-red-400' : 'border-indigo-200'
+                              }`}
+                            />
+                          </div>
+                        )}
+                        <div>
+                          <label className="text-xs text-gray-500 mb-1 block">{t('purchases.paidNow')}</label>
+                          <input type="number" className="w-full border border-indigo-100 rounded-lg px-3 py-2 text-sm bg-indigo-50 text-gray-600"
+                            value={paidNowComputed} readOnly />
+                          <p className="text-[11px] text-gray-400 mt-1">
+                            {wantsDue ? t('purchases.dueHint') : t('purchases.fullyPaidHint')}
+                          </p>
+                        </div>
+                      </div>
+                      {dueError && (
+                        <p className="text-xs text-red-500 -mt-1">{dueError}</p>
+                      )}
+                    </>
+                  )}
                 </div>
-              ) : (
-                <button onClick={() => setShowAddItem(true)}
-                  className="w-full border-2 border-dashed border-indigo-200 rounded-xl py-3 text-sm text-indigo-600 font-medium">
-                  {t('purchases.addProduct')}
-                </button>
-              )}
+              </SlidePanel>
+
+              <button onClick={() => setShowAddItem(true)}
+                className="w-full border-2 border-dashed border-indigo-200 rounded-xl py-3 text-sm text-indigo-600 font-medium">
+                {trip.items.length > 0 ? t('purchases.addMoreProduct') : t('purchases.addProduct')}
+              </button>
             </>
           )}
 
@@ -754,7 +895,15 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
                       {item.dueAmount > 0 && <span className="text-amber-600">Due: ৳{item.dueAmount}</span>}
                     </div>
                     {notReceivedYet && (
-                      <p className="text-xs text-red-600 font-medium mt-2">{t('purchases.notReceivedWarning')}</p>
+                      <div className="flex items-center justify-between gap-2 mt-2">
+                        <p className="text-xs text-red-600 font-medium">{t('purchases.notReceivedWarning')}</p>
+                        <button
+                          onClick={() => setTab('receive')}
+                          className="shrink-0 text-xs font-semibold text-white bg-indigo-600 px-3 py-1.5 rounded-lg"
+                        >
+                          {t('purchases.receiveNowButton')}
+                        </button>
+                      </div>
                     )}
                   </div>
                 );
@@ -790,7 +939,7 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
                       </button>
                     ))}
                   </div>
-                  <input type="number" className="w-full border border-indigo-200 rounded-lg px-3 py-2 text-sm bg-white" placeholder={t('purchases.amount')}
+                  <input type="number" min="0" className="w-full border border-indigo-200 rounded-lg px-3 py-2 text-sm bg-white" placeholder={t('purchases.amount')}
                     value={costForm.amount} onChange={(e) => setCostForm((f) => ({ ...f, amount: e.target.value }))} />
                   <input className="w-full border border-indigo-200 rounded-lg px-3 py-2 text-sm bg-white" placeholder={t('purchases.note')}
                     value={costForm.note} onChange={(e) => setCostForm((f) => ({ ...f, note: e.target.value }))} />
@@ -868,8 +1017,9 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
       {tab === 'receive' && (
         <div className="px-4 pt-3 space-y-3">
 
-          {/* Item summary table */}
-          {trip.items.length > 0 && (
+          {/* Item summary table — once the trip is completed every item is necessarily "সম্পন্ন",
+              so this list adds nothing over the Completed notice + session timeline below it. */}
+          {!isCompleted && trip.items.length > 0 && (
             <div>
               <div className="px-3 py-2 bg-gray-50 border border-gray-100 rounded-xl mb-2">
                 <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">{t('purchases.itemSummary')}</p>
@@ -883,6 +1033,7 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
                     .filter((si) => si.purchaseItemId === item.id)
                     .reduce((sum, si) => sum + si.qtyUsable + si.qtyDamaged, 0);
 
+                  const isSelected = selectedForReceiveIds.has(item.id);
                   return (
                     <div
                       key={item.id}
@@ -890,14 +1041,29 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
                         remaining > 0 ? 'bg-amber-50 border-amber-100' : 'bg-green-50 border-green-100'
                       }`}
                     >
-                      <p className="text-xs font-medium text-gray-800 truncate">{item.productName} <span className="text-gray-400">({item.variantSku})</span></p>
-                      <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1 text-[11px]">
-                        <span className="text-gray-500">{t('purchases.ordered')}: <strong>{formatQty(item.qtyBought)}</strong></span>
-                        {item.qtyUsable > 0 && <span className="text-green-700">{t('purchases.approved')}: <strong>{formatQty(item.qtyUsable)}</strong></span>}
-                        {item.qtyDamaged > 0 && <span className="text-red-600">{t('purchases.damaged')}: <strong>{formatQty(item.qtyDamaged)}</strong></span>}
-                        {pendingQty > 0 && <span className="text-purple-600">{t('purchases.pending')}: <strong>{formatQty(pendingQty)}</strong></span>}
-                        {remaining > 0 && <span className="text-amber-600">{t('purchases.remaining')}: <strong>{formatQty(remaining)}</strong></span>}
-                        {remaining === 0 && <span className="text-green-600 font-semibold">{t('purchases.complete')}</span>}
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-medium text-gray-800 truncate">{item.productName} <span className="text-gray-400">({item.variantSku})</span></p>
+                          <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1 text-[11px]">
+                            <span className="text-gray-500">{t('purchases.ordered')}: <strong>{formatQty(item.qtyBought)}</strong></span>
+                            {item.qtyUsable > 0 && <span className="text-green-700">{t('purchases.approved')}: <strong>{formatQty(item.qtyUsable)}</strong></span>}
+                            {item.qtyDamaged > 0 && <span className="text-red-600">{t('purchases.damaged')}: <strong>{formatQty(item.qtyDamaged)}</strong></span>}
+                            {pendingQty > 0 && <span className="text-purple-600">{t('purchases.pending')}: <strong>{formatQty(pendingQty)}</strong></span>}
+                            {remaining > 0 && <span className="text-amber-600">{t('purchases.remaining')}: <strong>{formatQty(remaining)}</strong></span>}
+                            {remaining === 0 && <span className="text-green-600 font-semibold">{t('purchases.complete')}</span>}
+                          </div>
+                        </div>
+                        {isReceiving && remaining > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => toggleSelectForReceive(item.id, remaining)}
+                            className={`shrink-0 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg ${
+                              isSelected ? 'bg-indigo-600 text-white' : 'bg-white border border-indigo-300 text-indigo-600'
+                            }`}
+                          >
+                            {isSelected ? `✓ ${t('purchases.selectedForReceive')}` : `+ ${t('purchases.addForReceive')}`}
+                          </button>
+                        )}
                       </div>
                     </div>
                   );
@@ -968,13 +1134,33 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
             </div>
           )}
 
-          {/* Add session form */}
+          {/* Add session — trigger only appears once at least one item is picked via the
+              "+ Add for receive" button above; the session form itself opens in a bottom slide
+              panel (same pattern as Add Item / Add Stock) scoped to just those picked items. */}
           {isReceiving && (
             <>
-              {showAddSession ? (
-                <div className="bg-indigo-50 rounded-xl p-4 space-y-3">
-                  <p className="text-sm font-semibold text-indigo-800">{t('purchases.newReceiveSession')}</p>
+              {selectedForReceiveIds.size > 0 && !showAddSession && (
+                <button onClick={() => setShowAddSession(true)}
+                  className="w-full bg-indigo-600 text-white rounded-xl py-3 text-sm font-semibold">
+                  {t('purchases.recordGoodsCount', { count: selectedForReceiveIds.size })}
+                </button>
+              )}
 
+              <SlidePanel
+                open={showAddSession}
+                onClose={resetReceiveSelection}
+                title={t('purchases.newReceiveSession')}
+                footer={
+                  <button
+                    onClick={() => createSessionMutation.mutate()}
+                    disabled={createSessionMutation.isPending || itemsSelectedForSession.length === 0}
+                    className="w-full bg-indigo-600 text-white py-3 rounded-xl text-sm font-semibold disabled:opacity-50"
+                  >
+                    {createSessionMutation.isPending ? t('purchases.submitting') : isOwner ? t('purchases.submitApprove') : t('purchases.submitApproval')}
+                  </button>
+                }
+              >
+                <div className="px-4 py-4 space-y-3">
                   <div>
                     <label className="text-xs text-gray-500 mb-1 block">{t('purchases.receivedAt')}</label>
                     <input
@@ -987,13 +1173,12 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
 
                   <div>
                     <label className="text-xs text-gray-500 mb-1 block">{t('purchases.transportMode')}</label>
-                    <select
-                      className="w-full border border-indigo-200 rounded-lg px-3 py-2 text-sm bg-white"
+                    <CustomSelect
+                      triggerClassName="w-full flex items-center justify-between gap-2 border border-indigo-200 rounded-lg px-3 py-2 text-sm bg-white text-left"
                       value={sessionFormMeta.transportMode}
-                      onChange={(e) => setSessionFormMeta((f) => ({ ...f, transportMode: e.target.value as TransportMode }))}
-                    >
-                      {TRANSPORT_MODE_OPTIONS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
-                    </select>
+                      onChange={(v) => setSessionFormMeta((f) => ({ ...f, transportMode: v as TransportMode }))}
+                      options={TRANSPORT_MODE_OPTIONS}
+                    />
                   </div>
 
                   <div>
@@ -1017,10 +1202,10 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
                   </div>
 
                   <p className="text-xs font-medium text-gray-700 pt-1">{t('purchases.enterQty')}</p>
-                  {itemsWithRemaining.length === 0 ? (
+                  {itemsSelectedForSession.length === 0 ? (
                     <p className="text-xs text-gray-400">{t('purchases.allAccounted')}</p>
                   ) : (
-                    itemsWithRemaining.map((item) => {
+                    itemsSelectedForSession.map((item) => {
                       const remaining = item.qtyBought - item.qtyUsable - item.qtyDamaged;
                       const entry = sessionItemEntries[item.id];
                       const usable = Number(entry?.qtyUsable || '0');
@@ -1032,11 +1217,19 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
                       const expectedTotal = packets > 0 && ipp > 0 ? packets * ipp : null;
 
                       const EMPTY_ENTRY: SessionItemEntry = { qtyUsable: '', qtyDamaged: '', packets: '', itemsPerPacket: '' };
+                      // সঠিক প্রডাক্ট পরিমাণ is never typed directly — it's always derived from
+                      // packets × প্রতি প্যাকেটে, minus whatever gets marked নষ্ট, so it stays in sync
+                      // no matter which of those three fields the user actually touches.
                       const upd = (patch: Partial<SessionItemEntry>) =>
-                        setSessionItemEntries((s) => ({
-                          ...s,
-                          [item.id]: { ...EMPTY_ENTRY, ...s[item.id], ...patch },
-                        }));
+                        setSessionItemEntries((s) => {
+                          const merged: SessionItemEntry = { ...EMPTY_ENTRY, ...s[item.id], ...patch };
+                          const p = Number(merged.packets || '0');
+                          const ipp = Number(merged.itemsPerPacket || '0');
+                          const dmg = Number(merged.qtyDamaged || '0');
+                          const total = p > 0 && ipp > 0 ? p * ipp : 0;
+                          merged.qtyUsable = String(Math.max(total - dmg, 0));
+                          return { ...s, [item.id]: merged };
+                        });
 
                       return (
                         <div key={item.id} className="bg-white border border-indigo-100 rounded-xl p-3 space-y-2.5">
@@ -1054,14 +1247,7 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
                                 <input type="number" min="0" placeholder="e.g. 5"
                                   className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm bg-white"
                                   value={entry?.packets ?? ''}
-                                  onChange={(e) => {
-                                    const packetsVal = e.target.value;
-                                    const p = Number(packetsVal || '0');
-                                    const perPacket = Number(entry?.itemsPerPacket || '0');
-                                    const patch: Partial<SessionItemEntry> = { packets: packetsVal };
-                                    if (p > 0 && perPacket > 0) patch.qtyUsable = String(p * perPacket);
-                                    upd(patch);
-                                  }}
+                                  onChange={(e) => upd({ packets: e.target.value })}
                                 />
                               </div>
                               <span className="text-gray-300 text-lg mt-4">×</span>
@@ -1070,14 +1256,7 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
                                 <input type="number" min="0" placeholder="e.g. 12"
                                   className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm bg-white"
                                   value={entry?.itemsPerPacket ?? ''}
-                                  onChange={(e) => {
-                                    const ippVal = e.target.value;
-                                    const ipp = Number(ippVal || '0');
-                                    const p = Number(entry?.packets || '0');
-                                    const patch: Partial<SessionItemEntry> = { itemsPerPacket: ippVal };
-                                    if (p > 0 && ipp > 0) patch.qtyUsable = String(p * ipp);
-                                    upd(patch);
-                                  }}
+                                  onChange={(e) => upd({ itemsPerPacket: e.target.value })}
                                 />
                               </div>
                               {expectedTotal !== null && (
@@ -1093,10 +1272,9 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
                           <div className="grid grid-cols-2 gap-2">
                             <div>
                               <label className="text-xs text-gray-500 mb-1 block">{t('purchases.usableQty')}</label>
-                              <input type="number" min="0" className="w-full border border-indigo-200 rounded-lg px-3 py-2 text-sm"
-                                value={entry?.qtyUsable ?? ''}
-                                placeholder={expectedTotal !== null ? String(expectedTotal) : '0'}
-                                onChange={(e) => upd({ qtyUsable: e.target.value })}
+                              <input type="number" readOnly tabIndex={-1}
+                                className="w-full border border-indigo-100 rounded-lg px-3 py-2 text-sm bg-gray-50 text-gray-600"
+                                value={entry?.qtyUsable ?? '0'}
                               />
                             </div>
                             <div>
@@ -1127,17 +1305,6 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
                     })
                   )}
 
-                  <div className="flex gap-2 pt-1">
-                    <button
-                      onClick={() => createSessionMutation.mutate()}
-                      disabled={createSessionMutation.isPending || itemsWithRemaining.length === 0}
-                      className="flex-1 bg-indigo-600 text-white py-2.5 rounded-xl text-sm font-semibold disabled:opacity-50"
-                    >
-                      {createSessionMutation.isPending ? t('purchases.submitting') : isOwner ? t('purchases.submitApprove') : t('purchases.submitApproval')}
-                    </button>
-                    <button onClick={() => { setShowAddSession(false); setSessionItemEntries({}); }}
-                      className="px-4 py-2 rounded-xl text-sm text-gray-500 border border-gray-200">{t('common.cancel')}</button>
-                  </div>
                   {!isOwner && (
                     <p className="text-xs text-gray-400 text-center">{t('purchases.staffNote')}</p>
                   )}
@@ -1145,17 +1312,15 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
                     <p className="text-xs text-indigo-600 text-center">{t('purchases.ownerNote')}</p>
                   )}
                 </div>
-              ) : (
-                <button onClick={() => setShowAddSession(true)}
-                  className="w-full border-2 border-dashed border-indigo-200 rounded-xl py-3 text-sm text-indigo-600 font-medium">
-                  {t('purchases.recordGoods')}
-                </button>
-              )}
+              </SlidePanel>
             </>
           )}
 
-          {/* Close trip — owner only */}
-          {isOwner && isReceiving && !showAddSession && (
+          {/* TODO: Close Trip hidden for now — confusing as-is (plain gray button doesn't signal
+              this is a real, semi-final decision, and "Close" alone doesn't explain what actually
+              happens once you do it). Needs a wording/visual redesign before re-enabling. Logic
+              below is untouched — just flip `false &&` back to re-show it once redesigned. */}
+          {false && isOwner && isReceiving && !showAddSession && (
             <div className="pt-2 border-t border-gray-100">
               {!showCloseConfirm && !forceCloseRequired && (
                 <button
@@ -1189,7 +1354,7 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
                 <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-3">
                   <p className="text-sm font-semibold text-amber-800">{t('purchases.forceCloseTitle')}</p>
                   <div className="space-y-1">
-                    {forceCloseRequired.items.map((item) => (
+                    {forceCloseRequired?.items.map((item) => (
                       <div key={item.variantSku} className="flex justify-between text-xs bg-white border border-amber-100 rounded-lg px-3 py-2">
                         <div>
                           <p className="font-medium text-gray-900">{item.productName}</p>
@@ -1224,6 +1389,115 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
               )}
             </div>
           )}
+        </div>
+      )}
+
+      {/* ── Damage return tab ─────────────────────────────────────────── */}
+      {tab === 'damage' && (
+        <div className="px-4 pt-3 space-y-3">
+          <div className="space-y-2">
+            {damagedItems.map((item) => {
+              const isSelected = selectedForReturnIds.has(item.id);
+              const claimedQty = item.supplierReturnQty ?? 0;
+              const remainingUnclaimed = item.qtyDamaged - claimedQty;
+              return (
+                <div
+                  key={item.id}
+                  className={`px-3 py-2 border rounded-xl ${isSelected ? 'bg-rose-50 border-rose-200' : 'bg-white border-gray-100'}`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-medium text-gray-800 truncate">{item.productName} <span className="text-gray-400">({item.variantSku})</span></p>
+                      <p className="text-[11px] text-red-600 mt-1">{t('purchases.damaged')}: <strong>{formatQty(item.qtyDamaged)}</strong></p>
+                      {item.supplierReturnStatus && (
+                        <div className="flex items-center gap-2 mt-1.5">
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${RETURN_STATUS_COLORS[item.supplierReturnStatus] ?? 'bg-gray-100 text-gray-600'}`}>
+                            ↩️ {RETURN_STATUS_LABELS[item.supplierReturnStatus] ?? item.supplierReturnStatus}
+                            {claimedQty > 0 && ` · ${formatQty(claimedQty)}`}
+                          </span>
+                          <Link href={`/more/supplier-returns/${item.supplierReturnId}`} className="text-[10px] text-indigo-600 font-semibold underline">
+                            {t('purchases.goToRequest')}
+                          </Link>
+                        </div>
+                      )}
+                    </div>
+                    {remainingUnclaimed > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => toggleSelectForReturn(item.id)}
+                        className={`shrink-0 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg ${
+                          isSelected ? 'bg-rose-600 text-white' : 'bg-white border border-rose-300 text-rose-600'
+                        }`}
+                      >
+                        {isSelected ? `✓ ${t('purchases.selectedForReceive')}` : `+ ${t('purchases.addForReturn')}`}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {selectedForReturnIds.size > 0 && (
+            <button
+              onClick={openCreateReturn}
+              className="w-full bg-rose-600 text-white rounded-xl py-3 text-sm font-semibold"
+            >
+              {t('purchases.returnDamageCount', { count: selectedForReturnIds.size })}
+            </button>
+          )}
+
+          <SlidePanel
+            open={showCreateReturn}
+            onClose={() => setShowCreateReturn(false)}
+            title={t('purchases.createReturnTitle')}
+            footer={
+              <button
+                onClick={() => createReturnMutation.mutate()}
+                disabled={!returnSupplier || createReturnMutation.isPending}
+                className="w-full bg-rose-600 text-white py-3 rounded-xl text-sm font-semibold disabled:opacity-50"
+              >
+                {createReturnMutation.isPending ? t('common.creating') : t('purchases.createReturnButton')}
+              </button>
+            }
+          >
+            <div className="px-4 py-4 space-y-3">
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">{t('supplierReturns.supplier')}</label>
+                <button
+                  type="button"
+                  onClick={() => setShowReturnSupplierPicker(true)}
+                  className="w-full flex items-center justify-between gap-2 border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-white text-left"
+                >
+                  <span className={returnSupplier ? 'text-gray-900' : 'text-gray-400'}>
+                    {returnSupplier?.name ?? t('pickers.chooseSupplier')}
+                  </span>
+                  <svg className="w-4 h-4 text-gray-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </button>
+              </div>
+
+              <div>
+                <p className="text-xs text-gray-500 mb-1">{t('supplierReturns.itemCount')}</p>
+                <div className="space-y-1.5">
+                  {damagedItems.filter((i) => selectedForReturnIds.has(i.id)).map((item) => (
+                    <div key={item.id} className="flex justify-between text-xs bg-gray-50 border border-gray-100 rounded-lg px-3 py-2">
+                      <span className="text-gray-700 truncate">{item.productName}</span>
+                      <span className="text-gray-500 shrink-0 ml-2">{formatQty(item.qtyDamaged - (item.supplierReturnQty ?? 0))} {item.unitCode}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </SlidePanel>
+
+          <SupplierPicker
+            open={showReturnSupplierPicker}
+            onClose={() => setShowReturnSupplierPicker(false)}
+            onSelect={setReturnSupplier}
+            selectedId={returnSupplier?.id}
+          />
         </div>
       )}
 

@@ -1123,7 +1123,8 @@ public class OrderService : IOrderService
             o.IsDraft, total, Math.Max(0, total - paid),
             o.TrackingNo, o.HandlingUser?.Name, o.CreatedAt, o.BusinessDate,
             items, profit, o.IsRevised,
-            o.CourierId, o.Courier?.Name, o.HandedOverAt
+            o.CourierId, o.Courier?.Name, o.HandedOverAt,
+            o.CustomerAddress
         );
     }
 

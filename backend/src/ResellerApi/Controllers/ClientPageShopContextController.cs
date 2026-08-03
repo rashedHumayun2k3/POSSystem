@@ -25,7 +25,8 @@ public class ClientPageShopContextController : ControllerBase
             _shopContext.BusinessId,
             _shopContext.ShopName,
             _shopContext.LogoUrl,
-            _shopContext.BannerUrl
+            _shopContext.BannerUrl,
+            _shopContext.WebsiteUrl
         ));
     }
 }

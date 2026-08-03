@@ -100,7 +100,12 @@
       "PowerShell(cd D:\\\\Personal\\\\ShoppingApplication\\\\frontend; $env:npm_config_loglevel='error'; npx tsc --noEmit; Write-Output \"EXITCODE=$LASTEXITCODE\")",
       "Bash(rm \"e:/LavLokshan/backend/src/ResellerApi/Data/Migrations/20260725083053_AddOrdersStatusCreatedAtIndex.cs\" \"e:/LavLokshan/backend/src/ResellerApi/Data/Migrations/20260725083053_AddOrdersStatusCreatedAtIndex.Designer.cs\")",
       "Bash(taskkill //PID 34604 //F)",
-      "Bash(echo \"EXIT:$?\")"
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" \"http://localhost:3000/products/faeb6212-ace6-4f99-874f-95a899825981\")",
+      "Bash(curl -s -o /dev/null -w \"backend HTTP %{http_code}\\\\n\" \"http://localhost:5017/api/v1/products\" --max-time 5)",
+      "Bash(powershell -Command \"Get-Process -Name dotnet -ErrorAction SilentlyContinue | Select-Object Id, StartTime, Path\")",
+      "Bash(npx eslint *)",
+      "Bash(tasklist)"
     ],
     "additionalDirectories": [
       "e:\\LavLokshan\\backend\\src\\ResellerApi\\Data\\Migrations"
