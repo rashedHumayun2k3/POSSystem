@@ -2836,7 +2836,6 @@ function StockAdjustmentTab({
   const [reason, setReason] = useState<StockAdjustReason>('EXISTING_STOCK');
   const [value, setValue] = useState('1');
   const [note, setNote] = useState('');
-  const [variantDropdownOpen, setVariantDropdownOpen] = useState(false);
   const qc = useQueryClient();
 
   // Looked up fresh from the current `variants` prop by id, rather than trusting
@@ -2913,57 +2912,37 @@ function StockAdjustmentTab({
 
   return (
     <div className="space-y-4">
-      {/* Variant selector — a custom dropdown rather than a native <select>. A native select's
-          open popup is rendered by the browser/OS itself, not by this component's CSS, and was
-          overflowing past the screen edge on mobile; this version is fully width-constrained by
-          its own relative wrapper, the same fix already applied to the hawker/night-entry
-          category picker. */}
-      {variants.length > 1 && (() => {
-        const activeLabel = (() => {
-          const vals = JSON.parse(active?.variantValuesJson || '{}') as Record<string, string>;
-          return Object.values(vals).filter(Boolean).join(' / ') || 'Default';
-        })();
-        return (
-          <div className="relative">
-            <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">{t('products.selectVariant')}</label>
-            <button
-              type="button"
-              onClick={() => setVariantDropdownOpen((v) => !v)}
-              className="mt-1 w-full flex items-center justify-between gap-2 border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-white text-left"
-            >
-              <span className="truncate">{activeLabel}</span>
-              <svg className={`w-4 h-4 text-gray-400 shrink-0 transition-transform ${variantDropdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
-            </button>
-
-            {variantDropdownOpen && (
-              <>
-                <button type="button" onClick={() => setVariantDropdownOpen(false)} className="fixed inset-0 z-40" aria-label="Close" />
-                <div className="absolute z-50 top-full left-0 mt-1 w-full max-h-64 overflow-y-auto bg-white border border-gray-200 rounded-xl shadow-lg py-1">
-                  {variants.map((v) => {
-                    const vals = JSON.parse(v.variantValuesJson || '{}') as Record<string, string>;
-                    const label = Object.values(vals).filter(Boolean).join(' / ') || 'Default';
-                    return (
-                      <button
-                        key={v.id}
-                        type="button"
-                        onClick={() => { onSelectVariant(v); setVariantDropdownOpen(false); }}
-                        className={`w-full text-left px-3 py-2.5 text-sm truncate ${v.id === active?.id ? 'bg-indigo-50 text-indigo-700 font-medium' : 'text-gray-700 active:bg-gray-50'}`}
-                      >
-                        {label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </>
-            )}
-          </div>
-        );
-      })()}
-
-      {/* Current stock */}
+      {/* Current stock, with the variant picker folded into the same card — a single-select chip
+          row (radio-button semantics, same pattern as the quick-pick chips used elsewhere in this
+          app) instead of a dropdown, so picking a variant and seeing its stock read as one glance
+          instead of two separate controls. */}
       <div className="bg-indigo-50 rounded-xl p-4">
+        {variants.length > 1 && (
+          <div className="mb-3">
+            <p className="text-xs font-medium text-indigo-500 uppercase tracking-wide mb-1.5">{t('products.selectVariant')}</p>
+            <div className="flex flex-wrap gap-2">
+              {variants.map((v) => {
+                const vals = JSON.parse(v.variantValuesJson || '{}') as Record<string, string>;
+                const label = Object.values(vals).filter(Boolean).join(' / ') || 'Default';
+                const isActive = v.id === active?.id;
+                return (
+                  <button
+                    key={v.id}
+                    type="button"
+                    onClick={() => onSelectVariant(v)}
+                    className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-colors ${
+                      isActive
+                        ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'
+                        : 'bg-white border-indigo-200 text-indigo-600 active:bg-indigo-100'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
         <div className="flex justify-between items-center">
           <p className="text-xs text-indigo-500 font-medium uppercase tracking-wide">{t('products.stockCurrentLabel')}</p>
           <p className={`text-2xl font-bold ${(active?.stock ?? 0) <= 0 ? 'text-red-600' : 'text-indigo-700'}`}>

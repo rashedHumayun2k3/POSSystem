@@ -15,6 +15,7 @@ const PERIODS: { key: ReportPeriod; label: string }[] = [
   { key: "7d", label: "7D" },
   { key: "30d", label: "30D" },
   { key: "3m", label: "3M" },
+  { key: "6m", label: "6M" },
 ];
 
 const GROUPS: { key: GroupBy; label: string }[] = [
@@ -28,7 +29,7 @@ export function periodToDates(period: ReportPeriod): { from: string; to: string 
   const fmt = (d: Date) => d.toISOString().split("T")[0];
   const todayStr = fmt(today);
   if (period === "today") return { from: todayStr, to: todayStr };
-  const days = period === "7d" ? 7 : period === "30d" ? 30 : 90;
+  const days = period === "7d" ? 7 : period === "30d" ? 30 : period === "3m" ? 90 : 180;
   const from = new Date(today);
   from.setDate(today.getDate() - (days - 1));
   return { from: fmt(from), to: todayStr };

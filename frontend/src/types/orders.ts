@@ -133,6 +133,8 @@ export interface OrderListItem {
   courierId?: string;
   courierName?: string;
   handedOverAt?: string; // used to compute "days in transit" on the delivery board
+  branchId?: string;
+  branchName?: string;
 }
 
 export interface OrderDetail {
@@ -207,6 +209,10 @@ export interface CreateOrderPayload {
   // R3.3 — set only when replaying a sale that already happened offline: accepts the sale even if
   // it drives stock negative, instead of rejecting it outright (which the online path still does).
   allowOversell?: boolean;
+  // Explicit branch this order is for — overrides the ambient X-Branch-Id header. Lets the New
+  // Order builder pin a branch up front so switching the header mid-session can't change which
+  // branch's stock an in-progress order ends up committed against.
+  branchId?: string;
 }
 
 export interface UpdateOrderPayload {
@@ -219,6 +225,8 @@ export interface UpdateOrderPayload {
   deliveryChargeCustomer?: number;
   note?: string;
   courierId?: string;
+  // Draft-only full item replacement — see UpdateOrderRequest.Items on the backend.
+  items?: OrderItemInput[];
 }
 
 export interface HandoverPayload {

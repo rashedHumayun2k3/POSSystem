@@ -121,9 +121,13 @@ function mapSearchResult(item: RawSearchResult): ProductSearchResult {
   };
 }
 
-export const browseProducts = async (categoryId?: string, onlyInStock = false): Promise<ProductSearchResult[]> => {
+// branchId: explicit per-request override of X-Branch-Id — see api.ts's interceptor, which only
+// fills in the ambient header when the caller hasn't already set one. Used by New Order to keep
+// stock figures pinned to the branch the order started with, regardless of the header switcher.
+export const browseProducts = async (categoryId?: string, onlyInStock = false, branchId?: string): Promise<ProductSearchResult[]> => {
   const { data } = await api.get<RawSearchResult[]>('/products/browse', {
     params: { ...(categoryId ? { categoryId } : {}), ...(onlyInStock ? { onlyInStock } : {}) },
+    headers: branchId ? { 'X-Branch-Id': branchId } : undefined,
   });
   return data.map(mapSearchResult);
 };
@@ -135,9 +139,10 @@ export const getRecentlyPurchasedProducts = async (limit = 5): Promise<ProductSe
   return data.map(mapSearchResult);
 };
 
-export const searchProducts = async (q: string, onlyInStock = false): Promise<ProductSearchResult[]> => {
+export const searchProducts = async (q: string, onlyInStock = false, branchId?: string): Promise<ProductSearchResult[]> => {
   const { data } = await api.get<RawSearchResult[]>('/products/search', {
     params: { q, ...(onlyInStock ? { onlyInStock } : {}) },
+    headers: branchId ? { 'X-Branch-Id': branchId } : undefined,
   });
   return data.map(mapSearchResult);
 };
@@ -161,8 +166,10 @@ export const getTodayHawkerProfit = async (): Promise<number> => {
   return data;
 };
 
-export const lookupBarcode = async (barcode: string): Promise<ProductSearchResult> => {
-  const { data } = await api.get<RawSearchResult>(`/products/barcode/${encodeURIComponent(barcode)}`);
+export const lookupBarcode = async (barcode: string, branchId?: string): Promise<ProductSearchResult> => {
+  const { data } = await api.get<RawSearchResult>(`/products/barcode/${encodeURIComponent(barcode)}`, {
+    headers: branchId ? { 'X-Branch-Id': branchId } : undefined,
+  });
   return mapSearchResult(data);
 };
 

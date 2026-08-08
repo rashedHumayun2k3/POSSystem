@@ -25,6 +25,10 @@ export interface ListOrdersParams {
   paymentStatus?: string;
   channel?: string;
   q?: string;
+  // Independent of q — AND-able filters backing the Filter sheet's own Customer/Product fields,
+  // separate from the plain quick-search box (see OrderService.ListAsync).
+  customerQuery?: string;
+  productQuery?: string;
   from?: string;
   to?: string;
 }

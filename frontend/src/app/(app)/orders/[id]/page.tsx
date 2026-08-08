@@ -1,16 +1,18 @@
 "use client";
 
-import { use, useState } from "react";
+import { Fragment, use, useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  getOrder, confirmOrder, packOrder, handoverOrder, deliverOrder,
+  getOrder, confirmOrder, handoverOrder, deliverOrder,
   returnOrder, cancelOrder, addOrderPayment, downloadChallan, downloadReceipt,
   updateOrder, deleteOrder, reviseOrder,
   listCouriers, listDeliveryMen, createDeliveryMan,
 } from "@/lib/ordersApi";
 import AppHeader from "@/components/layout/AppHeader";
 import SlidePanel from "@/components/ui/SlidePanel";
+import ConfirmSheet from "@/components/ui/ConfirmSheet";
 import CustomSelect from "@/components/ui/CustomSelect";
 import StatusBadge from "@/components/ui/StatusBadge";
 import { PhoneIcon, MapPinIcon, PencilSquareIcon } from "@heroicons/react/24/outline";
@@ -35,9 +37,16 @@ function formatStepDate(iso: string | null | undefined): string | null {
   return new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
+// Light-to-dark progression for reached lifecycle steps — literal class names (not built via
+// template strings) so Tailwind's content scanner picks them up.
+const STEP_BOX_SHADES = ["bg-orange-100", "bg-orange-200", "bg-orange-300", "bg-orange-400"];
+const STEP_DOT_SHADES = ["bg-orange-400", "bg-orange-600", "bg-orange-700", "bg-orange-900"];
+const STEP_LINE_SHADES = ["bg-orange-400", "bg-orange-600", "bg-orange-700", "bg-orange-900"];
+
 export default function OrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const { t } = useLanguage();
+  const router = useRouter();
   const qc = useQueryClient();
   const isOwner = useAuthStore((s) => s.isOwner());
   const canSeeCosts = useAuthStore((s) => s.canSeeCosts());
@@ -50,6 +59,10 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
   const [handoverTracking, setHandoverTracking] = useState("");
   const [handoverDeliveryManId, setHandoverDeliveryManId] = useState("");
   const [handoverCost, setHandoverCost] = useState("0");
+  // True once the staff member has typed into the cost field themselves — once set, the
+  // courier-charge auto-fill below backs off so it doesn't clobber a manually corrected value.
+  // Picking a delivery man still overrides it (that's an explicit "use this person's rate" action).
+  const [handoverCostManuallySet, setHandoverCostManuallySet] = useState(false);
   const [showAddDeliveryMan, setShowAddDeliveryMan] = useState(false);
   const [newDmName, setNewDmName] = useState("");
   const [newDmPhone, setNewDmPhone] = useState("");
@@ -57,6 +70,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
 
   // Return panel state
   const [showReturn, setShowReturn] = useState(false);
+  const [showReturnConfirm, setShowReturnConfirm] = useState(false);
   const [returnQtys, setReturnQtys] = useState<Record<string, string>>({});
   const [returnInspections, setReturnInspections] = useState<Record<string, "SELLABLE" | "DAMAGED">>({});
   const [returnResolution, setReturnResolution] = useState<"COURIER_RETURN" | "REFUND" | "STORE_CREDIT" | "REPLACE_SAME" | "EXCHANGE_DIFFERENT">("COURIER_RETURN");
@@ -119,6 +133,15 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
     enabled: showHandover,
   });
 
+  // Delivery cost is already known — it's the courier's standard charge, not tied to which
+  // delivery man happens to carry it. Backs the field with that charge once it loads, as long as
+  // the staff member hasn't already typed a value in themselves.
+  useEffect(() => {
+    if (!showHandover || handoverCostManuallySet) return;
+    const courier = couriers.find((c) => c.id === handoverCourierId);
+    if (courier) setHandoverCost(String(courier.insideDhakaCharge));
+  }, [showHandover, couriers, handoverCourierId, handoverCostManuallySet]);
+
   const invalidate = () => qc.invalidateQueries({ queryKey: ["order", id] });
 
   const mutOpts = (onDone?: () => void) => ({
@@ -134,7 +157,6 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
   });
 
   const confirmMut = useMutation({ mutationFn: () => confirmOrder(id), ...mutOpts(() => setShowConfirmOrder(false)) });
-  const packMut = useMutation({ mutationFn: () => packOrder(id), ...mutOpts() });
   const deliverMut = useMutation({ mutationFn: () => deliverOrder(id), ...mutOpts(() => setShowDeliverConfirm(false)) });
 
   const handoverMut = useMutation({
@@ -184,7 +206,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
         note: returnNote.trim() || undefined,
       });
     },
-    ...mutOpts(() => { setShowReturn(false); setReturnNote(""); setReturnRefundAmount(""); setReturnReason(""); }),
+    ...mutOpts(() => { setShowReturn(false); setShowReturnConfirm(false); setReturnNote(""); setReturnRefundAmount(""); setReturnReason(""); }),
   });
 
   const cancelMut = useMutation({
@@ -276,33 +298,36 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
   const isTerminal = os === "COMPLETED" || os === "CANCELLED";
 
   // Lifecycle tab — "how far along" is just an index into the normal happy path
-  // (Created → Confirmed → Packed → Handed over → Delivered); the furthest reached step is
-  // "current", everything before it is "done", everything after is "pending". Cancel/Return are
-  // deviations from that path, so they're appended as their own final "current" step instead.
+  // (Created → Confirmed → Handed over → Delivered); the furthest reached step is "current",
+  // everything before it is "done", everything after is "pending". Cancel/Return are deviations
+  // from that path, so they're appended as their own final "current" step instead. Packing has
+  // no step of its own — handing over to a courier implies it, so PACKED (legacy orders that
+  // already went through the old two-step flow) counts the same as "not yet handed over".
   const lifecycleSteps: LifecycleStep[] = (() => {
-    const FS_ORDER = ["UNFULFILLED", "PACKED", "IN_TRANSIT", "DELIVERED"];
     const isCancelled = os === "CANCELLED";
     const isReturned = fs === "RETURNED";
-    const stageIndex = isReturned ? 3 : Math.max(FS_ORDER.indexOf(fs), 0);
+    const stageIndex = isReturned || fs === "DELIVERED" ? 3 : fs === "IN_TRANSIT" ? 2 : 1;
     const confirmedReached = !order.isDraft || !!order.confirmedAt;
 
     const base = [
-      { key: "created", label: t("orders.stepCreated"), date: order.createdAt as string | null, reachedAt: 0 },
-      { key: "confirmed", label: t("orders.stepConfirmed"), date: order.confirmedAt ?? null, reachedAt: confirmedReached ? 1 : 99 },
-      { key: "packed", label: t("orders.stepPacked"), date: null, reachedAt: stageIndex >= 1 ? 2 : 99 },
-      { key: "handedOver", label: t("orders.stepHandedOver"), date: order.handedOverAt ?? null, reachedAt: stageIndex >= 2 ? 3 : 99 },
-      { key: "delivered", label: t("orders.stepDelivered"), date: order.deliveredAt ?? null, reachedAt: stageIndex >= 3 ? 4 : 99 },
+      { key: "created", label: t("orders.stepCreated"), pendingLabel: null, date: order.createdAt as string | null, reachedAt: 0 },
+      { key: "confirmed", label: t("orders.stepConfirmed"), pendingLabel: t("orders.stepConfirmedPending"), date: order.confirmedAt ?? null, reachedAt: confirmedReached ? 1 : 99 },
+      { key: "handedOver", label: t("orders.stepHandedOver"), pendingLabel: t("orders.stepHandedOverPending"), date: order.handedOverAt ?? null, reachedAt: stageIndex >= 2 ? 2 : 99 },
+      { key: "delivered", label: t("orders.stepDelivered"), pendingLabel: t("orders.stepDeliveredPending"), date: order.deliveredAt ?? null, reachedAt: stageIndex >= 3 ? 3 : 99 },
     ];
 
     const reachedValues = base.filter((s) => s.reachedAt !== 99).map((s) => s.reachedAt);
     const maxReached = reachedValues.length > 0 ? Math.max(...reachedValues) : -1;
 
-    const steps: LifecycleStep[] = base.map((s) => ({
-      key: s.key,
-      label: s.label,
-      date: s.date,
-      status: s.reachedAt === 99 ? "pending" : s.reachedAt === maxReached ? "current" : "done",
-    }));
+    const steps: LifecycleStep[] = base.map((s) => {
+      const status: LifecycleStepStatus = s.reachedAt === 99 ? "pending" : s.reachedAt === maxReached ? "current" : "done";
+      return {
+        key: s.key,
+        label: status === "pending" && s.pendingLabel ? s.pendingLabel : s.label,
+        date: s.date,
+        status,
+      };
+    });
 
     if (isCancelled || isReturned) {
       steps.forEach((s) => { if (s.status === "current") s.status = "done"; });
@@ -380,77 +405,171 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
           {/* ── OVERVIEW ── */}
           {tab === "overview" && (
             <>
-              {/* Order details — order no/date + type/source, shown first so staff see what
-                  this order is for before anything else. Real progress badges (Status/
-                  Fulfillment/Payment) render in their own row below, but only once the order
-                  has moved past UNFULFILLED — before that they're always OPEN/UNFULFILLED/
-                  UNPAID, i.e. not information, just the same three words restating "this is
-                  new" (matches the Orders list). Shop/Hawker sales never carry real
-                  fulfillment/payment info at all (already-settled walk-in cash sales), so those
-                  stay hidden regardless of stage. */}
+              {/* Compact horizontal preview of the same lifecycle shown in full on the Status
+                  tab — evenly split across the screen width so it fits without horizontal
+                  scrolling on mobile. */}
+              <div className="bg-orange-50 rounded-xl border border-orange-100 px-3 py-4">
+                <div className="flex items-center">
+                  {lifecycleSteps.map((step, idx) => {
+                    const isLast = idx === lifecycleSteps.length - 1;
+                    const filled = step.status === "done" || step.status === "current";
+                    // Progressively darker shade the further along the path a step is — gives a
+                    // sense of "how far in" at a glance, on top of the done/pending distinction.
+                    // Pending steps ignore this and stay the flat light-gray/orange-200 they always were.
+                    const shadeIdx = Math.min(idx, STEP_DOT_SHADES.length - 1);
+                    const isNext = lifecycleSteps[idx - 1]?.status === "current";
+                    return (
+                      <Fragment key={step.key}>
+                        {/* Current step gets the full card (background + label + date). The step
+                            right after it gets just its name, muted — enough to answer "what
+                            happens next" without matching the current step's weight. Everything
+                            else stays a bare dot, connected by a plain line, so the row stays
+                            compact instead of N boxed columns fighting for space on a phone. */}
+                        {step.status === "current" ? (
+                          <div className={`flex flex-col items-center shrink-0 rounded-lg py-1.5 px-2 ${STEP_BOX_SHADES[shadeIdx]}`}>
+                            <div className={`w-3.5 h-3.5 rounded-full shrink-0 ${STEP_DOT_SHADES[shadeIdx]}`} />
+                            <p className="text-[11px] font-medium text-center mt-2 leading-tight text-gray-800 whitespace-nowrap">
+                              {step.label}
+                            </p>
+                            <p className="text-[10px] text-gray-600 text-center mt-1 whitespace-nowrap">
+                              {formatStepDate(step.date) ?? "—"}
+                            </p>
+                          </div>
+                        ) : isNext ? (
+                          <div className="flex flex-col items-center shrink-0 px-1">
+                            <div className="w-3.5 h-3.5 rounded-full shrink-0 bg-white border-2 border-orange-200" />
+                            <p className="text-[10px] text-center mt-2 leading-tight text-orange-400 whitespace-nowrap">
+                              {step.label}
+                            </p>
+                          </div>
+                        ) : (
+                          <div className={`w-3.5 h-3.5 rounded-full shrink-0 ${
+                            filled ? STEP_DOT_SHADES[shadeIdx] : "bg-white border-2 border-orange-200"
+                          }`} />
+                        )}
+                        {!isLast && (
+                          <div className={`h-0.5 flex-1 min-w-[8px] ${filled ? STEP_LINE_SHADES[shadeIdx] : "bg-orange-200"}`} />
+                        )}
+                      </Fragment>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Print links — plain text links instead of buttons, sitting right above the
+                  order-no card so they read as quick actions on the order rather than a
+                  competing CTA in the sticky bar. */}
+              {!order.isDraft && (
+                <div className="flex items-center gap-4 px-1">
+                  <button
+                    onClick={handleChallan}
+                    disabled={challanLoading}
+                    className="text-xs font-medium text-indigo-600 underline underline-offset-2 disabled:opacity-50"
+                  >
+                    {challanLoading ? "…" : t("orders.printChallan")}
+                  </button>
+                  {os !== "CANCELLED" && (
+                    <button
+                      onClick={handleReceipt}
+                      disabled={receiptLoading}
+                      className="text-xs font-medium text-indigo-600 underline underline-offset-2 disabled:opacity-50"
+                    >
+                      {receiptLoading ? "…" : t("orders.printReceipt")}
+                    </button>
+                  )}
+                </div>
+              )}
+
               {order.isRevised && (
                 <div className="bg-amber-100 border border-amber-300 rounded-xl px-4 py-2.5 text-sm text-amber-800 font-medium flex items-center gap-1.5">
                   🔄 {t("orders.orderHasBeenRevised")}
                 </div>
               )}
 
-              <div className={`rounded-xl p-4 space-y-1.5 text-sm border ${
-                order.isRevised ? "bg-orange-50 border-orange-200" : "bg-white border-gray-100"
-              }`}>
-                <p className={`font-semibold ${order.isRevised ? "text-orange-800" : "text-gray-900"}`}>
-                  {t("notifications.orderNo")}: {order.orderNo}
-                </p>
-                <p className={`text-xs ${order.isRevised ? "text-orange-600" : "text-gray-400"}`}>
-                  {t("orders.orderDate")}: {new Date(order.createdAt).toLocaleDateString("en-GB")}
-                </p>
-                <div className={`flex justify-between pt-1 border-t ${order.isRevised ? "border-orange-200/60" : "border-gray-100"}`}>
-                  <span className={order.isRevised ? "text-orange-600" : "text-gray-500"}>{t("orders.orderType")}</span>
-                  <span className={`font-medium ${order.isRevised ? "text-orange-900" : "text-gray-800"}`}>
-                    {fs === "UNFULFILLED" ? t("orders.newBadge") : t(`status.${fs}`)}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className={order.isRevised ? "text-orange-600" : "text-gray-500"}>{t("orders.orderCameFrom")}</span>
-                  <span className={`font-medium ${order.isRevised ? "text-orange-900" : "text-gray-800"}`}>
-                    {t(`orders.channelName${order.channel}`)}
-                  </span>
-                </div>
-              </div>
+              {/* Everything about this order — order info, items, status, totals, customer,
+                  delivery, note, return info, economics — as separate rounded cards with a gap
+                  between them, each tinted by what it's about. Edit action up top covers the
+                  whole thing (same destination as before: full order builder pre-confirm, small
+                  customer-info panel after). */}
+              <div className="space-y-3 text-sm">
 
-              {/* Per-item breakdown — merged in from the old separate Items tab */}
-              <div className="bg-green-50 border border-green-200 rounded-xl divide-y divide-green-200/60">
+                {/* Order info */}
+                <div className="p-4 space-y-1.5 bg-indigo-50 rounded-xl border border-gray-100">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="font-semibold text-gray-900">
+                      {t("notifications.orderNo")}: {order.orderNo}
+                    </p>
+                    {os !== "CANCELLED" && (
+                      <button
+                        onClick={() => {
+                          // A draft order hasn't been confirmed yet — stock isn't committed and
+                          // GTR-8's snapshot-freeze hasn't kicked in, so editing goes to the full
+                          // order builder (items, price, qty, everything) instead of just the
+                          // customer-info panel.
+                          if (order.isDraft) {
+                            router.push(`/orders/new?edit=${order.id}`);
+                            return;
+                          }
+                          setEditForm({
+                            customerName: order.customerName,
+                            customerPhone: order.customerPhone,
+                            customerAddress: order.customerAddress ?? "",
+                            channel: order.channel,
+                            note: order.note ?? "",
+                            courierId: order.courierId ?? "",
+                          });
+                          setShowEdit(true);
+                        }}
+                        className="p-1 rounded-lg text-gray-400 hover:bg-gray-100 active:bg-gray-200 shrink-0"
+                        title={t("orders.editCustomerInfo")}
+                      >
+                        <PencilSquareIcon className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-xs text-gray-400">
+                    {t("orders.orderDate")}: {new Date(order.createdAt).toLocaleDateString("en-GB")}
+                  </p>
+                  {/* Type + channel — minor metadata, not worth a full labeled row each like the
+                      money/customer fields below, so it's one small muted line instead. */}
+                  <p className="text-[11px] text-gray-400">
+                    {fs === "UNFULFILLED" ? t("orders.newBadge") : t(`status.${fs}`)} · {t(`orders.channelName${order.channel}`)}
+                  </p>
+                </div>
+
+                {/* Per-item breakdown */}
                 {order.items.map((item) => {
                   const short = item.availableStock < item.qty;
                   return (
-                    <div key={item.id} className="px-4 py-3 space-y-1.5 text-sm">
+                    <div key={item.id} className="p-4 space-y-1.5 bg-white rounded-xl border border-gray-100">
                       <div className="flex justify-between">
-                        <span className="text-green-600">{t("orders.orderProduct")}</span>
-                        <span className="font-medium text-green-900 text-right">
+                        <span className="text-gray-500">{t("orders.orderProduct")}</span>
+                        <span className="font-medium text-gray-900 text-right">
                           {item.productName}
                           {formatVariantLabel(item.variantLabel) ? ` (${formatVariantLabel(item.variantLabel)})` : ""}
                           {item.isDamagedItem && <span className="text-red-500"> ({t("orders.damaged")})</span>}
                         </span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-green-600">{t("orders.orderQuantity")}</span>
-                        <span className="font-medium text-green-900">{item.qty}</span>
+                        <span className="text-gray-500">{t("orders.orderQuantity")}</span>
+                        <span className="font-medium text-gray-900">{item.qty}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-green-600">{t("orders.currentStock")}</span>
-                        <span className={`font-semibold ${short ? "text-red-600" : "text-green-700"}`}>
+                        <span className="text-gray-500">{t("orders.currentStock")}</span>
+                        <span className={`font-semibold ${short ? "text-red-600" : "text-gray-700"}`}>
                           {item.availableStock}
                         </span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-green-600">{t("orders.productPrice")}</span>
-                        <span className="font-medium text-green-900">৳{item.unitPrice.toLocaleString()}</span>
+                        <span className="text-gray-500">{t("orders.productPrice")}</span>
+                        <span className="font-medium text-gray-900">৳{item.unitPrice.toLocaleString()}</span>
                       </div>
-                      <div className="flex justify-between items-center bg-white border border-green-300 rounded-lg px-2 py-1.5 mt-1">
-                        <span className="text-green-700 font-medium">{t("orders.subtotal")}</span>
-                        <span className="font-bold text-green-800">৳{item.subtotal.toLocaleString()}</span>
+                      <div className="flex justify-between items-center bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5 mt-1">
+                        <span className="text-gray-600 font-medium">{t("orders.subtotal")}</span>
+                        <span className="font-bold text-gray-900">৳{item.subtotal.toLocaleString()}</span>
                       </div>
                       {canSeeCosts && item.unitCostSnapshot != null && (
-                        <div className="flex gap-3 text-xs text-green-500">
+                        <div className="flex gap-3 text-xs text-gray-500">
                           <span>{t("orders.unitCost")}: ৳{item.unitCostSnapshot}</span>
                           {item.lineProfit != null && (
                             <span className={item.lineProfit >= 0 ? "text-green-700" : "text-red-500"}>
@@ -462,185 +581,189 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                     </div>
                   );
                 })}
-              </div>
 
-              {fs !== "UNFULFILLED" && (
-                <div className="flex flex-wrap items-center gap-2">
-                  <StatusBadge status={order.orderStatus} />
-                  {order.channel !== "HAWKER" && order.channel !== "SHOP" && (
-                    <>
-                      <StatusBadge status={order.fulfillmentStatus} />
-                      <StatusBadge status={order.paymentStatus} />
-                    </>
+                {fs !== "UNFULFILLED" && (
+                  <div className="p-4 flex flex-wrap items-center gap-2 bg-white rounded-xl border border-gray-100">
+                    <StatusBadge status={order.orderStatus} />
+                    {order.channel !== "HAWKER" && order.channel !== "SHOP" && (
+                      <>
+                        <StatusBadge status={order.fulfillmentStatus} />
+                        {order.paymentStatus === "UNPAID" ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-600">
+                            {t("orders.paymentNotDoneYet")}
+                          </span>
+                        ) : (
+                          <StatusBadge status={order.paymentStatus} />
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {/* Totals */}
+                <div className="p-4 space-y-2 bg-gray-50 rounded-xl border border-gray-100">
+                  <div className="flex justify-between text-gray-500">
+                    <span>{t("orders.subtotal")}</span>
+                    <span>৳{order.subtotal.toLocaleString()}</span>
+                  </div>
+                  {order.discountAmount > 0 && (
+                    <div className="flex justify-between text-amber-600">
+                      <span>{t("orders.discount")}</span>
+                      <span>−৳{order.discountAmount.toLocaleString()}</span>
+                    </div>
+                  )}
+                  {order.deliveryChargeCustomer > 0 && (
+                    <div className="flex justify-between text-gray-500">
+                      <span>{t("orders.deliveryCharge")}</span>
+                      <span>৳{order.deliveryChargeCustomer.toLocaleString()}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between font-bold border-t border-gray-100 pt-2 text-gray-900">
+                    <span>{t("orders.total")}</span>
+                    <span>৳{order.totalAmount.toLocaleString()}</span>
+                  </div>
+                  {order.totalPaid > 0 && (
+                    <div className="flex justify-between text-green-600">
+                      <span>{t("orders.paid")}</span>
+                      <span>৳{order.totalPaid.toLocaleString()}</span>
+                    </div>
+                  )}
+                  {order.dueAmount > 0 && (
+                    <div className="flex justify-between text-red-600 font-medium">
+                      <span>{t("orders.paymentNotDoneYet")}</span>
+                      <span>৳{order.dueAmount.toLocaleString()}</span>
+                    </div>
                   )}
                 </div>
-              )}
 
-              {/* Totals */}
-              <div className="bg-teal-50 border border-teal-200 rounded-xl p-4 space-y-2 text-sm">
-                <div className="flex justify-between text-teal-600">
-                  <span>{t("orders.subtotal")}</span>
-                  <span>৳{order.subtotal.toLocaleString()}</span>
-                </div>
-                {order.discountAmount > 0 && (
-                  <div className="flex justify-between text-amber-600">
-                    <span>{t("orders.discount")}</span>
-                    <span>−৳{order.discountAmount.toLocaleString()}</span>
-                  </div>
-                )}
-                {order.deliveryChargeCustomer > 0 && (
-                  <div className="flex justify-between text-teal-600">
-                    <span>{t("orders.deliveryCharge")}</span>
-                    <span>৳{order.deliveryChargeCustomer.toLocaleString()}</span>
-                  </div>
-                )}
-                <div className="flex justify-between font-bold border-t border-teal-200/60 pt-2 text-teal-900">
-                  <span>{t("orders.total")}</span>
-                  <span>৳{order.totalAmount.toLocaleString()}</span>
-                </div>
-                {order.totalPaid > 0 && (
-                  <div className="flex justify-between text-green-600">
-                    <span>{t("orders.paid")}</span>
-                    <span>৳{order.totalPaid.toLocaleString()}</span>
-                  </div>
-                )}
-                {order.dueAmount > 0 && (
-                  <div className="flex justify-between text-red-600 font-medium">
-                    <span>{t("orders.due")}</span>
-                    <span>৳{order.dueAmount.toLocaleString()}</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Customer */}
-              <div className="bg-violet-50 border border-violet-200 rounded-xl p-4 space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-sm font-semibold text-violet-800">
+                {/* Customer */}
+                <div className="p-4 space-y-2 bg-green-50 rounded-xl border border-gray-100">
+                  <p className="font-semibold text-gray-900">
                     {order.customerName || t("orders.walkIn")}
                   </p>
-                  {os !== "CANCELLED" && (
-                    <button
-                      onClick={() => {
-                        setEditForm({
-                          customerName: order.customerName,
-                          customerPhone: order.customerPhone,
-                          customerAddress: order.customerAddress ?? "",
-                          channel: order.channel,
-                          note: order.note ?? "",
-                          courierId: order.courierId ?? "",
-                        });
-                        setShowEdit(true);
-                      }}
-                      className="p-1 rounded-lg text-violet-500 hover:bg-violet-100 active:bg-violet-200 shrink-0"
-                      title={t("orders.editCustomerInfo")}
-                    >
-                      <PencilSquareIcon className="w-4 h-4" />
-                    </button>
+                  {order.customerPhone && (
+                    <a href={`tel:${order.customerPhone}`} className="flex items-center gap-2 text-gray-700">
+                      <PhoneIcon className="w-4 h-4" /> {order.customerPhone}
+                    </a>
+                  )}
+                  {order.customerAddress && (
+                    <div className="flex items-start gap-2 text-gray-600">
+                      <MapPinIcon className="w-4 h-4 mt-0.5 shrink-0" /> {order.customerAddress}
+                    </div>
                   )}
                 </div>
-                {order.customerPhone && (
-                  <a href={`tel:${order.customerPhone}`} className="flex items-center gap-2 text-sm text-violet-700">
-                    <PhoneIcon className="w-4 h-4" /> {order.customerPhone}
-                  </a>
+
+                {/* Delivery info */}
+                {(order.courierName || order.trackingNo || order.deliveryManName) && (
+                  <div className="p-4 space-y-1 bg-rose-50 rounded-xl border border-gray-100">
+                    {order.courierName && (
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">{t("orders.courierName")}</span>
+                        <span className="font-medium">{order.courierName}</span>
+                      </div>
+                    )}
+                    {order.trackingNo && (
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">{t("orders.trackingNo")}</span>
+                        <span className="font-mono text-indigo-600">{order.trackingNo}</span>
+                      </div>
+                    )}
+                    {order.deliveryManName && (
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">{t("orders.deliveryMan")}</span>
+                        <span>{order.deliveryManName}</span>
+                      </div>
+                    )}
+                  </div>
                 )}
-                {order.customerAddress && (
-                  <div className="flex items-start gap-2 text-sm text-violet-600">
-                    <MapPinIcon className="w-4 h-4 mt-0.5 shrink-0" /> {order.customerAddress}
+
+                {/* Note */}
+                {order.note && (
+                  <div className="p-4 text-amber-700 bg-amber-50 rounded-xl border border-gray-100">
+                    {order.note}
+                  </div>
+                )}
+
+                {/* Return info — shown when order has been returned */}
+                {fs === "RETURNED" && order.returnResolution && (
+                  <div className="p-4 space-y-1 bg-white rounded-xl border border-gray-100">
+                    <p className="font-semibold text-red-700 mb-2">Return Info</p>
+                    {order.returnReason && (
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">Reason</span>
+                        <span className="font-medium text-gray-800">
+                          {{
+                            DEFECTIVE: "Defective / broken",
+                            WRONG_SIZE_COLOR: "Wrong size / color",
+                            CHANGED_MIND: "Changed mind",
+                            DAMAGED_DELIVERY: "Damaged in delivery",
+                            OTHER: "Other",
+                          }[order.returnReason] ?? order.returnReason}
+                        </span>
+                      </div>
+                    )}
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">Resolution</span>
+                      <span className="font-medium text-gray-800">
+                        {{
+                          COURIER_RETURN: "Courier return",
+                          REFUND: "Refund",
+                          STORE_CREDIT: "Store credit",
+                          REPLACE_SAME: "Replacement (same)",
+                          EXCHANGE_DIFFERENT: "Exchange (different)",
+                        }[order.returnResolution] ?? order.returnResolution}
+                      </span>
+                    </div>
+                    {order.returnedAt && (
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">Returned on</span>
+                        <span className="text-gray-700">{new Date(order.returnedAt).toLocaleDateString("en-GB")}</span>
+                      </div>
+                    )}
+                    {order.returnNote && (
+                      <p className="text-gray-500 italic mt-1">{order.returnNote}</p>
+                    )}
+                  </div>
+                )}
+
+                {/* Economics (owner only) — cost is snapshotted at Confirm (GTR-8), so a draft
+                    has no cost data at all yet; showing it pre-confirm would just read as
+                    "this product is 100% profit," which isn't true, it's just not calculated.
+                    Same reasoning extends to cancelled/returned orders — no sale actually stands,
+                    so there's no real profit to report either, not even a provisional one. */}
+                {canSeeCosts && order.economics && !order.isDraft && os !== "CANCELLED" && fs !== "RETURNED" && (
+                  <div className="p-4 space-y-1 bg-green-50 rounded-xl border border-gray-100">
+                    <p className="font-semibold text-gray-900 mb-2">{t("orders.economics")}</p>
+                    <div className="flex justify-between text-gray-600">
+                      <span>{t("orders.revenue")}</span>
+                      <span>৳{order.economics.revenue.toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between text-gray-600">
+                      <span>{t("orders.cost")}</span>
+                      <span>৳{order.economics.cost.toLocaleString()}</span>
+                    </div>
+                    {/* Shown for context only — not part of the profit math below, since
+                        delivery is a logistics pass-through, not product margin. */}
+                    {order.deliveryChargeCustomer > 0 && (
+                      <div className="flex justify-between text-gray-600">
+                        <span>{t("orders.deliveryCharge")}</span>
+                        <span>৳{order.deliveryChargeCustomer.toLocaleString()}</span>
+                      </div>
+                    )}
+                    <div className={`flex justify-between font-semibold border-t pt-1 ${order.economics.profit >= 0 ? "text-green-600" : "text-red-600"}`}>
+                      <span>{t("orders.profit")}</span>
+                      <span>{order.economics.profit >= 0 ? "+" : ""}৳{order.economics.profit.toLocaleString()}</span>
+                    </div>
+                    {/* This profit is calculated off the full order total, not what's actually
+                        been collected — for a seller reading just the number, that reads as
+                        already-in-hand money even on an unpaid COD order. Spell out that it's
+                        provisional until payment is actually received. */}
+                    <p className={`text-xs pt-0.5 ${order.paymentStatus === "PAID" ? "text-green-600" : "text-amber-600"}`}>
+                      {order.paymentStatus === "PAID" ? t("orders.profitRealizedNote") : t("orders.profitPendingNote")}
+                    </p>
                   </div>
                 )}
               </div>
-
-              {/* Delivery info */}
-              {(order.courierName || order.trackingNo || order.deliveryManName) && (
-                <div className="bg-white rounded-xl border border-gray-100 p-4 space-y-1 text-sm">
-                  {order.courierName && (
-                    <div className="flex justify-between">
-                      <span className="text-gray-500">{t("orders.courierName")}</span>
-                      <span className="font-medium">{order.courierName}</span>
-                    </div>
-                  )}
-                  {order.trackingNo && (
-                    <div className="flex justify-between">
-                      <span className="text-gray-500">{t("orders.trackingNo")}</span>
-                      <span className="font-mono text-indigo-600">{order.trackingNo}</span>
-                    </div>
-                  )}
-                  {order.deliveryManName && (
-                    <div className="flex justify-between">
-                      <span className="text-gray-500">{t("orders.deliveryMan")}</span>
-                      <span>{order.deliveryManName}</span>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Note */}
-              {order.note && (
-                <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 text-sm text-amber-700">
-                  {order.note}
-                </div>
-              )}
-
-              {/* Return info — shown when order has been returned */}
-              {fs === "RETURNED" && order.returnResolution && (
-                <div className="bg-red-50 border border-red-100 rounded-xl p-4 space-y-1 text-sm">
-                  <p className="font-semibold text-red-700 mb-2">Return Info</p>
-                  {order.returnReason && (
-                    <div className="flex justify-between">
-                      <span className="text-gray-500">Reason</span>
-                      <span className="font-medium text-gray-800">
-                        {{
-                          DEFECTIVE: "Defective / broken",
-                          WRONG_SIZE_COLOR: "Wrong size / color",
-                          CHANGED_MIND: "Changed mind",
-                          DAMAGED_DELIVERY: "Damaged in delivery",
-                          OTHER: "Other",
-                        }[order.returnReason] ?? order.returnReason}
-                      </span>
-                    </div>
-                  )}
-                  <div className="flex justify-between">
-                    <span className="text-gray-500">Resolution</span>
-                    <span className="font-medium text-gray-800">
-                      {{
-                        COURIER_RETURN: "Courier return",
-                        REFUND: "Refund",
-                        STORE_CREDIT: "Store credit",
-                        REPLACE_SAME: "Replacement (same)",
-                        EXCHANGE_DIFFERENT: "Exchange (different)",
-                      }[order.returnResolution] ?? order.returnResolution}
-                    </span>
-                  </div>
-                  {order.returnedAt && (
-                    <div className="flex justify-between">
-                      <span className="text-gray-500">Returned on</span>
-                      <span className="text-gray-700">{new Date(order.returnedAt).toLocaleDateString("en-GB")}</span>
-                    </div>
-                  )}
-                  {order.returnNote && (
-                    <p className="text-gray-500 italic mt-1">{order.returnNote}</p>
-                  )}
-                </div>
-              )}
-
-              {/* Economics (owner only) */}
-              {canSeeCosts && order.economics && (
-                <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 space-y-1 text-sm">
-                  <p className="font-semibold text-indigo-700 mb-2">{t("orders.economics")}</p>
-                  <div className="flex justify-between text-gray-600">
-                    <span>{t("orders.cost")}</span>
-                    <span>৳{order.economics.cost.toLocaleString()}</span>
-                  </div>
-                  <div className="flex justify-between text-gray-600">
-                    <span>{t("orders.revenue")}</span>
-                    <span>৳{order.economics.revenue.toLocaleString()}</span>
-                  </div>
-                  <div className={`flex justify-between font-semibold border-t pt-1 ${order.economics.profit >= 0 ? "text-green-600" : "text-red-600"}`}>
-                    <span>{t("orders.profit")}</span>
-                    <span>{order.economics.profit >= 0 ? "+" : ""}৳{order.economics.profit.toLocaleString()}</span>
-                  </div>
-                </div>
-              )}
             </>
           )}
 
@@ -743,8 +866,10 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
       {/* ── Sticky action bar ── sits above the bottom nav (h-16) ── */}
       <div className="fixed bottom-16 left-1/2 -translate-x-1/2 w-full max-w-[768px] bg-white border-t border-gray-100 px-4 pt-2 pb-3 space-y-2 z-30">
 
-        {/* Row 1 — primary lifecycle action(s) */}
-        {(order.isDraft ||
+        {/* Row 1 — primary lifecycle action(s). os !== "CANCELLED" guards the whole row: Cancel
+            doesn't touch isDraft/fulfillmentStatus (see CancelAsync), so without this a cancelled
+            draft would still fall into the isDraft branch below and show "Confirm Order". */}
+        {os !== "CANCELLED" && (order.isDraft ||
           (!order.isDraft && fs === "UNFULFILLED" && os === "OPEN") ||
           fs === "PACKED" ||
           fs === "IN_TRANSIT" ||
@@ -761,32 +886,18 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
               </button>
             )}
 
-            {!order.isDraft && fs === "UNFULFILLED" && os === "OPEN" && (
+            {!order.isDraft && (fs === "UNFULFILLED" || fs === "PACKED") && os === "OPEN" && (
               <button
-                onClick={() => packMut.mutate()}
-                disabled={packMut.isPending}
-                className="flex-1 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold disabled:opacity-50"
+                onClick={() => {
+                  setHandoverCourierId(order.courierId ?? "");
+                  setHandoverCost("0");
+                  setHandoverCostManuallySet(false);
+                  setShowHandover(true);
+                }}
+                className="flex-1 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold"
               >
-                {packMut.isPending ? "…" : t("orders.pack")}
+                {t("orders.handover")}
               </button>
-            )}
-
-            {fs === "PACKED" && (
-              <>
-                <button
-                  onClick={() => { setHandoverCourierId(order.courierId ?? ""); setShowHandover(true); }}
-                  className="flex-1 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold"
-                >
-                  {t("orders.handover")}
-                </button>
-                <button
-                  onClick={handleChallan}
-                  disabled={challanLoading}
-                  className="flex-1 py-2.5 rounded-xl border border-indigo-200 text-indigo-600 text-sm font-medium disabled:opacity-50"
-                >
-                  {challanLoading ? "…" : t("orders.printChallan")}
-                </button>
-              </>
             )}
 
             {fs === "IN_TRANSIT" && (
@@ -820,24 +931,6 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
 
         {/* Row 2 — secondary / destructive actions always on their own row */}
         <div className="flex gap-2">
-          {(fs === "DELIVERED" || fs === "RETURNED" || isTerminal) && (
-            <button
-              onClick={handleChallan}
-              disabled={challanLoading}
-              className="flex-1 py-2 rounded-xl border border-indigo-200 text-indigo-600 text-sm font-medium disabled:opacity-50"
-            >
-              {challanLoading ? "…" : t("orders.printChallan")}
-            </button>
-          )}
-          {!order.isDraft && os !== "CANCELLED" && (
-            <button
-              onClick={handleReceipt}
-              disabled={receiptLoading}
-              className="flex-1 py-2 rounded-xl border border-indigo-200 text-indigo-600 text-sm font-medium disabled:opacity-50"
-            >
-              {receiptLoading ? "…" : t("orders.printReceipt")}
-            </button>
-          )}
           {!isTerminal && fs === "UNFULFILLED" && (
             <button
               onClick={() => {
@@ -976,7 +1069,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
             <input
               type="number"
               value={handoverCost}
-              onChange={(e) => setHandoverCost(e.target.value)}
+              onChange={(e) => { setHandoverCost(e.target.value); setHandoverCostManuallySet(true); }}
               min={0}
               className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-300"
             />
@@ -991,7 +1084,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
         title="Return / Refund"
         footer={
           <button
-            onClick={() => returnMut.mutate()}
+            onClick={() => setShowReturnConfirm(true)}
             disabled={returnMut.isPending || !(order?.items ?? []).some((i) => parseFloat(returnQtys[i.id] || "0") > 0)}
             className="w-full py-3 rounded-xl bg-amber-500 text-white text-sm font-semibold disabled:opacity-50"
           >
@@ -1266,7 +1359,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                     <div className="flex items-start justify-between gap-2 mb-2">
                       <div className="min-w-0">
                         <p className="text-sm font-medium text-gray-800 truncate">{item.productName}</p>
-                        {item.variantLabel && <p className="text-xs text-gray-400">{item.variantLabel}</p>}
+                        {formatVariantLabel(item.variantLabel) && <p className="text-xs text-gray-400">{formatVariantLabel(item.variantLabel)}</p>}
                         <p className="text-xs text-gray-400">{t("orders.orderedQty")}: {item.qty} · ৳{item.unitPrice}/pc</p>
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
@@ -1434,117 +1527,70 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
         </div>
       </SlidePanel>
 
-      {/* ── Confirm order confirmation ── */}
-      {showConfirmOrder && (
-        <div className="fixed inset-0 z-50 flex flex-col justify-end">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setShowConfirmOrder(false)} />
-          <div className="relative bg-white rounded-t-2xl px-4 pt-4 pb-8 space-y-4 w-full max-w-[768px] mx-auto">
-            <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto" />
-            <p className="text-base font-semibold text-gray-900">{t("orders.confirmOrderQuestion")}</p>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setShowConfirmOrder(false)}
-                className="flex-1 py-2.5 rounded-xl border border-gray-200 text-gray-600 text-sm"
-              >
-                {t("common.close")}
-              </button>
-              <button
-                onClick={() => confirmMut.mutate()}
-                disabled={confirmMut.isPending}
-                className="flex-1 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-medium disabled:opacity-50"
-              >
-                {confirmMut.isPending ? t("orders.confirming") : t("orders.confirmOrder")}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmSheet
+        open={showConfirmOrder}
+        onClose={() => setShowConfirmOrder(false)}
+        title={t("orders.confirmOrderQuestion")}
+        closeLabel={t("common.close")}
+        confirmLabel={confirmMut.isPending ? t("orders.confirming") : t("orders.confirmOrder")}
+        onConfirm={() => confirmMut.mutate()}
+        confirmDisabled={confirmMut.isPending}
+      />
 
-      {showDeliverConfirm && (
-        <div className="fixed inset-0 z-50 flex flex-col justify-end">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setShowDeliverConfirm(false)} />
-          <div className="relative bg-white rounded-t-2xl px-4 pt-4 pb-8 space-y-4 w-full max-w-[768px] mx-auto">
-            <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto" />
-            <p className="text-base font-semibold text-gray-900">{t("orders.deliverQuestion")}</p>
-            <p className="text-sm text-gray-500">{t("orders.deliverNote")}</p>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setShowDeliverConfirm(false)}
-                className="flex-1 py-2.5 rounded-xl border border-gray-200 text-gray-600 text-sm"
-              >
-                {t("common.close")}
-              </button>
-              <button
-                onClick={() => deliverMut.mutate()}
-                disabled={deliverMut.isPending}
-                className="flex-1 py-2.5 rounded-xl bg-green-600 text-white text-sm font-medium disabled:opacity-50"
-              >
-                {deliverMut.isPending ? "…" : t("orders.deliver")}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmSheet
+        open={showDeliverConfirm}
+        onClose={() => setShowDeliverConfirm(false)}
+        title={t("orders.deliverQuestion")}
+        note={t("orders.deliverNote")}
+        closeLabel={t("common.close")}
+        confirmLabel={deliverMut.isPending ? "…" : t("orders.deliver")}
+        onConfirm={() => deliverMut.mutate()}
+        confirmDisabled={deliverMut.isPending}
+        confirmClassName="bg-green-600 text-white"
+      />
 
-      {/* ── Cancel order confirmation — same simple Yes/No pattern as Confirm Order, shown
-          before the reason-entry sheet below so an accidental tap doesn't fall straight into
-          filling out a cancellation reason. ── */}
-      {showCancelConfirm && (
-        <div className="fixed inset-0 z-50 flex flex-col justify-end">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setShowCancelConfirm(false)} />
-          <div className="relative bg-white rounded-t-2xl px-4 pt-4 pb-8 space-y-4 w-full max-w-[768px] mx-auto">
-            <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto" />
-            <p className="text-base font-semibold text-gray-900">{t("orders.cancelOrderQuestion")}</p>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setShowCancelConfirm(false)}
-                className="flex-1 py-2.5 rounded-xl border border-gray-200 text-gray-600 text-sm"
-              >
-                {t("common.close")}
-              </button>
-              <button
-                onClick={() => { setShowCancelConfirm(false); setShowCancel(true); }}
-                className="flex-1 py-2.5 rounded-xl bg-red-500 text-white text-sm font-medium"
-              >
-                {t("orders.cancel")}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmSheet
+        open={showReturnConfirm}
+        onClose={() => setShowReturnConfirm(false)}
+        title={t("orders.courierReturnQuestion")}
+        note={t("orders.courierReturnNote")}
+        closeLabel={t("common.close")}
+        confirmLabel={returnMut.isPending ? "…" : "Confirm Return"}
+        onConfirm={() => returnMut.mutate()}
+        confirmDisabled={returnMut.isPending}
+        confirmClassName="bg-amber-500 text-white"
+      />
 
-      {/* ── Cancel confirmation ── */}
-      {showCancel && (
-        <div className="fixed inset-0 z-50 flex flex-col justify-end">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setShowCancel(false)} />
-          <div className="relative bg-white rounded-t-2xl px-4 pt-4 pb-8 space-y-4 w-full max-w-[768px] mx-auto">
-            <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto" />
-            <p className="text-base font-semibold text-gray-900">{t("orders.cancel")}</p>
-            <textarea
-              value={cancelReason}
-              onChange={(e) => setCancelReason(e.target.value)}
-              rows={3}
-              placeholder={t("orders.cancelReason")}
-              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-indigo-300"
-            />
-            <div className="flex gap-2">
-              <button
-                onClick={() => setShowCancel(false)}
-                className="flex-1 py-2.5 rounded-xl border border-gray-200 text-gray-600 text-sm"
-              >
-                {t("common.close")}
-              </button>
-              <button
-                onClick={() => cancelMut.mutate()}
-                disabled={cancelMut.isPending}
-                className="flex-1 py-2.5 rounded-xl bg-red-500 text-white text-sm font-medium disabled:opacity-50"
-              >
-                {cancelMut.isPending ? "…" : t("orders.cancel")}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Cancel is two sheets in sequence — a plain Yes/No first, so an accidental tap doesn't
+          fall straight into filling out a cancellation reason. */}
+      <ConfirmSheet
+        open={showCancelConfirm}
+        onClose={() => setShowCancelConfirm(false)}
+        title={t("orders.cancelOrderQuestion")}
+        closeLabel={t("common.close")}
+        confirmLabel={t("orders.cancel")}
+        onConfirm={() => { setShowCancelConfirm(false); setShowCancel(true); }}
+        confirmClassName="bg-red-500 text-white"
+      />
+
+      <ConfirmSheet
+        open={showCancel}
+        onClose={() => setShowCancel(false)}
+        title={t("orders.cancel")}
+        closeLabel={t("common.close")}
+        confirmLabel={cancelMut.isPending ? "…" : t("orders.cancel")}
+        onConfirm={() => cancelMut.mutate()}
+        confirmDisabled={cancelMut.isPending}
+        confirmClassName="bg-red-500 text-white"
+      >
+        <textarea
+          value={cancelReason}
+          onChange={(e) => setCancelReason(e.target.value)}
+          rows={3}
+          placeholder={t("orders.cancelReason")}
+          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-indigo-300"
+        />
+      </ConfirmSheet>
 
       {/* ── Edit panel ── */}
       <SlidePanel
@@ -1633,42 +1679,29 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
         </div>
       </SlidePanel>
 
-      {/* ── Delete confirmation ── */}
-      {showDelete && (
-        <div className="fixed inset-0 z-50 flex flex-col justify-end">
-          <div className="absolute inset-0 bg-black/40" onClick={() => { setShowDelete(false); setDeleteReason(""); }} />
-          <div className="relative bg-white rounded-t-2xl px-4 pt-4 pb-8 space-y-4 w-full max-w-[768px] mx-auto">
-            <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto" />
-            <p className="text-base font-semibold text-red-600">{t("orders.deleteOrderTitle")}</p>
-            <p className="text-sm text-gray-500">{t("orders.deleteOrderWarning")}</p>
-            <div>
-              <label className="text-xs text-gray-500 mb-1 block">{t("orders.deleteOrderReason")} *</label>
-              <textarea
-                value={deleteReason}
-                onChange={(e) => setDeleteReason(e.target.value)}
-                rows={3}
-                placeholder={t("orders.deleteOrderReasonPlaceholder")}
-                className="w-full px-3 py-2 text-sm border border-red-200 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-red-300"
-              />
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={() => { setShowDelete(false); setDeleteReason(""); }}
-                className="flex-1 py-2.5 rounded-xl border border-gray-200 text-gray-600 text-sm"
-              >
-                {t("common.close")}
-              </button>
-              <button
-                onClick={() => deleteMut.mutate()}
-                disabled={deleteMut.isPending || !deleteReason.trim()}
-                className="flex-1 py-2.5 rounded-xl bg-red-500 text-white text-sm font-medium disabled:opacity-50"
-              >
-                {deleteMut.isPending ? t("orders.deleting") : t("orders.confirmDelete")}
-              </button>
-            </div>
-          </div>
+      <ConfirmSheet
+        open={showDelete}
+        onClose={() => { setShowDelete(false); setDeleteReason(""); }}
+        title={t("orders.deleteOrderTitle")}
+        titleClassName="text-red-600"
+        note={t("orders.deleteOrderWarning")}
+        closeLabel={t("common.close")}
+        confirmLabel={deleteMut.isPending ? t("orders.deleting") : t("orders.confirmDelete")}
+        onConfirm={() => deleteMut.mutate()}
+        confirmDisabled={deleteMut.isPending || !deleteReason.trim()}
+        confirmClassName="bg-red-500 text-white"
+      >
+        <div>
+          <label className="text-xs text-gray-500 mb-1 block">{t("orders.deleteOrderReason")} *</label>
+          <textarea
+            value={deleteReason}
+            onChange={(e) => setDeleteReason(e.target.value)}
+            rows={3}
+            placeholder={t("orders.deleteOrderReasonPlaceholder")}
+            className="w-full px-3 py-2 text-sm border border-red-200 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-red-300"
+          />
         </div>
-      )}
+      </ConfirmSheet>
     </>
   );
 }

@@ -7,6 +7,8 @@ import DateRangeBar, { periodToDates } from "@/components/reports/DateRangeBar";
 import type { ReportPeriod, GroupBy } from "@/types/reports";
 import { useAuthStore } from "@/store/authStore";
 import { useMounted } from "@/hooks/useMounted";
+import { EXPENSE_CATEGORY_ICONS } from "@/lib/expenseCategoryIcons";
+import { ChevronDownIcon } from "@heroicons/react/24/outline";
 import {
   AreaChart, Area, LineChart, Line, PieChart, Pie, Cell,
   ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid,
@@ -34,6 +36,7 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 export default function FinancialReportPage() {
   const [period, setPeriod] = useState<ReportPeriod>("30d");
   const [groupBy, setGroupBy] = useState<GroupBy>("day");
+  const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
   const currentBranchId = useAuthStore((s) => s.currentBranchId);
   const mounted = useMounted();
 
@@ -126,30 +129,69 @@ export default function FinancialReportPage() {
               </>
             )}
 
-            {/* Expense by category */}
+            {/* Expense by category — the pie chart only makes sense with actual money in it, but
+                the list below always shows every category (৳0 if nothing logged yet this period)
+                so the full set is visible and expandable regardless of data. */}
             {data.expenseByCategory.length > 0 && (
               <>
                 <SectionTitle>Expenses by Category</SectionTitle>
-                <div className="bg-white rounded-2xl border border-gray-100 p-3 flex items-center gap-4">
-                  <ResponsiveContainer width="50%" height={160}>
-                    <PieChart>
-                      <Pie data={data.expenseByCategory} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={65} innerRadius={35}>
-                        {data.expenseByCategory.map((_, i) => (
-                          <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                        ))}
-                      </Pie>
-                      <Tooltip formatter={(v) => `৳${Number(v ?? 0).toLocaleString()}`} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                  <div className="flex-1 space-y-1.5">
-                    {data.expenseByCategory.map((c, i) => (
-                      <div key={c.name} className="flex items-center gap-2 text-xs">
-                        <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: COLORS[i % COLORS.length] }} />
-                        <span className="text-gray-600 truncate flex-1">{c.name}</span>
-                        <span className="font-medium text-gray-800 shrink-0">৳{c.value.toLocaleString()}</span>
-                      </div>
-                    ))}
+                {data.expenseByCategory.some((c) => c.value > 0) && (
+                  <div className="bg-white rounded-2xl border border-gray-100 p-3 flex items-center gap-4">
+                    <ResponsiveContainer width="50%" height={160}>
+                      <PieChart>
+                        <Pie data={data.expenseByCategory.filter((c) => c.value > 0)} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={65} innerRadius={35}>
+                          {data.expenseByCategory.filter((c) => c.value > 0).map((_, i) => (
+                            <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                          ))}
+                        </Pie>
+                        <Tooltip formatter={(v) => `৳${Number(v ?? 0).toLocaleString()}`} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                    <div className="flex-1 space-y-1.5">
+                      {data.expenseByCategory.filter((c) => c.value > 0).map((c, i) => (
+                        <div key={c.name} className="flex items-center gap-2 text-xs">
+                          <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: COLORS[i % COLORS.length] }} />
+                          <span className="text-gray-600 truncate flex-1">{c.name}</span>
+                          <span className="font-medium text-gray-800 shrink-0">৳{c.value.toLocaleString()}</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
+                )}
+
+                {/* Tap a category to expand its subtype breakdown — the pie/legend above answers
+                    "which category costs most," this answers "what specifically within it." */}
+                <div className="mt-2 bg-white rounded-2xl border border-gray-100 divide-y divide-gray-50">
+                  {data.expenseByCategory.map((c) => {
+                    const isOpen = expandedCategory === c.code;
+                    return (
+                      <div key={c.code}>
+                        <button
+                          onClick={() => setExpandedCategory(isOpen ? null : c.code)}
+                          className="w-full flex items-center gap-3 px-4 py-3 text-left"
+                        >
+                          <span className="text-xl shrink-0">{EXPENSE_CATEGORY_ICONS[c.code] ?? "📋"}</span>
+                          <span className="flex-1 text-sm font-medium text-gray-800 truncate">{c.name}</span>
+                          <span className="text-sm font-semibold text-gray-900 shrink-0">৳{c.value.toLocaleString()}</span>
+                          <ChevronDownIcon className={`w-4 h-4 text-gray-400 shrink-0 transition-transform ${isOpen ? "rotate-180" : ""}`} />
+                        </button>
+                        {isOpen && (
+                          <div className="px-4 pb-3 pl-12 space-y-1.5">
+                            {c.subtypes.length === 0 ? (
+                              <p className="text-xs text-gray-400">No expenses logged yet.</p>
+                            ) : (
+                              c.subtypes.map((s) => (
+                                <div key={s.name} className="flex justify-between text-xs">
+                                  <span className="text-gray-500">{s.name}</span>
+                                  <span className="text-gray-700 font-medium">৳{s.value.toLocaleString()}</span>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </>
             )}

@@ -58,26 +58,48 @@ public class ClientPageCheckoutService : IClientPageCheckoutService
                 .FirstOrDefaultAsync(b => b.Id == businessId && b.DeletedAt == null);
             if (business == null) continue;
 
-            var defaultBranch = await _db.Branches.IgnoreQueryFilters()
-                .FirstOrDefaultAsync(b => b.BusinessId == businessId && b.DeletedAt == null && b.IsDefault);
+            var branches = await _db.Branches.IgnoreQueryFilters()
+                .Where(b => b.BusinessId == businessId && b.DeletedAt == null && b.IsActive)
+                .ToListAsync();
+            var defaultBranch = branches.FirstOrDefault(b => b.IsDefault) ?? branches.FirstOrDefault();
             if (defaultBranch == null)
             {
                 results.Add(new ClientPageShopOrderResultDto(businessId, business.Name, false, null, null, "This shop has no active branch to fulfill orders from.", 0));
                 continue;
             }
 
-            _businessContext.CurrentBusinessId = businessId;
-            _businessContext.CurrentBranchId = defaultBranch.Id;
-
-            var storefrontUserId = await GetOrCreateStorefrontUserAsync(business);
-
-            var (deliveryCharge, courierId) = await GetDeliveryChargeAsync(businessId, isDhaka);
-
             var items = shopGroup.Select(v => new OrderItemInput(
                 v.Id,
                 request.Items.First(i => i.VariantId == v.Id).Qty,
                 v.PriceOverride ?? v.Product.SellingPrice
             )).ToList();
+
+            // Prefer the default branch, but a multi-branch business can easily have stock sitting
+            // in a branch that isn't the default one — always forcing the default here just means
+            // Confirm fails later with "0 available" and no clue why. Same "fulfill from wherever
+            // actually has the stock" principle Shopify/WooCommerce multi-location inventory uses:
+            // fall back to whichever OTHER active branch can fully cover this order's items, if any
+            // can. If no single branch covers everything (split fulfillment), default branch wins
+            // and staff sort it out manually — the order's still a draft, so nothing's reserved yet.
+            var chosenBranch = defaultBranch;
+            if (branches.Count > 1 && !await BranchCanFulfillAsync(defaultBranch.Id, items))
+            {
+                foreach (var candidate in branches.Where(b => b.Id != defaultBranch.Id))
+                {
+                    if (await BranchCanFulfillAsync(candidate.Id, items))
+                    {
+                        chosenBranch = candidate;
+                        break;
+                    }
+                }
+            }
+
+            _businessContext.CurrentBusinessId = businessId;
+            _businessContext.CurrentBranchId = chosenBranch.Id;
+
+            var storefrontUserId = await GetOrCreateStorefrontUserAsync(business);
+
+            var (deliveryCharge, courierId) = await GetDeliveryChargeAsync(businessId, isDhaka);
 
             try
             {
@@ -166,6 +188,22 @@ public class ClientPageCheckoutService : IClientPageCheckoutService
             .FirstOrDefaultAsync(c => c.BusinessId == businessId && c.DeletedAt == null && c.IsActive && c.IsDefault);
         if (defaultCourier == null) return (0m, null);
         return (isDhaka ? defaultCourier.InsideDhakaCharge : defaultCourier.OutsideDhakaCharge, defaultCourier.Id);
+    }
+
+    // IgnoreQueryFilters — this runs before _businessContext.CurrentBranchId/CurrentBusinessId are
+    // set for this order, so the normal branch-scoped query filter on BranchVariantInventories
+    // isn't active yet (and branchId here isn't necessarily the eventual CurrentBranchId anyway,
+    // since this is exactly what's deciding it).
+    private async Task<bool> BranchCanFulfillAsync(Guid branchId, List<OrderItemInput> items)
+    {
+        foreach (var item in items)
+        {
+            var inv = await _db.BranchVariantInventories.IgnoreQueryFilters().AsNoTracking()
+                .FirstOrDefaultAsync(i => i.BranchId == branchId && i.VariantId == item.VariantId);
+            var available = inv == null ? 0m : inv.OnHand - inv.Committed - inv.Damaged;
+            if (available < item.Qty) return false;
+        }
+        return true;
     }
 
     private static string BuildAddressString(string buildingStreet, string? colonyLandmark, string city)

@@ -4,6 +4,9 @@ namespace ResellerApi.DTOs.Reports;
 
 public record DatePoint(string Label, decimal Value);
 public record NameValue(string Name, decimal Value);
+// Code drives the frontend's icon lookup (CATEGORY_ICONS); Name/Value keep the same shape
+// NameValue already had, so the existing pie chart (dataKey="value" nameKey="name") needs no change.
+public record ExpenseCategoryBreakdownDto(string Code, string Name, decimal Value, List<NameValue> Subtypes);
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
@@ -89,7 +92,7 @@ public record PnlReportDto(
     List<DatePoint> RevenueTrend,
     List<DatePoint> ProfitTrend,
     List<DatePoint> ExpenseTrend,
-    List<NameValue> ExpenseByCategory
+    List<ExpenseCategoryBreakdownDto> ExpenseByCategory
 );
 
 // ── Orders ────────────────────────────────────────────────────────────────────

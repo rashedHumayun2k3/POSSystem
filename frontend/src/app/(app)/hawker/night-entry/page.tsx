@@ -45,6 +45,7 @@ export default function NightEntryPage() {
   const { t } = useLanguage();
   const queryClient = useQueryClient();
   const canSeeCosts = useAuthStore((s) => s.canSeeCosts);
+  const currentBranchId = useAuthStore((s) => s.currentBranchId);
   useCatalogAutoSync();
   // Night Entry is the entire "New Sale" flow for hawker businesses — they never visit /pos, so
   // this can't rely on that page to be the one that starts the queued-sale sync loop. Without this
@@ -102,8 +103,8 @@ export default function NightEntryPage() {
 
   const { data: allProducts = [], isLoading } = useQuery({
     queryKey: isSearching
-      ? ["hawker-night-entry-search", debouncedSearch]
-      : ["hawker-night-entry-products", selectedCategoryId],
+      ? ["hawker-night-entry-search", debouncedSearch, currentBranchId]
+      : ["hawker-night-entry-products", selectedCategoryId, currentBranchId],
     queryFn: () =>
       isSearching
         ? searchProductsWithFallback(debouncedSearch, true)
@@ -117,13 +118,13 @@ export default function NightEntryPage() {
   const products = allProducts.filter((p) => p.marketPrice != null);
 
   const { data: todaySold = {} } = useQuery({
-    queryKey: ["hawker-night-entry-today-sold"],
+    queryKey: ["hawker-night-entry-today-sold", currentBranchId],
     queryFn: getTodaySoldWithFallback,
     staleTime: 15_000,
   });
 
   const { data: todayServerProfit = 0 } = useQuery({
-    queryKey: ["hawker-night-entry-today-profit"],
+    queryKey: ["hawker-night-entry-today-profit", currentBranchId],
     queryFn: getTodayHawkerProfitWithFallback,
     enabled: canSeeCosts(),
     staleTime: 15_000,

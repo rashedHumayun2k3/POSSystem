@@ -20,6 +20,37 @@ public class ExpenseService : IExpenseService
         _log = log;
     }
 
+    // Mirrors the frontend's QUICK_SUBTYPES (expenses/new/page.tsx) — duplicated rather than
+    // shared, since SubType is still free text on the wire. Used only to fold obviously-equal
+    // entries ("electricity bill" -> "Electricity") into one canonical spelling at save time, not
+    // to restrict input to this list.
+    private static readonly Dictionary<string, string[]> CanonicalSubtypes = new()
+    {
+        ["OFFICE"] = new[] { "Rent", "Electricity", "Internet", "Stationery", "Cleaning", "Mobile/Phone Bill", "Bank/MFS Charge" },
+        ["STAFF"] = new[] { "Salary", "Delivery rider salary", "Bonus", "Advance", "Overtime", "Transport allowance" },
+        ["MARKETING"] = new[] { "Facebook Ads", "Boost post", "Banner", "Packaging design", "Promotional gift" },
+        ["DELIVERY"] = new[] { "Courier fee", "Return charge", "COD collection charge", "Petrol", "Van/Rickshaw rent", "Vehicle maintenance", "Toll/Ferry", "Parking", "Packaging Materials" },
+        ["TRIP"] = new[] { "Flight ticket", "Hotel", "Food", "Visa fee", "Customs", "Local transport" },
+        ["EQUIPMENT_OTHER"] = new[] { "Equipment purchase", "Repair", "Furniture", "Software", "Miscellaneous" },
+        ["OWNER_DRAWING"] = new[] { "Personal drawing", "Personal transfer" },
+        ["INVENTORY_LOSS"] = new[] { "Damage Loss", "Expired/Near-expiry write-off", "Theft/Pilferage", "Stock count adjustment" },
+        ["SETUP_CAPEX"] = new[] { "Shop Rent Advance/Deposit", "Shop Decoration/Renovation", "CCTV & Security System", "Signboard/Branding", "POS/Computer Setup", "Initial Furniture & Fixtures", "Shop/Property Purchase", "Business Registration/Trade License" },
+    };
+
+    // Trim + collapse internal whitespace always; fold onto the canonical spelling only on an
+    // exact case-insensitive match, so it never mangles a genuinely different subtype the owner
+    // typed on purpose.
+    private static string NormalizeSubType(string categoryCode, string raw)
+    {
+        var cleaned = System.Text.RegularExpressions.Regex.Replace(raw.Trim(), @"\s+", " ");
+        if (CanonicalSubtypes.TryGetValue(categoryCode, out var options))
+        {
+            var match = options.FirstOrDefault(o => string.Equals(o, cleaned, StringComparison.OrdinalIgnoreCase));
+            if (match != null) return match;
+        }
+        return cleaned;
+    }
+
     public async Task<PagedResult<ExpenseDto>> ListAsync(ExpenseListRequest req)
     {
         var q = _db.Expenses
@@ -82,7 +113,7 @@ public class ExpenseService : IExpenseService
             BusinessId       = _business.CurrentBusinessId,
             BranchId         = req.BranchId ?? _business.CurrentBranchId,
             CategoryId       = req.CategoryId,
-            SubType          = req.SubType.Trim(),
+            SubType          = NormalizeSubType(cat.Code, req.SubType),
             Amount           = req.Amount,
             ExpenseDate      = req.ExpenseDate.Date,
             StaffId          = req.StaffId,
@@ -140,8 +171,11 @@ public class ExpenseService : IExpenseService
         if (req.Amount <= 0)
             throw new ArgumentException("Amount must be greater than zero.");
 
+        var cat = await _db.ExpenseCategories.FirstOrDefaultAsync(c => c.Id == req.CategoryId)
+            ?? throw new KeyNotFoundException("Expense category not found.");
+
         expense.CategoryId       = req.CategoryId;
-        expense.SubType          = req.SubType.Trim();
+        expense.SubType          = NormalizeSubType(cat.Code, req.SubType);
         expense.Amount           = req.Amount;
         expense.ExpenseDate      = req.ExpenseDate.Date;
         expense.StaffId          = req.StaffId;

@@ -128,7 +128,12 @@ public record CreateOrderRequest(
     // R3.3: a sale that happened offline is accepted even if it drives stock negative on sync,
     // rather than rejected — set only by the offline-sync replay path, never by a live/online
     // create. See ConfirmInternalAsync.
-    bool AllowOversell = false
+    bool AllowOversell = false,
+    // Explicit branch this order is for — takes priority over the ambient X-Branch-Id header when
+    // provided. Lets the New Order builder pin a branch up front and keep every item check/submit
+    // against that same branch even if the header switcher changes underneath it mid-session
+    // (same override pattern as StockAdjustmentService.ResolveBranchIdAsync).
+    Guid? BranchId = null
 );
 
 public record UpdateOrderRequest(
@@ -140,7 +145,11 @@ public record UpdateOrderRequest(
     decimal? DiscountValue,
     decimal? DeliveryChargeCustomer,
     string? Note,
-    Guid? CourierId
+    Guid? CourierId,
+    // Draft-only full item replacement (add/remove/re-qty/re-price) — null means "leave items
+    // alone". Never accepted once the order is confirmed: stock is already committed by then and
+    // GTR-8 freezes the order snapshot, so item changes past that point go through Revise instead.
+    List<OrderItemInput>? Items = null
 );
 
 public record HandoverOrderRequest(
@@ -274,7 +283,9 @@ public record OrderListDto(
     Guid? CourierId,
     string? CourierName,
     DateTime? HandedOverAt, // used to compute "days in transit" on the delivery board
-    string? CustomerAddress // frozen snapshot on the order itself, not a live Customer lookup (GTR-8)
+    string? CustomerAddress, // frozen snapshot on the order itself, not a live Customer lookup (GTR-8)
+    Guid? BranchId,
+    string? BranchName
 );
 
 public record OrderDetailDto(

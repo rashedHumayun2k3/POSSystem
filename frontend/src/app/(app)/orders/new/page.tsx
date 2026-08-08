@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { createOrder as createOrderApi, listCouriers } from "@/lib/ordersApi";
+import { createOrder as createOrderApi, updateOrder as updateOrderApi, getOrder, listCouriers } from "@/lib/ordersApi";
 import { useAuthStore } from "@/store/authStore";
 import AppHeader from "@/components/layout/AppHeader";
 import { XMarkIcon, PlusIcon, MinusIcon, ChevronRightIcon, Cog6ToothIcon, CubeIcon } from "@heroicons/react/24/outline";
@@ -15,6 +15,7 @@ import { useToastStore } from "@/store/toastStore";
 import SlidePanel from "@/components/ui/SlidePanel";
 import CourierManager from "@/components/settings/CourierManager";
 import { resolveMediaUrl } from "@/lib/media";
+import { formatVariantLabel } from "@/lib/format";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 interface CartLine {
@@ -52,15 +53,16 @@ const CHANNEL_ACTIVE_CLS: Record<Channel, string> = {
   OTHER:     "bg-gray-500   text-white border-gray-500",
 };
 
-// Unselected state — a light tint of each channel's own brand color (not plain white/gray for
-// everyone) so the buttons hint at their identity even before you tap one.
+// Unselected state — one flat neutral color for every channel (same as OTHER), so the buttons
+// don't hint at brand identity until tapped. Selected state (CHANNEL_ACTIVE_CLS) still uses each
+// channel's own brand color.
 const CHANNEL_INACTIVE_CLS: Record<Channel, string> = {
-  FACEBOOK:  "bg-blue-200   text-blue-900   border-blue-300",
-  WHATSAPP:  "bg-green-200  text-green-900  border-green-300",
-  INSTAGRAM: "bg-pink-200   text-pink-900   border-pink-300",
-  PHONE:     "bg-slate-300  text-slate-900  border-slate-400",
-  SHOP:      "bg-amber-200  text-amber-900  border-amber-300",
-  MYWEBSITE: "bg-teal-200   text-teal-900   border-teal-300",
+  FACEBOOK:  "bg-gray-300   text-gray-900   border-gray-400",
+  WHATSAPP:  "bg-gray-300   text-gray-900   border-gray-400",
+  INSTAGRAM: "bg-gray-300   text-gray-900   border-gray-400",
+  PHONE:     "bg-gray-300   text-gray-900   border-gray-400",
+  SHOP:      "bg-gray-300   text-gray-900   border-gray-400",
+  MYWEBSITE: "bg-gray-300   text-gray-900   border-gray-400",
   OTHER:     "bg-gray-300   text-gray-900   border-gray-400",
 };
 
@@ -90,8 +92,43 @@ function courierButtonClass(name: string, active: boolean): string {
 // ── Main component ─────────────────────────────────────────────────────────
 export default function NewOrderPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const isOwner = useAuthStore((s) => s.isOwner());
   const { t } = useLanguage();
+
+  // ── Edit mode — reuses this whole builder to fully edit a draft order's items instead of
+  // just the small customer-info panel on the order detail page. Only ever reached for orders
+  // still pre-confirm: once confirmed, stock is committed and GTR-8 freezes the item snapshot,
+  // so item edits after that point go through Revise (reduce-only) instead. ──
+  const editId = searchParams.get("edit");
+  const isEditMode = !!editId;
+  const [prefilled, setPrefilled] = useState(false);
+  const { data: existingOrder, isLoading: existingLoading } = useQuery({
+    queryKey: ["order", editId],
+    queryFn: () => getOrder(editId!),
+    enabled: isEditMode,
+  });
+
+  // ── Order branch — picked explicitly, once, before the cart even opens, then pinned for the
+  // rest of this order regardless of what the header switcher does afterward. Without this, an
+  // order built while flipping between branches could end up with items whose stock was only ever
+  // checked against a *different* branch than the one the order finally commits under (see
+  // ProductPicker's branchIdOverride and OrderService.ResolveOrderBranchIdAsync). Skipped entirely
+  // for single-branch businesses (nothing to choose) and for edit mode (the order already has a
+  // fixed branch from when it was created; this flow only edits its items, not that).
+  const branches = useAuthStore((s) => s.branches);
+  const headerBranchId = useAuthStore((s) => s.currentBranchId);
+  const activeBranches = branches.filter((b) => b.isActive);
+  const needsBranchChoice = !isEditMode && activeBranches.length > 1;
+  const [orderBranchId, setOrderBranchId] = useState<string | null>(null);
+
+  // Single-branch businesses: nothing to choose, pin to it automatically.
+  useEffect(() => {
+    if (!isEditMode && activeBranches.length === 1 && orderBranchId === null) {
+      setOrderBranchId(activeBranches[0].id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEditMode, activeBranches.length]);
 
   // ── Cart state ──────────────────────────────────────────────────────────
   const [cart, setCart] = useState<CartLine[]>([]);
@@ -104,6 +141,16 @@ export default function NewOrderPage() {
 
   // ── Order details ───────────────────────────────────────────────────────
   const [channel, setChannel] = useState<Channel>("FACEBOOK");
+  // Channel always has a value (defaults to FACEBOOK), so the picker starts collapsed to the
+  // selected chip + "Change" — same collapse-after-pick pattern as the Customer section above it.
+  const [channelPickerOpen, setChannelPickerOpen] = useState(false);
+  // Edit mode only: some orders carry a channel value this picker has no chip for (e.g. "WEBSITE"
+  // from the public storefront checkout — distinct from the staff-facing "MYWEBSITE" option here).
+  // Prefill falls back to displaying "OTHER" for those so the UI has something to show, but that
+  // must never get WRITTEN BACK as the real value on save unless the staff member actually picked
+  // a channel themselves — otherwise editing an unrelated field silently relabels a storefront
+  // order as "Other".
+  const [channelTouched, setChannelTouched] = useState(false);
   const [courierId, setCourierId] = useState("");
   const [deliveryAddress, setDeliveryAddress] = useState("");
   const [discountType, setDiscountType] = useState<"NONE" | "PERCENT" | "FIXED">("PERCENT");
@@ -113,6 +160,40 @@ export default function NewOrderPage() {
   const [advanceMethod, setAdvanceMethod] = useState("CASH");
   const [note, setNote] = useState("");
   const [showDiscountSheet, setShowDiscountSheet] = useState(false);
+
+  // Populate the builder from the existing draft once it loads — guarded by `prefilled` so a
+  // background refetch (e.g. after the update mutation invalidates ["order", editId]) doesn't
+  // stomp on whatever the staff member has typed since. No image/marketPrice on OrderItemDto, so
+  // pre-filled lines just show the 📦 placeholder and skip the "was X, now Y" discount badge.
+  useEffect(() => {
+    if (!existingOrder || prefilled) return;
+    setCart(existingOrder.items.map((i) => ({
+      variantId: i.variantId,
+      productName: i.productName,
+      variantLabel: formatVariantLabel(i.variantLabel),
+      variantSku: i.variantSku,
+      imageUrl: null,
+      unitPrice: i.unitPrice,
+      marketPrice: null,
+      qty: i.qty,
+      available: i.availableStock,
+    })));
+    setCustomer(existingOrder.customerId ? {
+      id: existingOrder.customerId,
+      name: existingOrder.customerName,
+      phone: existingOrder.customerPhone,
+      address: existingOrder.customerAddress ?? "",
+      isNew: false,
+    } : null);
+    setDeliveryAddress(existingOrder.customerAddress ?? "");
+    setChannel((CHANNELS as readonly string[]).includes(existingOrder.channel) ? existingOrder.channel as Channel : "OTHER");
+    setCourierId(existingOrder.courierId ?? "");
+    setDiscountType(existingOrder.discountType === "PERCENT" || existingOrder.discountType === "FIXED" ? existingOrder.discountType : "NONE");
+    setDiscountValue(existingOrder.discountValue != null ? String(existingOrder.discountValue) : "");
+    setDeliveryCharge(String(existingOrder.deliveryChargeCustomer ?? 0));
+    setNote(existingOrder.note ?? "");
+    setPrefilled(true);
+  }, [existingOrder, prefilled]);
 
   // ── Couriers ────────────────────────────────────────────────────────────
   // GetAll returns every courier a business has (active + inactive) — that's right for the
@@ -133,7 +214,6 @@ export default function NewOrderPage() {
   // the discount sheet as "already applied" before staff considers stacking an order-level one.
   const actualPriceTotal = cart.reduce((s, l) => s + (l.marketPrice ?? l.unitPrice) * l.qty, 0);
   const existingDiscountAmount = Math.max(actualPriceTotal - subtotal, 0);
-  const existingDiscountPct = actualPriceTotal > 0 ? Math.round((existingDiscountAmount / actualPriceTotal) * 100) : 0;
 
   const discountAmount = (() => {
     const v = parseFloat(discountValue) || 0;
@@ -203,6 +283,9 @@ export default function NewOrderPage() {
         customerName: customer?.name || "Walk-in",
         customerAddress: deliveryAddress.trim() || customer?.address || undefined,
         isDraft,
+        // Pinned choice from the branch-selection step above, not whatever the header currently
+        // says — see the pinning comment near orderBranchId.
+        branchId: orderBranchId ?? undefined,
         courierId: courierId || undefined,
         advancePaymentMethod: parseFloat(advancePaid) > 0 ? advanceMethod : undefined,
         discountType: discountAmount > 0 ? discountType : undefined,
@@ -227,14 +310,117 @@ export default function NewOrderPage() {
     },
   });
 
-  const canConfirm = cart.length > 0;
-  const canDraft = cart.length > 0;
+  // Advance payment isn't touched here — it's not part of this DTO (see UpdateOrderPayload) and
+  // is managed separately via the order detail page's Payments tab, so re-submitting it here
+  // would risk recording a second payment.
+  const updateOrder = useMutation({
+    mutationFn: () =>
+      updateOrderApi(editId!, {
+        customerName: customer?.name || "Walk-in",
+        customerPhone: customer?.phone || "00000000000",
+        customerAddress: deliveryAddress.trim() || customer?.address || undefined,
+        // Only send channel if the staff member actually picked one — see channelTouched above.
+        channel: channelTouched ? channel : undefined,
+        courierId: courierId || undefined,
+        discountType: discountAmount > 0 ? discountType : undefined,
+        discountValue: discountAmount > 0 ? (parseFloat(discountValue) || 0) : undefined,
+        deliveryChargeCustomer: deliveryNum,
+        note: note.trim() || undefined,
+        items: cart.map((l) => ({
+          variantId: l.variantId,
+          qty: l.qty,
+          unitPrice: l.unitPrice,
+        })),
+      }),
+    onSuccess: () => router.push(`/orders/${editId}`),
+    onError: (err: unknown) => {
+      const data = (err as { response?: { data?: { message?: string } } })?.response?.data;
+      useToastStore.getState().show(data?.message ?? t("orders.failedCreate"), "error");
+    },
+  });
+
+  // Once loaded, an edit target that's no longer a draft can't have its items touched here
+  // (stock's already committed) — bounce back to the order itself rather than let staff fill out
+  // a form that will just fail on submit.
+  useEffect(() => {
+    if (isEditMode && existingOrder && !existingOrder.isDraft) {
+      router.replace(`/orders/${editId}`);
+    }
+  }, [isEditMode, existingOrder, editId, router]);
+
+  // A real customer AND a real address are mandatory here (see the note above the Channel
+  // section) — Shop/Hawker sales never reach this screen, so nothing created via it should be
+  // submittable without what a courier actually needs to deliver it. The address field pre-fills
+  // from the picked customer's saved address but can be cleared, so it's checked separately —
+  // picking a customer alone doesn't guarantee there's still an address in the field.
+  const hasDeliveryAddress = Boolean((deliveryAddress.trim() || customer?.address || "").trim());
+  const canConfirm = cart.length > 0 && customer !== null && hasDeliveryAddress;
+  const canDraft = cart.length > 0 && customer !== null && hasDeliveryAddress;
+
+  if (isEditMode && (existingLoading || !prefilled)) {
+    return (
+      <>
+        <AppHeader title={t("orders.editOrder")} backHref={`/orders/${editId}`} />
+        <div className="px-4 py-6 space-y-3 animate-pulse">
+          {[1, 2, 3].map((i) => <div key={i} className="h-20 bg-gray-100 rounded-2xl" />)}
+        </div>
+      </>
+    );
+  }
+
+  // Explicit branch choice up front for multi-branch businesses — see the pinning comment above.
+  // Whichever branch the header currently shows is highlighted as a hint, but every option still
+  // requires an actual tap, same one-tap-to-proceed pattern as every other picker in this flow.
+  if (needsBranchChoice && orderBranchId === null) {
+    return (
+      <>
+        <AppHeader title={t("orders.newTitle")} backHref="/orders" />
+        <div className="px-4 py-6 space-y-4">
+          <p className="text-lg font-semibold text-gray-900">{t("orders.selectBranchTitle")}</p>
+          <p className="text-sm text-gray-500">{t("orders.selectBranchHint")}</p>
+          <div className="grid grid-cols-2 gap-3">
+            {activeBranches.map((b) => (
+              <button
+                key={b.id}
+                onClick={() => setOrderBranchId(b.id)}
+                className={`flex flex-col items-start gap-1 p-4 rounded-2xl border-2 text-left transition-all ${
+                  b.id === headerBranchId
+                    ? "border-indigo-500 bg-indigo-50"
+                    : "border-gray-100 bg-gray-50 hover:border-indigo-200"
+                }`}
+              >
+                <span className="text-sm font-semibold text-gray-900">{b.name}</span>
+                {b.id === headerBranchId && (
+                  <span className="text-[10px] font-medium text-indigo-600">{t("orders.currentlyViewingBranch")}</span>
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+      </>
+    );
+  }
 
   return (
     <>
-      <AppHeader title={t("orders.newTitle")} backHref="/orders" />
+      <AppHeader
+        title={isEditMode ? t("orders.editOrder") : t("orders.newTitle")}
+        backHref={isEditMode ? `/orders/${editId}` : "/orders"}
+      />
 
       <div className="px-4 pb-32 space-y-5 pt-4">
+
+        {/* Which branch this order is pinned to — a persistent reminder for the whole time this
+            order is being built, not just a one-time label on the picker sheet, so it's never lost
+            track of even after scrolling past the branch-selection step. */}
+        {orderBranchId && (
+          <div className="bg-gray-900 rounded-2xl px-4 py-3 flex items-center justify-between">
+            <span className="text-xs font-medium text-gray-400">{t("orders.orderForBranch")}</span>
+            <span className="text-sm font-semibold text-white">
+              {branches.find((b) => b.id === orderBranchId)?.name ?? ""}
+            </span>
+          </div>
+        )}
 
         {/* ── 1. Products ──────────────────────────────────────── */}
         <section className="bg-gray-100 border border-gray-400 rounded-2xl p-4">
@@ -286,12 +472,20 @@ export default function NewOrderPage() {
                       <p className="text-sm font-semibold text-indigo-800">{line.productName}</p>
                       {line.variantLabel && <p className="text-xs text-indigo-400">{line.variantLabel}</p>}
                       <p className="text-[11px] text-gray-400 mt-0.5">{line.variantSku}</p>
+                      {/* Real available count, always — not available-minus-qty, which reads as
+                          "stock is 0/negative" when it actually just means "this cart line would
+                          use it all up." The low-stock warning is a separate, explicit line. */}
                       <span className={`flex items-center gap-1 text-xs font-medium mt-0.5 ${
                         line.available - line.qty <= 2 ? "text-red-500" : "text-green-600"
                       }`}>
                         <CubeIcon className="w-3.5 h-3.5" />
-                        {t("orders.inStockCount", { n: line.available - line.qty })}
+                        {t("orders.inStockCount", { n: line.available })}
                       </span>
+                      {line.available - line.qty <= 2 && (
+                        <span className="text-[11px] text-red-500">
+                          {t("orders.remainingAfterOrder", { n: Math.max(line.available - line.qty, 0) })}
+                        </span>
+                      )}
                     </div>
                   </div>
 
@@ -353,9 +547,9 @@ export default function NewOrderPage() {
           )}
         </section>
 
-        {/* Customer/Channel/Courier/Payment/Note only matter once there's actually something to
-            sell — showing them against an empty cart just front-loads decisions before the one
-            thing that actually determines them (what's being ordered) exists yet. */}
+        {/* Customer only matters once there's actually something to sell — showing it against an
+            empty cart just front-loads a decision before the one thing that determines it (what's
+            being ordered) exists yet. */}
         {cart.length > 0 && (
         <>
         {/* ── 2. Customer ──────────────────────────────────────── */}
@@ -404,6 +598,9 @@ export default function NewOrderPage() {
                   placeholder={customer?.address || t("orders.addressPlaceholder")}
                   className="w-full px-3 py-2 text-sm rounded-lg border border-emerald-200 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-300"
                 />
+                {!hasDeliveryAddress && (
+                  <p className="text-xs text-red-500 mt-1">{t("orders.addressRequiredHint")}</p>
+                )}
               </div>
             </div>
           ) : (
@@ -425,28 +622,54 @@ export default function NewOrderPage() {
             </button>
           )}
         </section>
+        </>
+        )}
 
+        {/* Channel/Courier/Payment/Note wait for a real customer — Shop/Hawker sales never reach
+            this screen at all (they're rung up directly through POS), so every order created
+            here is an online/courier one that genuinely cannot be delivered without a real name,
+            phone, and address. Hiding the rest until that's provided makes the requirement
+            impossible to skip past, not just a validation error after the fact. */}
+        {cart.length > 0 && customer && (
+        <>
         {/* ── 3. Channel ───────────────────────────────────────── */}
         <section className="bg-gray-100 border border-gray-400 rounded-2xl p-4">
           <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">
             {t("orders.channelSection")}
           </p>
-          <div className="flex flex-wrap gap-2">
-            {CHANNELS.map((ch) => (
+          {channelPickerOpen ? (
+            <div className="flex flex-wrap gap-2">
+              {CHANNELS.map((ch) => (
+                <button
+                  key={ch}
+                  onClick={() => {
+                    setChannel(ch);
+                    setChannelTouched(true);
+                    if (ch === "SHOP") { setCourierId(""); setDeliveryCharge("0"); }
+                    setChannelPickerOpen(false);
+                  }}
+                  className={`px-3 py-2 rounded-xl text-xs font-medium transition-all border ${
+                    channel === ch ? CHANNEL_ACTIVE_CLS[ch] : CHANNEL_INACTIVE_CLS[ch]
+                  }`}
+                >
+                  {CHANNEL_LABELS[ch]}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <span className={`px-3 py-2 rounded-xl text-xs font-medium border ${CHANNEL_ACTIVE_CLS[channel]}`}>
+                {CHANNEL_LABELS[channel]}
+              </span>
               <button
-                key={ch}
-                onClick={() => {
-                  setChannel(ch);
-                  if (ch === "SHOP") { setCourierId(""); setDeliveryCharge("0"); }
-                }}
-                className={`px-3 py-2 rounded-xl text-xs font-medium transition-all border ${
-                  channel === ch ? CHANNEL_ACTIVE_CLS[ch] : CHANNEL_INACTIVE_CLS[ch]
-                }`}
+                type="button"
+                onClick={() => setChannelPickerOpen(true)}
+                className="text-xs text-indigo-600 font-semibold"
               >
-                {CHANNEL_LABELS[ch]}
+                {t("common.change")}
               </button>
-            ))}
-          </div>
+            </div>
+          )}
         </section>
 
         {/* ── 4. Courier service ───────────────────────────────── */}
@@ -515,28 +738,16 @@ export default function NewOrderPage() {
           )}
         </section>
 
-        {/* ── 5. Payment summary ───────────────────────────────── */}
+        {/* ── 5. Payment summary ──────────────────────────────── */}
         <section className="bg-gray-100 border border-gray-400 rounded-2xl p-4">
           <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">
             {t("orders.paymentSection")}
           </p>
           <div className="bg-white rounded-xl border border-gray-100 p-4 space-y-3">
             <div className="flex justify-between text-sm text-gray-500">
-              <span>{t("orders.subtotal")}</span>
+              <span>{t("orders.subtotal")} <span className="text-gray-400">({t("orders.itemCount", { n: cart.length })})</span></span>
               <span className="font-medium text-gray-900">৳{subtotal.toFixed(2)}</span>
             </div>
-
-            <button
-              onClick={() => setShowDiscountSheet(true)}
-              className="text-sm text-indigo-600 font-medium"
-            >
-              {discountAmount <= 0
-                ? t("orders.addDiscount")
-                : t("orders.discountActive", {
-                    summary: discountType === "PERCENT" ? `${discountValue}%` : `৳${discountValue}`,
-                    amount: discountAmount.toFixed(2),
-                  })}
-            </button>
 
             <div className="flex items-center gap-3">
               <label className="text-sm text-gray-500 flex-1">{t("orders.deliveryChargeOverride")}</label>
@@ -547,16 +758,42 @@ export default function NewOrderPage() {
               />
             </div>
 
-            <div className="flex items-center gap-3">
-              <label className="text-sm text-gray-500 flex-1">{t("orders.advancePaid")}</label>
-              <input
-                type="number" inputMode="decimal" min="0" value={advancePaid}
-                onChange={(e) => setAdvancePaid(e.target.value)}
-                className="w-24 h-9 border border-gray-200 rounded-lg text-sm px-2 text-right focus:outline-none focus:ring-1 focus:ring-indigo-400"
-              />
+            <button
+              onClick={() => setShowDiscountSheet(true)}
+              className="w-full flex items-center justify-between text-sm"
+            >
+              <span className="text-gray-500">{t("orders.extraDiscountLabel")}</span>
+              <span className="text-indigo-600 font-medium">
+                {discountAmount <= 0
+                  ? t("orders.addDiscount")
+                  : `−৳${discountAmount.toFixed(2)} (${discountType === "PERCENT" ? `${discountValue}%` : `৳${discountValue}`})`}
+              </span>
+            </button>
+
+            {/* Total sits right after the three lines that build it (subtotal/discount/delivery)
+                — grouped as "what this order is worth," separate from the payment-reconciliation
+                group below (what's already paid, what's still owed). Previously Total sat below
+                Advance Paid, which read like it was somehow net of the advance — it isn't; Baki
+                below is the actual net-of-advance figure. */}
+            <div className="flex justify-between text-base font-bold border-t pt-3">
+              <span>{t("orders.totalCod")}</span>
+              <span className="text-indigo-700">৳{total.toFixed(2)}</span>
             </div>
 
-            {parseFloat(advancePaid) > 0 && (
+            {/* Advance payment is out of scope for edit mode — it's recorded/managed separately
+                via the order detail page's Payments tab, not re-submittable through this form. */}
+            {!isEditMode && (
+              <div className="flex items-center gap-3">
+                <label className="text-sm text-gray-500 flex-1">{t("orders.advancePaid")}</label>
+                <input
+                  type="number" inputMode="decimal" min="0" value={advancePaid}
+                  onChange={(e) => setAdvancePaid(e.target.value)}
+                  className="w-24 h-9 border border-gray-200 rounded-lg text-sm px-2 text-right focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                />
+              </div>
+            )}
+
+            {!isEditMode && parseFloat(advancePaid) > 0 && (
               <div>
                 <label className="text-xs text-gray-400 mb-1.5 block">{t("orders.advanceMethod")}</label>
                 <div className="flex gap-2">
@@ -578,10 +815,17 @@ export default function NewOrderPage() {
               </div>
             )}
 
-            <div className="flex justify-between text-base font-bold border-t pt-3">
-              <span>{t("orders.totalCod")}</span>
-              <span className="text-indigo-700">৳{total.toFixed(2)}</span>
-            </div>
+            {/* What the courier actually still needs to collect — total minus whatever's already
+                been paid as advance. Didn't exist as its own line before; staff had to do
+                Total − Advance in their head. */}
+            {!isEditMode && (
+              <div className="flex justify-between text-sm border-t pt-3">
+                <span className="text-gray-500">{t("orders.due")}</span>
+                <span className="font-semibold text-red-600">
+                  ৳{Math.max(total - (parseFloat(advancePaid) || 0), 0).toFixed(2)}
+                </span>
+              </div>
+            )}
           </div>
         </section>
 
@@ -602,20 +846,32 @@ export default function NewOrderPage() {
 
       {/* ── Sticky bottom bar ────────────────────────────────────── */}
       <div className="fixed bottom-16 left-1/2 -translate-x-1/2 w-full max-w-[768px] bg-white border-t border-gray-100 px-4 py-3 flex gap-3">
-        <button
-          onClick={() => createOrder.mutate(true)}
-          disabled={createOrder.isPending || !canDraft}
-          className="flex-1 h-12 rounded-xl border-2 border-indigo-600 text-indigo-600 font-semibold text-sm disabled:opacity-40"
-        >
-          {t("orders.saveDraft")}
-        </button>
-        <button
-          onClick={() => createOrder.mutate(false)}
-          disabled={createOrder.isPending || !canConfirm}
-          className="flex-[2] h-12 rounded-xl bg-indigo-600 text-white font-semibold text-sm disabled:opacity-40"
-        >
-          {createOrder.isPending ? t("common.saving") : `${t("orders.confirmOrder")} ৳${total.toFixed(2)}`}
-        </button>
+        {isEditMode ? (
+          <button
+            onClick={() => updateOrder.mutate()}
+            disabled={updateOrder.isPending || cart.length === 0}
+            className="flex-1 h-12 rounded-xl bg-indigo-600 text-white font-semibold text-sm disabled:opacity-40"
+          >
+            {updateOrder.isPending ? t("common.saving") : `${t("common.save")} ৳${total.toFixed(2)}`}
+          </button>
+        ) : (
+          <>
+            <button
+              onClick={() => createOrder.mutate(true)}
+              disabled={createOrder.isPending || !canDraft}
+              className="flex-1 h-12 rounded-xl border-2 border-indigo-600 text-indigo-600 font-semibold text-sm disabled:opacity-40"
+            >
+              {t("orders.saveDraft")}
+            </button>
+            <button
+              onClick={() => createOrder.mutate(false)}
+              disabled={createOrder.isPending || !canConfirm}
+              className="flex-[2] h-12 rounded-xl bg-indigo-600 text-white font-semibold text-sm disabled:opacity-40"
+            >
+              {createOrder.isPending ? t("common.saving") : `${t("orders.confirmOrder")} ৳${total.toFixed(2)}`}
+            </button>
+          </>
+        )}
       </div>
 
       {/* ── Product picker slide ──────────────────────────────────── */}
@@ -626,6 +882,7 @@ export default function NewOrderPage() {
         cartVariantIds={new Set(cart.map((l) => l.variantId))}
         showRecentlyPurchased={false}
         showSellingPrice
+        branchIdOverride={orderBranchId ?? undefined}
       />
 
       {/* ── Customer picker slide ─────────────────────────────────── */}
@@ -653,8 +910,15 @@ export default function NewOrderPage() {
         <div className="fixed inset-0 z-50 flex flex-col justify-end">
           <div className="absolute inset-0 bg-black/40" onClick={() => setShowDiscountSheet(false)} />
           <div className="relative bg-white rounded-t-2xl px-4 pt-4 pb-8 space-y-4 w-full max-w-[768px] mx-auto">
+            <button
+              onClick={() => setShowDiscountSheet(false)}
+              aria-label="Close"
+              className="absolute right-3 top-3 p-1 rounded-full text-gray-400 hover:bg-gray-100 active:bg-gray-200"
+            >
+              <XMarkIcon className="w-5 h-5" />
+            </button>
             <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto mb-2" />
-            <p className="text-base font-semibold text-gray-900">{t("orders.discountLabel")}</p>
+            <p className="text-base font-semibold text-gray-900 pr-6">{t("orders.discountLabel")}</p>
 
             {/* Price breakdown — what's already applied at the product level, before staff
                 considers stacking an order-level discount on top. */}
@@ -666,8 +930,14 @@ export default function NewOrderPage() {
               {existingDiscountAmount > 0 && (
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-orange-200">{t("orders.currentOfferLabel")}</span>
+                  {/* Amount only, not a blended %: when only some cart lines carry a
+                      product-level offer, a single cart-wide percentage (existing-discount ÷
+                      actual-price-total) reads like one uniform discount was applied, which is
+                      misleading — e.g. one 44%-off item + one full-price item nets a meaningless
+                      "20%" here even though nothing was ever discounted by 20%. The ৳ amount is
+                      unambiguous regardless of how many lines it's spread across. */}
                   <span className="text-white font-medium">
-                    {existingDiscountPct}% = −৳{existingDiscountAmount.toLocaleString()}
+                    −৳{existingDiscountAmount.toLocaleString()}
                   </span>
                 </div>
               )}
@@ -679,16 +949,22 @@ export default function NewOrderPage() {
 
             <p className="text-sm text-gray-500">{t("orders.addMoreDiscountHint")}</p>
 
-            <div className="flex rounded-xl overflow-hidden border border-gray-200">
-              {(["PERCENT", "FIXED"] as const).map((dtype) => (
-                <button
-                  key={dtype}
-                  onClick={() => setDiscountType(dtype)}
-                  className={`flex-1 py-2.5 text-sm font-medium transition ${discountType === dtype ? "bg-indigo-600 text-white" : "text-gray-600"}`}
-                >
-                  {dtype === "PERCENT" ? t("orders.discountPercent") : t("orders.discountFixed")}
-                </button>
-              ))}
+            <div className="flex gap-2">
+              {(["PERCENT", "FIXED"] as const).map((dtype) => {
+                const active = discountType === dtype;
+                const cls = dtype === "PERCENT"
+                  ? (active ? "bg-indigo-600 text-white" : "bg-indigo-100 text-indigo-700")
+                  : (active ? "bg-emerald-600 text-white" : "bg-emerald-100 text-emerald-700");
+                return (
+                  <button
+                    key={dtype}
+                    onClick={() => setDiscountType(dtype)}
+                    className={`flex-1 py-2.5 rounded-xl text-sm font-medium transition ${cls}`}
+                  >
+                    {dtype === "PERCENT" ? t("orders.discountPercent") : t("orders.discountFixed")}
+                  </button>
+                );
+              })}
             </div>
 
             {discountType !== "NONE" && (

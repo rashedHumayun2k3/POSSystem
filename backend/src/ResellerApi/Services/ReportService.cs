@@ -186,9 +186,13 @@ public class ReportService : IReportService
         var todayOrders = await _db.Orders.AsNoTracking()
             .CountAsync(OrderFinancials.SoldOrderFilter(todayUtc, tomorrowUtc));
 
+        // "Pending deliveries" = handed to courier, not yet delivered to the customer — not
+        // "confirmed but still sitting in the warehouse" (that's Waiting for Courier territory).
+        // No separate !IsDraft/OrderStatus!=CANCELLED guard needed: a draft can never reach
+        // IN_TRANSIT (must be confirmed first), and Cancel is blocked once IN_TRANSIT (see
+        // OrderService.CancelAsync), so every IN_TRANSIT order already satisfies both anyway.
         var pendingDeliveries = await _db.Orders.AsNoTracking()
-            .CountAsync(o => o.OrderStatus != "CANCELLED" && !o.IsDraft &&
-                (o.FulfillmentStatus == "UNFULFILLED" || o.FulfillmentStatus == "PACKED" || o.FulfillmentStatus == "IN_TRANSIT"));
+            .CountAsync(o => o.FulfillmentStatus == "IN_TRANSIT");
 
         var (lowStockCount, outOfStockCount) = await GetStockAlertCountsAsync();
 
@@ -469,10 +473,32 @@ public class ReportService : IReportService
             expensesByDay.Select(e => (e.ExpenseDate.Date, e.Amount)),
             from.Date, to.Date, groupBy);
 
-        // Expenses by category
-        var expenseByCategory = expensesByDay
-            .GroupBy(e => e.Category?.Name ?? "Other")
-            .Select(g => new NameValue(g.Key, g.Sum(e => e.Amount)))
+        // Expenses by category, with a subtype-level breakdown nested under each — always includes
+        // every active category for the business, even ones with zero spend this period, so the
+        // UI shows a complete list (৳0) instead of silently omitting categories nobody's logged
+        // against yet in the selected date range.
+        var allCategories = await _db.ExpenseCategories.AsNoTracking()
+            .Where(c => c.IsActive)
+            .ToListAsync();
+
+        var spendByCategoryId = expensesByDay
+            .GroupBy(e => e.CategoryId)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        var expenseByCategory = allCategories
+            .Select(c =>
+            {
+                var items = spendByCategoryId.GetValueOrDefault(c.Id, new List<Expense>());
+                return new ExpenseCategoryBreakdownDto(
+                    c.Code,
+                    c.Name,
+                    items.Sum(e => e.Amount),
+                    items.GroupBy(e => e.SubType)
+                        .Select(sg => new NameValue(sg.Key, sg.Sum(e => e.Amount)))
+                        .OrderByDescending(x => x.Value)
+                        .ToList()
+                );
+            })
             .OrderByDescending(x => x.Value)
             .ToList();
 

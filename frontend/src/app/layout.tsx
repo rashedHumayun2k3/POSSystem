@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Inter, Hind_Siliguri } from "next/font/google";
 import "./globals.css";
 import Providers from "./providers";
+import GlobalToast from "@/components/layout/GlobalToast";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 const hindSiliguri = Hind_Siliguri({
@@ -29,6 +30,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="bn" className={`${inter.variable} ${hindSiliguri.variable} h-full antialiased`}>
       <body className="min-h-full bg-gray-50 font-sans" suppressHydrationWarning>
         <Providers>{children}</Providers>
+        <GlobalToast />
       </body>
     </html>
   );

@@ -59,7 +59,10 @@ api.interceptors.request.use((config) => {
     branchId = localStorage.getItem("branchId");
     if (token) config.headers.Authorization = `Bearer ${token}`;
     if (businessId) config.headers["X-Business-Id"] = businessId;
-    if (branchId) config.headers["X-Branch-Id"] = branchId;
+    // Only fill in the ambient branch if the caller hasn't already set one explicitly — lets a
+    // caller pin a specific branch per-request (e.g. New Order keeping every call scoped to the
+    // branch it started with) regardless of what the header switcher currently says.
+    if (branchId && !config.headers["X-Branch-Id"]) config.headers["X-Branch-Id"] = branchId;
   }
 
   apiDebug("request", {

@@ -85,8 +85,11 @@ function LoginPageInner() {
         <button
           type="submit"
           disabled={login.isPending}
-          className="w-full h-12 rounded-xl bg-indigo-600 text-white font-semibold text-sm hover:bg-indigo-700 active:scale-[0.98] transition disabled:opacity-60"
+          className="w-full h-12 rounded-xl bg-indigo-600 text-white font-semibold text-sm hover:bg-indigo-700 active:scale-[0.98] transition disabled:opacity-60 flex items-center justify-center gap-2"
         >
+          {login.isPending && (
+            <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+          )}
           {login.isPending ? t("auth.signingIn") : t("auth.signIn")}
         </button>
 

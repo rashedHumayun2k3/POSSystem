@@ -8,6 +8,13 @@ export interface NameValue {
   value: number;
 }
 
+export interface ExpenseCategoryBreakdown {
+  code: string;
+  name: string;
+  value: number;
+  subtypes: NameValue[];
+}
+
 export interface DashboardKpi {
   todaySales: number;
   todayOrders: number;
@@ -82,7 +89,7 @@ export interface PnlReport {
   revenueTrend: DatePoint[];
   profitTrend: DatePoint[];
   expenseTrend: DatePoint[];
-  expenseByCategory: NameValue[];
+  expenseByCategory: ExpenseCategoryBreakdown[];
 }
 
 export interface OrdersReport {
@@ -98,7 +105,7 @@ export interface OrdersReport {
   ordersByChannel: NameValue[];
 }
 
-export type ReportPeriod = 'today' | '7d' | '30d' | '3m';
+export type ReportPeriod = 'today' | '7d' | '30d' | '3m' | '6m';
 export type GroupBy = 'day' | 'week' | 'month';
 
 // ── Stock Valuation ───────────────────────────────────────────────────────────

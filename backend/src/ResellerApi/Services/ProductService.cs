@@ -285,29 +285,8 @@ public class ProductService : IProductService
         await _log.LogAsync(_business.CurrentBusinessId, userId, "UPDATE", "ProductImageOrder", productId);
     }
 
-    public async Task<List<ProductSearchResultDto>> SearchAsync(string q, bool onlyInStock = false)
-    {
-        q = q.Trim();
-        var query = _db.ProductVariants
-            .AsNoTracking()
-            .Include(v => v.Product)
-            .Where(v => v.Product.Status == "ACTIVE" &&
-                        (v.Barcode == q ||
-                         v.Sku.Contains(q) ||
-                         v.Product.Name.Contains(q) ||
-                         v.Product.Sku.Contains(q)));
-
-        if (onlyInStock)
-            query = query.Where(HasStockInCurrentScope());
-
-        var variants = await query
-            .OrderBy(v => v.Product.Name).ThenBy(v => v.Sku)
-            .Take(30)
-            .ToListAsync();
-
-        var inv = await LoadInventoryAsync(variants.Select(v => v.Id));
-        return variants.Select(v => MapSearchResult(v, inv, v.AvgLandedCost)).ToList();
-    }
+    public Task<List<ProductSearchResultDto>> SearchAsync(string q, bool onlyInStock = false) =>
+        QueryVariantsAsync(searchQuery: q, categoryId: null, onlyInStock, take: 30);
 
     public async Task<ProductSearchResultDto?> GetByBarcodeAsync(string barcode)
     {
@@ -331,26 +310,38 @@ public class ProductService : IProductService
         return MapSearchResult(variant, inv, variant.AvgLandedCost);
     }
 
-    public async Task<List<ProductSearchResultDto>> BrowseAsync(Guid? categoryId, bool onlyInStock = false)
+    public Task<List<ProductSearchResultDto>> BrowseAsync(Guid? categoryId, bool onlyInStock = false) =>
+        // 500 cap: a defensive ceiling so a large catalog can't return its entire product_variants
+        // table in one payload — generous enough that no real reseller catalog hits it in practice.
+        QueryVariantsAsync(searchQuery: null, categoryId, onlyInStock, take: 500);
+
+    // Shared by SearchAsync (text query, no category, capped at 30) and BrowseAsync (category
+    // filter, no text query, capped at 500) — same ACTIVE-only/in-stock/inventory-load/mapping
+    // logic either way, they only differed in which filter was applied and the result cap.
+    private async Task<List<ProductSearchResultDto>> QueryVariantsAsync(
+        string? searchQuery, Guid? categoryId, bool onlyInStock, int take)
     {
-        var q = _db.ProductVariants
+        var query = _db.ProductVariants
             .AsNoTracking()
             .Include(v => v.Product)
             .Where(v => v.Product.Status == "ACTIVE");
 
+        if (!string.IsNullOrWhiteSpace(searchQuery))
+        {
+            var q = searchQuery.Trim();
+            query = query.Where(v =>
+                v.Barcode == q || v.Sku.Contains(q) || v.Product.Name.Contains(q) || v.Product.Sku.Contains(q));
+        }
+
         if (categoryId.HasValue)
-            q = q.Where(v => v.Product.CategoryId == categoryId.Value);
+            query = query.Where(v => v.Product.CategoryId == categoryId.Value);
 
         if (onlyInStock)
-            q = q.Where(HasStockInCurrentScope());
+            query = query.Where(HasStockInCurrentScope());
 
-        var variants = await q
-            .OrderBy(v => v.Product.Name)
-            .ThenBy(v => v.Sku)
-            // Defensive ceiling — this previously had no cap at all, meaning a business with a
-            // large catalog would return its entire product_variants table in one query/payload.
-            // 500 is generous enough that no real reseller catalog hits it in practice.
-            .Take(500)
+        var variants = await query
+            .OrderBy(v => v.Product.Name).ThenBy(v => v.Sku)
+            .Take(take)
             .ToListAsync();
 
         var inv = await LoadInventoryAsync(variants.Select(v => v.Id));
@@ -998,7 +989,7 @@ public class ProductService : IProductService
 
     private static VariantDto MapVariantDto(ProductVariant v, Dictionary<Guid, decimal> inv) => new(
         v.Id, v.VariantValuesJson, v.Sku, v.Barcode, v.ImageUrl, v.Note, v.PriceOverride, v.IsDefault, v.AvgLandedCost,
-        inv.TryGetValue(v.Id, out var onHand) ? onHand : 0m, v.RowVer
+        inv.TryGetValue(v.Id, out var available) ? available : 0m, v.RowVer
     );
 
     private static VariantStaffDto MapVariantStaffDto(ProductVariant v) => new(
@@ -1020,14 +1011,21 @@ public class ProductService : IProductService
     // (frozen/stale since stock mutations moved to the branch-aware table). Sums across
     // branches when CurrentBranchId is null (OWNER/MANAGER "All Branches" view), otherwise
     // scoped to the active branch — same convention used in ReportService.
+    //
+    // Returns real sellable stock (OnHand minus Committed/Damaged), not raw OnHand — same
+    // formula as HasStockInCurrentScope just above. Previously this summed OnHand alone, so the
+    // product detail page and the New Order product picker could both show a number larger than
+    // what a customer could actually be sold right now (already-reserved and damaged units were
+    // silently included), even though the "only show in-stock" filter next to it used the
+    // correct formula the whole time.
     private async Task<Dictionary<Guid, decimal>> LoadInventoryAsync(IEnumerable<Guid> variantIds)
     {
         var ids = variantIds.ToList();
         return await _db.BranchVariantInventories
             .Where(i => ids.Contains(i.VariantId) && (_db.CurrentBranchId == null || i.BranchId == _db.CurrentBranchId))
             .GroupBy(i => i.VariantId)
-            .Select(g => new { VariantId = g.Key, OnHand = g.Sum(x => x.OnHand) })
-            .ToDictionaryAsync(x => x.VariantId, x => x.OnHand);
+            .Select(g => new { VariantId = g.Key, Available = g.Sum(x => x.OnHand - x.Committed - x.Damaged) })
+            .ToDictionaryAsync(x => x.VariantId, x => x.Available);
     }
 
     // Order count + profit per product for the list-card stat strip — one batched query for the
@@ -1066,7 +1064,7 @@ public class ProductService : IProductService
         v.ImageUrl ?? v.Product.ImageUrl,
         v.Product.UnitCode ?? "",
         v.VariantValuesJson,
-        inv.TryGetValue(v.Id, out var onHand) ? onHand : 0m,
+        inv.TryGetValue(v.Id, out var available) ? available : 0m,
         avgLandedCost,
         v.Product.MarketPrice,
         v.Product.WholesaleMinQty,
@@ -1086,7 +1084,7 @@ public class ProductService : IProductService
         return new(
             p.Id, p.Name, p.Sku, p.ImageUrl, p.UnitCode, p.SellingPrice, p.MarketPrice, p.MarketplacePrice,
             p.PackagingCostPerUnit, p.Status, p.Category?.Name ?? "", p.Variants.Count,
-            (int)p.Variants.Sum(v => inv.TryGetValue(v.Id, out var onHand) ? onHand : 0m),
+            (int)p.Variants.Sum(v => inv.TryGetValue(v.Id, out var available) ? available : 0m),
             p.LowStockThreshold,
             defaultVariant?.AvgLandedCost ?? 0,
             p.AverageRating, p.ReviewCount,

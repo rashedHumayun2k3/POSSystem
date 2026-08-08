@@ -144,25 +144,37 @@ export default function CourierManager() {
         }
       >
         <div className="px-4 py-4 space-y-3">
-          <input placeholder={t("settings.courierPhone")} value={form.phone} type="tel"
-            onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
-            className="w-full h-11 px-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-
-          <div className="flex gap-2">
-            <input placeholder={t("settings.insideDhakaCharge")} value={form.insideDhakaCharge}
-              type="number" inputMode="decimal" min="0"
-              onChange={(e) => setForm((f) => ({ ...f, insideDhakaCharge: e.target.value }))}
-              className="flex-1 h-11 px-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-            <input placeholder={t("settings.outsideDhakaCharge")} value={form.outsideDhakaCharge}
-              type="number" inputMode="decimal" min="0"
-              onChange={(e) => setForm((f) => ({ ...f, outsideDhakaCharge: e.target.value }))}
-              className="flex-1 h-11 px-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">{t("settings.courierPhone")}</label>
+            <input value={form.phone} type="tel"
+              onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+              className="w-full h-11 px-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
           </div>
 
-          <input placeholder={t("settings.returnCharge")} value={form.returnCharge}
-            type="number" inputMode="decimal" min="0"
-            onChange={(e) => setForm((f) => ({ ...f, returnCharge: e.target.value }))}
-            className="w-full h-11 px-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+          <div className="flex gap-2">
+            <div className="flex-1">
+              <label className="text-xs text-gray-500 mb-1 block">{t("settings.insideDhakaCharge")}</label>
+              <input value={form.insideDhakaCharge}
+                type="number" inputMode="decimal" min="0"
+                onChange={(e) => setForm((f) => ({ ...f, insideDhakaCharge: e.target.value }))}
+                className="w-full h-11 px-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            </div>
+            <div className="flex-1">
+              <label className="text-xs text-gray-500 mb-1 block">{t("settings.outsideDhakaCharge")}</label>
+              <input value={form.outsideDhakaCharge}
+                type="number" inputMode="decimal" min="0"
+                onChange={(e) => setForm((f) => ({ ...f, outsideDhakaCharge: e.target.value }))}
+                className="w-full h-11 px-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">{t("settings.returnCharge")}</label>
+            <input value={form.returnCharge}
+              type="number" inputMode="decimal" min="0"
+              onChange={(e) => setForm((f) => ({ ...f, returnCharge: e.target.value }))}
+              className="w-full h-11 px-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+          </div>
 
           <div>
             <p className="text-xs text-gray-500 mb-1.5">{t("settings.codFeeLabel")}</p>
@@ -184,9 +196,12 @@ export default function CourierManager() {
             </div>
           </div>
 
-          <input placeholder={t("settings.trackingUrlTemplate")} value={form.trackingUrlTemplate}
-            onChange={(e) => setForm((f) => ({ ...f, trackingUrlTemplate: e.target.value }))}
-            className="w-full h-11 px-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">{t("settings.trackingUrlTemplate")}</label>
+            <input value={form.trackingUrlTemplate}
+              onChange={(e) => setForm((f) => ({ ...f, trackingUrlTemplate: e.target.value }))}
+              className="w-full h-11 px-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+          </div>
 
           <button type="button"
             onClick={() => setForm((f) => ({ ...f, isDefault: !f.isDefault }))}

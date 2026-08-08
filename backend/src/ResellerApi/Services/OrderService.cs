@@ -56,17 +56,31 @@ public class OrderService : IOrderService
                 return await GetAsync(existing.Id, true);
         }
 
+        // Shop/Hawker are walk-in counter sales entered through their own POS flow, not this
+        // endpoint's staff-facing New Order screen — every other channel is an online/courier
+        // order that physically cannot be delivered without a real phone + address, so those are
+        // required here server-side too, not just gated in the New Order UI (which can't stop a
+        // direct API call).
+        if (request.Channel != "SHOP" && request.Channel != "HAWKER")
+        {
+            if (string.IsNullOrWhiteSpace(request.CustomerPhone))
+                throw new InvalidOperationException("Customer phone is required for this channel.");
+            if (string.IsNullOrWhiteSpace(request.CustomerAddress))
+                throw new InvalidOperationException("Customer address is required for this channel.");
+        }
+
         // Auto-create customer
         var customer = await FindOrCreateCustomerAsync(request.CustomerPhone, request.CustomerName, request.CustomerAddress);
 
         // Generate order number
         var orderNo = await GenerateOrderNoAsync();
 
+        var branchId = await ResolveOrderBranchIdAsync(request.BranchId);
+
         var order = new Order
         {
             BusinessId = _db.CurrentBusinessId,
-            BranchId = _db.CurrentBranchId
-                ?? throw new InvalidOperationException("A branch must be selected to create an order."),
+            BranchId = branchId,
             OrderNo = orderNo,
             Channel = request.Channel,
             BusinessDate = request.BusinessDate ?? DateOnly.FromDateTime(DateTime.UtcNow),
@@ -142,7 +156,7 @@ public class OrderService : IOrderService
 
     // ── List ──────────────────────────────────────────────────────────────────
 
-    public async Task<List<OrderListDto>> ListAsync(string? orderStatus, string? fulfillmentStatus, string? paymentStatus, string? channel, string? q, DateTime? from, DateTime? to, bool canSeeCosts)
+    public async Task<List<OrderListDto>> ListAsync(string? orderStatus, string? fulfillmentStatus, string? paymentStatus, string? channel, string? q, string? customerQuery, string? productQuery, DateTime? from, DateTime? to, bool canSeeCosts)
     {
         var query = _db.Orders
             .AsNoTracking()
@@ -150,6 +164,7 @@ public class OrderService : IOrderService
             .Include(o => o.Payments)
             .Include(o => o.HandlingUser)
             .Include(o => o.Courier)
+            .Include(o => o.Branch)
             .AsQueryable();
 
         if (!string.IsNullOrWhiteSpace(orderStatus))
@@ -168,7 +183,27 @@ public class OrderService : IOrderService
                 o.CustomerName.ToLower().Contains(lower) ||
                 o.CustomerPhone.Contains(q) ||
                 o.Items.Any(i => i.DeletedAt == null &&
-                    (i.Variant.Sku.ToLower().Contains(lower) || i.Variant.Product.Sku.ToLower().Contains(lower))));
+                    (i.Variant.Sku.ToLower().Contains(lower) ||
+                     i.Variant.Product.Sku.ToLower().Contains(lower) ||
+                     i.Variant.Product.Name.ToLower().Contains(lower))));
+        }
+        // Independent, AND-able filters — distinct from `q` above (which OR-matches everything at
+        // once for the plain quick-search box). These back the Filter sheet's dedicated Customer/
+        // Product fields, so picking both narrows results to orders matching BOTH, not either.
+        if (!string.IsNullOrWhiteSpace(customerQuery))
+        {
+            var lowerCustomer = customerQuery.ToLower();
+            query = query.Where(o =>
+                o.CustomerName.ToLower().Contains(lowerCustomer) ||
+                o.CustomerPhone.Contains(customerQuery));
+        }
+        if (!string.IsNullOrWhiteSpace(productQuery))
+        {
+            var lowerProduct = productQuery.ToLower();
+            query = query.Where(o => o.Items.Any(i => i.DeletedAt == null &&
+                (i.Variant.Sku.ToLower().Contains(lowerProduct) ||
+                 i.Variant.Product.Sku.ToLower().Contains(lowerProduct) ||
+                 i.Variant.Product.Name.ToLower().Contains(lowerProduct))));
         }
         if (from.HasValue)
             query = query.Where(o => o.CreatedAt >= from.Value);
@@ -194,6 +229,7 @@ public class OrderService : IOrderService
             .Include(o => o.Payments)
             .Include(o => o.HandlingUser)
             .Include(o => o.Courier)
+            .Include(o => o.Branch)
             .Where(o => o.Items.Any(i => i.Variant != null && i.Variant.ProductId == productId))
             .OrderByDescending(o => o.BusinessDate).ThenByDescending(o => o.CreatedAt)
             .Take(200)
@@ -261,6 +297,38 @@ public class OrderService : IOrderService
             if (request.DiscountType != null) order.DiscountType = request.DiscountType;
             if (request.DiscountValue.HasValue) order.DiscountValue = request.DiscountValue;
             if (request.DeliveryChargeCustomer.HasValue) order.DeliveryChargeCustomer = request.DeliveryChargeCustomer.Value;
+
+            // Full item replacement — safe only pre-confirm, since a draft never committed any
+            // stock (no COMMIT movement, nothing to release). Soft-delete the old lines and add
+            // the new set fresh, same convention as Revise's line removal.
+            if (request.Items != null)
+            {
+                if (request.Items.Count == 0)
+                    throw new InvalidOperationException("Order must have at least one item.");
+
+                foreach (var item in order.Items.Where(i => i.DeletedAt == null))
+                    item.DeletedAt = DateTime.UtcNow;
+
+                foreach (var input in request.Items)
+                {
+                    // _db.OrderItems.Add(...), not order.Items.Add(...): BaseEntity assigns Id =
+                    // Guid.NewGuid() in a property initializer, so by the time EF's change tracker
+                    // discovers a new item added only to an already-tracked parent's navigation
+                    // collection, the Id already looks like a "real" (non-default) key — EF infers
+                    // Modified/Unchanged instead of Added and emits a bogus UPDATE ... WHERE RowVer
+                    // IS NULL that matches zero rows (DbUpdateConcurrencyException). An explicit
+                    // Add() on the DbSet always forces Added state for the whole reachable graph
+                    // regardless of the key's value, which CreateAsync gets for free because it
+                    // calls _db.Orders.Add(order) on the brand-new parent itself.
+                    _db.OrderItems.Add(new OrderItem
+                    {
+                        OrderId = order.Id,
+                        VariantId = input.VariantId,
+                        Qty = input.Qty,
+                        UnitPrice = input.UnitPrice
+                    });
+                }
+            }
         }
 
         await _db.SaveChangesAsync();
@@ -515,6 +583,12 @@ public class OrderService : IOrderService
         if (order.ConfirmedAt != null)
             return await GetAsync(id, true);
 
+        // Cancel doesn't touch IsDraft/FulfillmentStatus (see CancelAsync), so a cancelled draft
+        // still looks "UNFULFILLED" here — without this check it would pass the guard below and
+        // confirm (and commit stock for) an order everyone already considers dead.
+        if (order.OrderStatus == "CANCELLED")
+            throw new InvalidOperationException("Cannot confirm a cancelled order.");
+
         if (order.FulfillmentStatus != "UNFULFILLED")
             throw new InvalidOperationException($"Order cannot be confirmed in status {order.FulfillmentStatus}.");
 
@@ -551,8 +625,11 @@ public class OrderService : IOrderService
             .FirstOrDefaultAsync(o => o.Id == id)
             ?? throw new KeyNotFoundException("Order not found.");
 
-        if (order.FulfillmentStatus != "PACKED")
-            throw new InvalidOperationException("Order must be PACKED before handover.");
+        // Packing has no separate manual step anymore — handing over to a courier implicitly
+        // means it was packed, so this accepts straight from UNFULFILLED (the common case) as
+        // well as PACKED (kept for any order that already went through the old two-step flow).
+        if (order.FulfillmentStatus != "UNFULFILLED" && order.FulfillmentStatus != "PACKED")
+            throw new InvalidOperationException("Order must be confirmed before handover.");
 
         await using var tx = await _db.Database.BeginTransactionAsync();
         try
@@ -967,7 +1044,10 @@ public class OrderService : IOrderService
                     var variant = await _db.ProductVariants.AsNoTracking()
                         .Include(v => v.Product)
                         .FirstOrDefaultAsync(v => v.Id == item.VariantId);
-                    unavailable.Add($"{variant?.Product?.Name ?? "Unknown"} ({variant?.Sku ?? item.VariantId.ToString()}): need {item.Qty}, available {available}");
+                    // "0.###" — qty is DECIMAL(12,3) for fractional-unit products (e.g. kg), but
+                    // most are whole pieces; this trims trailing zeros (1.000 -> "1") instead of
+                    // always showing three decimal places.
+                    unavailable.Add($"{variant?.Product?.Name ?? "Unknown"} ({variant?.Sku ?? item.VariantId.ToString()}): need {item.Qty:0.###}, available {available:0.###}");
                 }
             }
 
@@ -1029,6 +1109,23 @@ public class OrderService : IOrderService
         }
 
         return order;
+    }
+
+    // Same override pattern as StockAdjustmentService.ResolveBranchIdAsync: an explicit request
+    // branch wins (validated against this business's active branches), otherwise fall back to
+    // whatever the X-Branch-Id header currently resolves to.
+    private async Task<Guid> ResolveOrderBranchIdAsync(Guid? requestedBranchId)
+    {
+        if (requestedBranchId.HasValue)
+        {
+            var exists = await _db.Branches.AnyAsync(b => b.Id == requestedBranchId.Value && b.IsActive);
+            if (!exists)
+                throw new KeyNotFoundException("Branch not found or inactive.");
+            return requestedBranchId.Value;
+        }
+
+        return _db.CurrentBranchId
+            ?? throw new InvalidOperationException("A branch must be selected to create an order.");
     }
 
     private async Task<Customer> FindOrCreateCustomerAsync(string phone, string name, string? address)
@@ -1124,7 +1221,8 @@ public class OrderService : IOrderService
             o.TrackingNo, o.HandlingUser?.Name, o.CreatedAt, o.BusinessDate,
             items, profit, o.IsRevised,
             o.CourierId, o.Courier?.Name, o.HandedOverAt,
-            o.CustomerAddress
+            o.CustomerAddress,
+            o.BranchId, o.Branch?.Name
         );
     }
 
@@ -1157,9 +1255,14 @@ public class OrderService : IOrderService
         OrderEconomicsDto? economics = null;
         if (isOwner)
         {
+            // Product profit/loss only — delivery is a logistics pass-through, not product
+            // margin, so neither the customer's delivery charge nor the courier's actual cost
+            // belongs in this figure (previously both were netted in here, which either
+            // inflated or deflated "profit" by whatever the delivery markup/loss happened to be).
+            var productRevenue = subtotal - discount;
             var cost = o.Items.Where(i => i.DeletedAt == null && i.UnitCostSnapshot.HasValue)
-                .Sum(i => i.UnitCostSnapshot!.Value * i.Qty) + o.DeliveryCostActual;
-            economics = new OrderEconomicsDto(total, cost, total - cost, discount);
+                .Sum(i => i.UnitCostSnapshot!.Value * i.Qty);
+            economics = new OrderEconomicsDto(productRevenue, cost, productRevenue - cost, discount);
         }
 
         return new OrderDetailDto(

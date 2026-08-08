@@ -6,6 +6,7 @@ import { getInventoryReport } from "@/lib/reportsApi";
 import DateRangeBar, { periodToDates } from "@/components/reports/DateRangeBar";
 import type { ReportPeriod, GroupBy } from "@/types/reports";
 import { useAuthStore } from "@/store/authStore";
+import { formatVariantLabel } from "@/lib/format";
 import { useMounted } from "@/hooks/useMounted";
 import {
   LineChart, Line, BarChart, Bar,
@@ -116,8 +117,8 @@ export default function InventoryReportPage() {
                   <div className="flex justify-between items-start">
                     <div className="flex-1 min-w-0 mr-2">
                       <p className="text-sm font-medium text-gray-900 truncate">{item.productName}</p>
-                      {item.variantLabel && item.variantLabel !== "{}" && (
-                        <p className="text-xs text-gray-400">{item.variantLabel}</p>
+                      {formatVariantLabel(item.variantLabel) && (
+                        <p className="text-xs text-gray-400">{formatVariantLabel(item.variantLabel)}</p>
                       )}
                       <p className="text-xs text-gray-400">{item.variantSku}</p>
                     </div>

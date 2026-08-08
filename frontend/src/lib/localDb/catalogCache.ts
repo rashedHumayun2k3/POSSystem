@@ -241,10 +241,13 @@ export async function browseLocalCatalog(categoryId?: string): Promise<ProductSe
 // from the live call still surfaces normally. Prefers live data whenever it's reachable (freshest
 // stock/price), only reaching for the cache when the request can't reach the server at all.
 
-export async function searchProductsWithFallback(q: string, onlyInStock = false): Promise<ProductSearchResult[]> {
-  if (!isNativeApp()) return searchProducts(q, onlyInStock);
+// branchId: per-request X-Branch-Id override (see catalogApi.ts) — passed straight through to the
+// live call; the offline cache fallback has no per-branch breakdown to give back, same as it
+// already had no branch awareness before this.
+export async function searchProductsWithFallback(q: string, onlyInStock = false, branchId?: string): Promise<ProductSearchResult[]> {
+  if (!isNativeApp()) return searchProducts(q, onlyInStock, branchId);
   try {
-    return await searchProducts(q, onlyInStock);
+    return await searchProducts(q, onlyInStock, branchId);
   } catch (err) {
     if (!isNetworkError(err)) throw err;
     const local = await searchLocalCatalog(q);
@@ -252,10 +255,10 @@ export async function searchProductsWithFallback(q: string, onlyInStock = false)
   }
 }
 
-export async function lookupBarcodeWithFallback(barcode: string): Promise<ProductSearchResult> {
-  if (!isNativeApp()) return lookupBarcode(barcode);
+export async function lookupBarcodeWithFallback(barcode: string, branchId?: string): Promise<ProductSearchResult> {
+  if (!isNativeApp()) return lookupBarcode(barcode, branchId);
   try {
-    return await lookupBarcode(barcode);
+    return await lookupBarcode(barcode, branchId);
   } catch (err) {
     if (!isNetworkError(err)) throw err;
     const local = await lookupLocalBarcode(barcode);
@@ -264,10 +267,10 @@ export async function lookupBarcodeWithFallback(barcode: string): Promise<Produc
   }
 }
 
-export async function browseProductsWithFallback(categoryId?: string, onlyInStock = false): Promise<ProductSearchResult[]> {
-  if (!isNativeApp()) return browseProducts(categoryId, onlyInStock);
+export async function browseProductsWithFallback(categoryId?: string, onlyInStock = false, branchId?: string): Promise<ProductSearchResult[]> {
+  if (!isNativeApp()) return browseProducts(categoryId, onlyInStock, branchId);
   try {
-    return await browseProducts(categoryId, onlyInStock);
+    return await browseProducts(categoryId, onlyInStock, branchId);
   } catch (err) {
     if (!isNetworkError(err)) throw err;
     const local = await browseLocalCatalog(categoryId);

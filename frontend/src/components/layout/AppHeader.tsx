@@ -1,9 +1,10 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "@/store/authStore";
 import { useBranchSelection } from "@/hooks/useBranchSelection";
 import { useConnectivityStore } from "@/store/connectivityStore";
+import { useToastStore } from "@/store/toastStore";
 import { BellIcon } from "@heroicons/react/24/outline";
 import Link from "next/link";
 import Image from "next/image";
@@ -24,9 +25,10 @@ interface Props {
 
 export default function AppHeader({ title, backHref, extraActions }: Props) {
   const { user, businesses, currentBusinessId, switchBusiness, isOwner, canSeeCosts, branches, currentBranchId, switchBranch, clearBranch } = useAuthStore();
-  const { lang, setLang } = useLanguage();
+  const { lang, setLang, t } = useLanguage();
   const resolveBranch = useBranchSelection();
   const isOnline = useConnectivityStore((s) => s.isOnline);
+  const queryClient = useQueryClient();
 
   // Same query (and cache key) as the Notifications list page — the bell badge reflects real
   // pending-order data instead of a live-push counter, so it's correct even if the SignalR
@@ -47,7 +49,14 @@ export default function AppHeader({ title, backHref, extraActions }: Props) {
     await resolveBranch();
   };
 
+  // Every branch-scoped number across the whole app (stock, orders, expenses, reports —
+  // everything this session found going stale piecemeal) is cleared from cache in this one place,
+  // the single chokepoint every branch switch goes through — so whatever page you're already on
+  // just refetches fresh under the new branch instead of needing a forced navigation to get there.
   const handleBranchChange = (value: string) => {
+    const branchName = value === "" ? t("pickers.allBranches") : branches.find((b) => b.id === value)?.name ?? "";
+    useToastStore.getState().show(t("common.nowViewingBranch", { branch: branchName }));
+    queryClient.clear();
     if (value === "") clearBranch();
     else switchBranch(value);
   };

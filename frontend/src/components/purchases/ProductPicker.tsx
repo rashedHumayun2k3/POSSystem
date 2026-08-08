@@ -18,6 +18,7 @@ import type { ProductSearchResult } from '@/types/catalog';
 import { useLanguage } from '@/i18n/LanguageContext';
 import { QrCodeIcon } from '@heroicons/react/24/outline';
 import { resolveMediaUrl } from '@/lib/media';
+import { useAuthStore } from '@/store/authStore';
 
 interface Props {
   open: boolean;
@@ -34,6 +35,11 @@ interface Props {
   // "Recently purchased" means recently bought FROM a supplier — relevant when restocking
   // (purchase trips, supplier returns) but not when selling, so sale-side callers turn it off.
   showRecentlyPurchased?: boolean;
+  // Pins every stock-dependent call (browse/search/barcode) to a specific branch, ignoring the
+  // header's live branch switcher — for callers like New Order that must keep showing the same
+  // branch's stock for an entire in-progress transaction even if the header changes mid-session.
+  // Defaults to following the ambient header, same as before this prop existed.
+  branchIdOverride?: string;
 }
 
 // Sentinel for the "All" chip — distinct from `null` (which means "nothing selected yet, still
@@ -60,6 +66,7 @@ export default function ProductPicker({
   onlyInStock = false,
   initialQuery = '',
   showRecentlyPurchased = true,
+  branchIdOverride,
 }: Props) {
   const [search, setSearch] = useState('');
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
@@ -70,6 +77,19 @@ export default function ProductPicker({
   const [scanError, setScanError] = useState('');
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { t } = useLanguage();
+
+  // The stock numbers below reflect branchIdOverride when the caller pinned one (see prop doc),
+  // otherwise whichever branch is active in the header (see LoadInventoryAsync on the backend) —
+  // naming it here so it's never ambiguous which branch's stock you're looking at.
+  const branches = useAuthStore((s) => s.branches);
+  const headerBranchId = useAuthStore((s) => s.currentBranchId);
+  const effectiveBranchId = branchIdOverride ?? headerBranchId ?? undefined;
+  const activeBranchName = effectiveBranchId
+    ? branches.find((b) => b.id === effectiveBranchId)?.name
+    : t('pickers.allBranches');
+  const pickerTitle = activeBranchName
+    ? `${t('pickers.chooseProduct')} — ${activeBranchName}`
+    : t('pickers.chooseProduct');
 
   // Reset state when panel opens — pre-seeding with whatever the caller's own search box already
   // had typed in it (e.g. CartPanel's trigger input) so opening this sheet never feels like it
@@ -89,7 +109,7 @@ export default function ProductPicker({
     setShowScanner(false);
     setScanError('');
     try {
-      const result = await lookupBarcodeWithFallback(barcode);
+      const result = await lookupBarcodeWithFallback(barcode, branchIdOverride);
       onSelect(result);
     } catch {
       setScanError(`${t('pickers.barcodeNotFound')}: ${barcode}`);
@@ -122,10 +142,11 @@ export default function ProductPicker({
   // unfiltered browse the backend already supports (no pagination on this endpoint; fine for the
   // catalog sizes a reselling shop actually has — revisit if that ever changes).
   const { data: browseResults = [], isLoading: browseLoading } = useQuery({
-    queryKey: ['browse-products', selectedCategoryId, onlyInStock],
+    queryKey: ['browse-products', selectedCategoryId, onlyInStock, effectiveBranchId],
     queryFn: () => browseProductsWithFallback(
       selectedCategoryId && selectedCategoryId !== ALL_CATEGORY_ID ? selectedCategoryId : undefined,
-      onlyInStock
+      onlyInStock,
+      branchIdOverride
     ),
     enabled: open && !search && selectedCategoryId !== null,
   });
@@ -139,7 +160,7 @@ export default function ProductPicker({
     debounceRef.current = setTimeout(async () => {
       setSearchLoading(true);
       try {
-        const data = await searchProductsWithFallback(q, onlyInStock);
+        const data = await searchProductsWithFallback(q, onlyInStock, branchIdOverride);
         setSearchResults(data);
       } catch {
         setSearchError(t('pickers.searchFailed'));
@@ -179,7 +200,7 @@ export default function ProductPicker({
 
   return (
     <>
-    <SlidePanel open={open} onClose={handleClose} title={t('pickers.chooseProduct')}>
+    <SlidePanel open={open} onClose={handleClose} title={pickerTitle}>
       {/* Search box + scan button */}
       <div className="px-4 py-3 border-b border-gray-100 shrink-0 space-y-2">
         <div className="flex gap-2">
