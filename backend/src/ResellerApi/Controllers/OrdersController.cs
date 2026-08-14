@@ -42,6 +42,9 @@ public class OrdersController : ControllerBase
     public async Task<IActionResult> Create([FromBody] CreateOrderRequest request,
         [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey)
     {
+        if ((request.Channel == "SHOP" || request.Channel == "HAWKER") && !_user.CanAccessPos)
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = "Daily Sale / POS access is not enabled for this account." });
+
         var req = request with { ClientUid = request.ClientUid ?? idempotencyKey };
         try
         {

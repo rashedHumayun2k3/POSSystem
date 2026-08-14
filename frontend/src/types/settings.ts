@@ -2,7 +2,7 @@ export interface StaffUser {
   id: string;
   name: string;
   phone: string;
-  role: "OWNER" | "STAFF";
+  role: "OWNER" | "MANAGER" | "PARTNER" | "STAFF" | "WAREHOUSE";
   monthlySalary: number;
   isActive: boolean;
 }
@@ -24,6 +24,7 @@ export interface Courier {
 export interface ExpenseCategory {
   id: string;
   name: string;
+  isSystem: boolean;
   isDefault: boolean;
 }
 

@@ -66,7 +66,7 @@ public class BusinessContextMiddleware
 
         var branchIdHeader = context.Request.Headers["X-Branch-Id"].FirstOrDefault();
         var role = context.User.FindFirstValue(ClaimTypes.Role);
-        var isOwnerOrManager = role == Roles.Owner || role == Roles.Manager;
+        var isOwnerOrManager = role == Roles.Owner || role == Roles.Manager || role == Roles.Partner;
 
         // /api/v1/branches (list/mine) must be reachable before a branch is chosen — that's
         // exactly what a STAFF/WAREHOUSE user calls right after login to find out which

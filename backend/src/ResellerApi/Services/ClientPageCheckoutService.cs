@@ -124,7 +124,9 @@ public class ClientPageCheckoutService : IClientPageCheckoutService
                     // "Order Came From" line already shows the WEBSITE channel.
                     Note: null,
                     ClientUid: BuildShopClientUid(request.ClientUid, businessId),
-                    CourierId: courierId
+                    CourierId: courierId,
+                    Source: "CLIENTPAGE",
+                    ExternalSource: business.Subdomain
                 ), storefrontUserId);
 
                 _db.CpCheckoutGroupOrders.Add(new CpCheckoutGroupOrder

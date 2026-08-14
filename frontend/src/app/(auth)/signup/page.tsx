@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRequestSignupCode, useVerifySignupCode, useVerifySignupEmailViaGoogle, useCompleteSignup } from "@/hooks/useAuth";
 import { useLanguage } from "@/i18n/LanguageContext";
 import { toastError } from "@/lib/toastError";
+import { isBangladeshMobileNumber } from "@/lib/phone";
 import GoogleSignInButton from "@/components/GoogleSignInButton";
 import CustomSelect from "@/components/ui/CustomSelect";
 
@@ -111,6 +112,10 @@ export default function SignUpPage() {
 
   function handleComplete(e: React.FormEvent) {
     e.preventDefault();
+    if (!isBangladeshMobileNumber(phone)) {
+      toastError(null, t("auth.signup.invalidPhone"));
+      return;
+    }
     completeSignup.mutate(
       { email, name, phone, password, businessName, country: country.trim() || undefined },
       { onError: (err) => toastError(err, t("auth.signup.completeFailed")) }
@@ -246,6 +251,8 @@ export default function SignUpPage() {
                 placeholder="01700000000"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
+                pattern="(?:\+?88)?01[3-9][0-9]{8}"
+                title={t("auth.signup.invalidPhone")}
                 required
                 className="w-full h-12 px-4 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />

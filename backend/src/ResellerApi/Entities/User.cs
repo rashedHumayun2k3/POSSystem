@@ -13,6 +13,7 @@ public class User : BaseEntity
     public string Role { get; set; } = null!; // OWNER, STAFF
     public decimal MonthlySalary { get; set; } = 0;
     public bool IsActive { get; set; } = true;
+    public bool CanAccessPos { get; set; } = true;
 
     public Company Company { get; set; } = null!;
     public ICollection<BusinessUser> BusinessUsers { get; set; } = new List<BusinessUser>();

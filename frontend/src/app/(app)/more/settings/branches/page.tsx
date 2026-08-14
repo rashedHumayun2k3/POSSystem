@@ -3,11 +3,12 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import { listBranches, createBranch, updateBranch, toggleBranchActive } from "@/lib/branchesApi";
+import { listBranches, listMyBranches, createBranch, updateBranch, toggleBranchActive } from "@/lib/branchesApi";
 import type { Branch } from "@/types/branch";
 import { useLanguage } from "@/i18n/LanguageContext";
-import { PencilIcon } from "@heroicons/react/24/outline";
+import { PencilIcon, PlusIcon } from "@heroicons/react/24/outline";
 import { toastError } from "@/lib/toastError";
+import { useAuthStore } from "@/store/authStore";
 
 type FormMode = "add" | "edit" | null;
 const EMPTY_FORM = { name: "", code: "", address: "", phone: "" };
@@ -20,6 +21,7 @@ export default function BranchesPage() {
   const [mode, setMode] = useState<FormMode>(null);
   const [editTarget, setEditTarget] = useState<Branch | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
+  const setBranches = useAuthStore((s) => s.setBranches);
 
   const { data: branches = [], isLoading } = useQuery({
     queryKey: ["branches"],
@@ -33,6 +35,13 @@ export default function BranchesPage() {
   };
   const close = () => { setMode(null); setEditTarget(null); };
 
+  // GET /branches (above) only feeds this management table — the switcher in AppHeader (and
+  // anywhere else that reads useAuthStore().branches, e.g. New Order's branch-selection step)
+  // is a completely separate list fetched once at login via GET /branches/mine, and was never
+  // refreshed after that. Without this, a newly added/renamed/toggled branch wouldn't show up
+  // anywhere outside this page until a full logout/login re-fetched it.
+  const refreshMyBranches = async () => setBranches(await listMyBranches());
+
   const saveMutation = useMutation({
     mutationFn: async () => {
       const payload = {
@@ -44,13 +53,20 @@ export default function BranchesPage() {
       if (mode === "add") await createBranch(payload);
       else if (editTarget) await updateBranch(editTarget.id, payload);
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["branches"] }); close(); },
+    onSuccess: async () => {
+      qc.invalidateQueries({ queryKey: ["branches"] });
+      await refreshMyBranches();
+      close();
+    },
     onError: (err) => toastError(err, t("settings.failedSaveBranch")),
   });
 
   const toggleMutation = useMutation({
     mutationFn: (id: string) => toggleBranchActive(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["branches"] }),
+    onSuccess: async () => {
+      qc.invalidateQueries({ queryKey: ["branches"] });
+      await refreshMyBranches();
+    },
     onError: (err) => toastError(err, t("settings.failedSaveBranch")),
   });
 
@@ -63,7 +79,10 @@ export default function BranchesPage() {
           </svg>
         </button>
         <h1 className="flex-1 text-base font-semibold text-gray-900">{t("settings.branchesTitle")}</h1>
-        <button onClick={openAdd} className="text-sm font-semibold text-indigo-600">{t("settings.addBranch")}</button>
+        <button onClick={openAdd} className="flex items-center gap-1 text-sm font-semibold text-indigo-600">
+          <PlusIcon className="w-4 h-4" />
+          {t("settings.addBranch")}
+        </button>
       </div>
 
       <div className="px-4 pt-4 space-y-2">

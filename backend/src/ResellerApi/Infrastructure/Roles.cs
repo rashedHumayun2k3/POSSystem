@@ -6,9 +6,12 @@ public static class Roles
     public const string Manager   = "MANAGER";
     public const string Staff     = "STAFF";
     public const string Warehouse = "WAREHOUSE";
+    public const string Partner   = "PARTNER";
 
     public static readonly IReadOnlySet<string> All =
-        new HashSet<string> { Owner, Manager, Staff, Warehouse };
+        new HashSet<string> { Owner, Manager, Staff, Warehouse, Partner };
+
+    public const string OwnerOrPartner = "OWNER,PARTNER";
 
     public const string OwnerOrManager          = "OWNER,MANAGER";
     public const string OwnerManagerWarehouse   = "OWNER,MANAGER,WAREHOUSE";

@@ -24,7 +24,7 @@ interface Props {
 }
 
 export default function AppHeader({ title, backHref, extraActions }: Props) {
-  const { user, businesses, currentBusinessId, switchBusiness, isOwner, canSeeCosts, branches, currentBranchId, switchBranch, clearBranch } = useAuthStore();
+  const { user, businesses, currentBusinessId, switchBusiness, isOwner, canAccessAllBranches, branches, currentBranchId, switchBranch, clearBranch } = useAuthStore();
   const { lang, setLang, t } = useLanguage();
   const resolveBranch = useBranchSelection();
   const isOnline = useConnectivityStore((s) => s.isOnline);
@@ -94,7 +94,7 @@ export default function AppHeader({ title, backHref, extraActions }: Props) {
       {/* Branch switcher — everyone, on every page (including ones with a back button);
           OWNER/MANAGER get an "All Branches" option, others only see it once they have more
           than one assigned branch. */}
-      {(canSeeCosts() ? branches.length > 0 : branches.length > 1) ? (
+      {(canAccessAllBranches() ? branches.length > 0 : branches.length > 1) ? (
         <div className="max-w-[110px] shrink-0">
           <CustomSelect
             triggerClassName="w-full flex items-center gap-1 text-xs font-medium text-indigo-600 bg-indigo-50 rounded-lg px-2 py-1 text-left"
@@ -102,7 +102,7 @@ export default function AppHeader({ title, backHref, extraActions }: Props) {
             onChange={handleBranchChange}
             placeholder="All Branches"
             options={[
-              ...(canSeeCosts() ? [{ value: "", label: "All Branches" }] : []),
+              ...(canAccessAllBranches() ? [{ value: "", label: "All Branches" }] : []),
               ...branches.map((b) => ({ value: b.id, label: b.name })),
             ]}
           />

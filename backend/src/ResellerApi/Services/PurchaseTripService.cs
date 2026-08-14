@@ -22,7 +22,19 @@ public class PurchaseTripService : IPurchaseTripService
     }
 
     private static readonly HashSet<string> ValidSourceTypes =
-        new(["CHINA_TRIP", "ALIBABA", "LOCAL_WHOLESALE", "AGENT", "OPENING_BALANCE", "HAWKER_MARKET"], StringComparer.OrdinalIgnoreCase);
+        new([
+            "CHINA_TRIP",
+            "ONLINE_WHOLESALE",
+            "ALIBABA",
+            "LOCAL_WHOLESALE",
+            "AGENT",
+            "FACTORY_DIRECT",
+            "IMPORTER_DISTRIBUTOR",
+            "SOCIAL_SUPPLIER",
+            "EXISTING_SUPPLIER_REORDER",
+            "OPENING_BALANCE",
+            "HAWKER_MARKET"
+        ], StringComparer.OrdinalIgnoreCase);
 
     private static readonly HashSet<string> ValidCostTypes =
         new(["TRANSPORT", "LABOR", "CUSTOMS", "SHIPPING_INTL", "CURRENCY_LOSS", "AGENT_FEE", "PAYMENT_FEE", "OTHER"],

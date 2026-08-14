@@ -8,6 +8,8 @@ export interface PartnerDto {
   id: string;
   name: string;
   phone: string | null;
+  photoUrl: string | null;
+  linkedUserId: string | null;
   partnerType: PartnerType;
   status: PartnerStatus;
   deferredLossPaisa: number;
@@ -27,6 +29,12 @@ export interface PartnerDto {
 }
 
 interface PartnerProfileFields {
+  photoUrl?: string;
+  linkedUserId?: string;
+  loginPhone?: string;
+  loginEmail?: string;
+  temporaryPassword?: string;
+  canAccessPos?: boolean;
   nidNumber: string;
   address: string;
   email?: string;
@@ -79,7 +87,6 @@ export interface PartnerApprovalStatusDto {
 }
 
 export interface CastApprovalVotePayload {
-  votedByPartnerId: string;
   decision: ApprovalDecision;
   note?: string;
 }
@@ -101,14 +108,56 @@ export interface CapitalInjectionDto {
   injectedAt: string;
   lockInMonths: number;
   lockInExpiresAt: string;
+  paymentMethod: PaymentMethod;
+  paidTo: string;
+  bankName: string | null;
+  bankAccountNumber: string | null;
+  chequeNumber: string | null;
+  paymentReference: string | null;
+  proofImageUrl: string | null;
   note: string | null;
+  status: CapitalInjectionStatus;
+  submittedAt: string | null;
+  approvedAt: string | null;
+  rejectedAt: string | null;
+  rejectionReason: string | null;
 }
+
+export type PaymentMethod = "CASH" | "BANK" | "CHEQUE" | "MOBILE_BANKING";
+export type CapitalInjectionStatus = "DRAFT" | "PENDING_APPROVAL" | "APPROVED" | "REJECTED";
 
 export interface CreateCapitalInjectionPayload {
   amountPaisa: number;
   injectedAt?: string;
   lockInMonths: number;
+  paymentMethod: PaymentMethod;
+  paidTo: string;
+  bankName?: string;
+  bankAccountNumber?: string;
+  chequeNumber?: string;
+  paymentReference?: string;
+  proofImageUrl?: string;
   note?: string;
+}
+
+export interface CapitalInjectionApprovalVoteDto {
+  id: string;
+  capitalInjectionId: string;
+  votedByPartnerId: string;
+  votedByPartnerName: string;
+  decision: ApprovalDecision;
+  note: string | null;
+  votedAt: string;
+}
+
+export interface CapitalInjectionApprovalStatusDto {
+  capitalInjectionId: string;
+  status: CapitalInjectionStatus;
+  approveCount: number;
+  rejectCount: number;
+  requiredVotes: number;
+  activeManagingPartnerCount: number;
+  votes: CapitalInjectionApprovalVoteDto[];
 }
 
 export type LedgerEntryType =

@@ -33,7 +33,7 @@ public class ExpenseCategoriesController : ControllerBase
     {
         var cats = await _db.ExpenseCategories
             .AsNoTracking()
-            .Where(c => c.IsActive)
+            .Where(c => c.BusinessId == _businessContext.CurrentBusinessId && c.IsActive)
             .OrderBy(c => c.IsSystem ? 0 : 1).ThenBy(c => c.Name)
             .Select(c => new { c.Id, c.Code, c.Name, c.IsSystem, c.IsDefault })
             .ToListAsync();
@@ -45,6 +45,9 @@ public class ExpenseCategoriesController : ControllerBase
     {
         if (string.IsNullOrWhiteSpace(req.Name))
             return BadRequest(new { message = "Name is required." });
+
+        if (req.IsDefault)
+            await ClearOtherDefaultsAsync();
 
         var code = "CUSTOM_" + req.Name.Trim().ToUpperInvariant().Replace(" ", "_");
         var cat = new ExpenseCategory
@@ -69,12 +72,18 @@ public class ExpenseCategoriesController : ControllerBase
         if (string.IsNullOrWhiteSpace(req.Name))
             return BadRequest(new { message = "Name is required." });
 
-        var cat = await _db.ExpenseCategories.FindAsync(id);
+        var cat = await _db.ExpenseCategories
+            .FirstOrDefaultAsync(c => c.Id == id && c.BusinessId == _businessContext.CurrentBusinessId);
         if (cat is null) return NotFound();
-        if (cat.IsSystem)
+        var requestedName = req.Name.Trim();
+        if (cat.IsSystem && !string.Equals(cat.Name, requestedName, StringComparison.Ordinal))
             return Conflict(new { message = "System categories cannot be renamed." });
 
-        cat.Name      = req.Name.Trim();
+        if (req.IsDefault && !cat.IsDefault)
+            await ClearOtherDefaultsAsync(id);
+
+        if (!cat.IsSystem)
+            cat.Name = requestedName;
         cat.IsDefault = req.IsDefault;
         await _db.SaveChangesAsync();
         return NoContent();
@@ -83,7 +92,8 @@ public class ExpenseCategoriesController : ControllerBase
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(Guid id)
     {
-        var cat = await _db.ExpenseCategories.FindAsync(id);
+        var cat = await _db.ExpenseCategories
+            .FirstOrDefaultAsync(c => c.Id == id && c.BusinessId == _businessContext.CurrentBusinessId);
         if (cat is null) return NotFound();
         if (cat.IsSystem)
             return Conflict(new { message = "System categories cannot be deleted." });
@@ -93,6 +103,17 @@ public class ExpenseCategoriesController : ControllerBase
         await _activityLog.LogAsync(_businessContext.CurrentBusinessId, _currentUser.UserId,
             "DELETE", "ExpenseCategory", id, new { cat.Name }, null);
         return NoContent();
+    }
+
+    private Task ClearOtherDefaultsAsync(Guid? exceptId = null)
+    {
+        var query = _db.ExpenseCategories
+            .Where(c => c.BusinessId == _businessContext.CurrentBusinessId && c.IsDefault);
+
+        if (exceptId.HasValue)
+            query = query.Where(c => c.Id != exceptId.Value);
+
+        return query.ExecuteUpdateAsync(s => s.SetProperty(c => c.IsDefault, false));
     }
 }
 

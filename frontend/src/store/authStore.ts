@@ -34,6 +34,7 @@ interface AuthState {
   isWarehouse: () => boolean;
   isStaff: () => boolean;
   canSeeCosts: () => boolean;
+  canAccessAllBranches: () => boolean;
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -114,6 +115,7 @@ export const useAuthStore = create<AuthState>()(
       isWarehouse: () => get().user?.role === "WAREHOUSE",
       isStaff:     () => get().user?.role === "STAFF",
       canSeeCosts: () => get().user?.role === "OWNER" || get().user?.role === "MANAGER",
+      canAccessAllBranches: () => ["OWNER", "MANAGER", "PARTNER"].includes(get().user?.role ?? ""),
     }),
     {
       name: "auth-storage",

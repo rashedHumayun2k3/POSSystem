@@ -1,4 +1,4 @@
-export type UserRole = "OWNER" | "MANAGER" | "STAFF" | "WAREHOUSE";
+export type UserRole = "OWNER" | "MANAGER" | "PARTNER" | "STAFF" | "WAREHOUSE";
 
 export type BusinessType =
   | "CLOTHING_FASHION"
@@ -21,6 +21,7 @@ export interface User {
   email?: string | null;
   role: UserRole;
   photoUrl?: string | null;
+  canAccessPos: boolean;
 }
 
 export interface Business {

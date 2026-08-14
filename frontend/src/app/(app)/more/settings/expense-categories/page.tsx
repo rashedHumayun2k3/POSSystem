@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { getExpenseCategories, createExpenseCategory, updateExpenseCategory, deleteExpenseCategory } from "@/lib/settingsApi";
 import type { ExpenseCategory } from "@/types/settings";
 import { useLanguage } from "@/i18n/LanguageContext";
-import { PencilIcon, TrashIcon } from "@heroicons/react/24/outline";
+import { PencilIcon, PlusIcon, TrashIcon } from "@heroicons/react/24/outline";
 import { useToastStore } from "@/store/toastStore";
 
 type FormMode = "add" | "edit" | null;
@@ -42,6 +42,15 @@ export default function ExpenseCategoriesPage() {
     onError: () => useToastStore.getState().show(t("settings.failedSaveExpCat"), "error"),
   });
 
+  const setDefaultMutation = useMutation({
+    mutationFn: (category: ExpenseCategory) => updateExpenseCategory(category.id, {
+      name: category.name,
+      isDefault: true,
+    }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["expense-categories"] }),
+    onError: () => useToastStore.getState().show(t("settings.failedSaveExpCat"), "error"),
+  });
+
   const deleteMutation = useMutation({
     mutationFn: (id: string) => deleteExpenseCategory(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["expense-categories"] }),
@@ -56,7 +65,10 @@ export default function ExpenseCategoriesPage() {
           </svg>
         </button>
         <h1 className="flex-1 text-base font-semibold text-gray-900">{t("settings.expCatTitle")}</h1>
-        <button onClick={openAdd} className="text-sm font-semibold text-indigo-600">{t("settings.addCategory")}</button>
+        <button onClick={openAdd} className="flex items-center gap-1 text-sm font-semibold text-indigo-600">
+          <PlusIcon className="w-4 h-4" />
+          {t("settings.addCategory")}
+        </button>
       </div>
 
       <div className="px-4 pt-4 space-y-2">
@@ -78,13 +90,27 @@ export default function ExpenseCategoriesPage() {
                 </div>
               </div>
               <div className="flex items-center gap-1.5">
-                <button onClick={() => openEdit(c)} className="p-1.5 rounded-lg bg-gray-50 text-gray-500">
-                  <PencilIcon className="w-4 h-4" />
-                </button>
-                <button onClick={() => { if (confirm(t("settings.deleteConfirm", { name: c.name }))) deleteMutation.mutate(c.id); }}
-                  className="p-1.5 rounded-lg bg-red-50 text-red-500">
-                  <TrashIcon className="w-4 h-4" />
-                </button>
+                {c.isSystem ? (
+                  !c.isDefault && (
+                    <button
+                      onClick={() => setDefaultMutation.mutate(c)}
+                      disabled={setDefaultMutation.isPending}
+                      className="text-xs font-semibold text-indigo-600 disabled:opacity-40"
+                    >
+                      {t("settings.isDefault")}
+                    </button>
+                  )
+                ) : (
+                  <>
+                    <button onClick={() => openEdit(c)} className="p-1.5 rounded-lg bg-gray-50 text-gray-500">
+                      <PencilIcon className="w-4 h-4" />
+                    </button>
+                    <button onClick={() => { if (confirm(t("settings.deleteConfirm", { name: c.name }))) deleteMutation.mutate(c.id); }}
+                      className="p-1.5 rounded-lg bg-red-50 text-red-500">
+                      <TrashIcon className="w-4 h-4" />
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           ))

@@ -8,6 +8,7 @@ import { createTrip, listTrips } from '@/lib/purchasesApi';
 import type { SourceType } from '@/types/purchases';
 import { useLanguage } from '@/i18n/LanguageContext';
 import { toastError } from '@/lib/toastError';
+import { PurchaseProcessGuide } from '@/components/purchases/PurchaseProgress';
 
 const STATUS_COLORS: Record<string, string> = {
   DRAFT: 'bg-gray-100 text-gray-600',
@@ -55,9 +56,9 @@ const SOURCE_OPTIONS: SourceOption[] = [
     check:  'bg-red-500',
   },
   {
-    type: 'ALIBABA',
-    labelKey: 'purchases.alibabaLabel',
-    descKey: 'purchases.alibabaDesc',
+    type: 'ONLINE_WHOLESALE',
+    labelKey: 'purchases.onlineWholesaleLabel',
+    descKey: 'purchases.onlineWholesaleDesc',
     emoji: '📦',
     idle:   'bg-orange-50   border-orange-100',
     active: 'bg-orange-100  border-orange-500',
@@ -84,6 +85,46 @@ const SOURCE_OPTIONS: SourceOption[] = [
     text:   'text-violet-900',
     check:  'bg-violet-500',
   },
+  {
+    type: 'FACTORY_DIRECT',
+    labelKey: 'purchases.factoryDirectLabel',
+    descKey: 'purchases.factoryDirectDesc',
+    emoji: '🏭',
+    idle:   'bg-sky-50   border-sky-100',
+    active: 'bg-sky-100  border-sky-500',
+    text:   'text-sky-900',
+    check:  'bg-sky-500',
+  },
+  {
+    type: 'IMPORTER_DISTRIBUTOR',
+    labelKey: 'purchases.importerDistributorLabel',
+    descKey: 'purchases.importerDistributorDesc',
+    emoji: '🚚',
+    idle:   'bg-cyan-50   border-cyan-100',
+    active: 'bg-cyan-100  border-cyan-500',
+    text:   'text-cyan-900',
+    check:  'bg-cyan-500',
+  },
+  {
+    type: 'SOCIAL_SUPPLIER',
+    labelKey: 'purchases.socialSupplierLabel',
+    descKey: 'purchases.socialSupplierDesc',
+    emoji: '💬',
+    idle:   'bg-blue-50   border-blue-100',
+    active: 'bg-blue-100  border-blue-500',
+    text:   'text-blue-900',
+    check:  'bg-blue-500',
+  },
+  {
+    type: 'EXISTING_SUPPLIER_REORDER',
+    labelKey: 'purchases.existingSupplierReorderLabel',
+    descKey: 'purchases.existingSupplierReorderDesc',
+    emoji: '🔁',
+    idle:   'bg-slate-50   border-slate-100',
+    active: 'bg-slate-100  border-slate-500',
+    text:   'text-slate-900',
+    check:  'bg-slate-500',
+  },
 ];
 
 function defaultName(sourceType: SourceType, label: string): string {
@@ -100,6 +141,7 @@ export default function NewPurchasePage() {
   const [selected, setSelected] = useState<SourceType | null>(null);
   const [name, setName] = useState('');
   const [nameEdited, setNameEdited] = useState(false);
+  const [historyTab, setHistoryTab] = useState<'INCOMPLETE' | 'COMPLETED'>('INCOMPLETE');
 
   const handleSourceSelect = (opt: SourceOption) => {
     setSelected(opt.type);
@@ -122,9 +164,14 @@ export default function NewPurchasePage() {
 
   const SOURCE_LABELS: Record<string, string> = {
     CHINA_TRIP:      t('purchases.chinaTripLabel'),
-    ALIBABA:         t('purchases.alibabaLabel'),
+    ONLINE_WHOLESALE: t('purchases.onlineWholesaleLabel'),
+    ALIBABA:         t('purchases.onlineWholesaleLabel'),
     LOCAL_WHOLESALE: t('purchases.localLabel'),
     AGENT:           t('purchases.agentLabel'),
+    FACTORY_DIRECT: t('purchases.factoryDirectLabel'),
+    IMPORTER_DISTRIBUTOR: t('purchases.importerDistributorLabel'),
+    SOCIAL_SUPPLIER: t('purchases.socialSupplierLabel'),
+    EXISTING_SUPPLIER_REORDER: t('purchases.existingSupplierReorderLabel'),
   };
 
   const STATUS_LABELS: Record<string, string> = {
@@ -146,6 +193,15 @@ export default function NewPurchasePage() {
     queryKey: ['purchase-trips', ''],
     queryFn: () => listTrips(),
   });
+
+  const historyTabs: { labelKey: string; value: 'INCOMPLETE' | 'COMPLETED' }[] = [
+    { labelKey: 'purchases.tabIncomplete', value: 'INCOMPLETE' },
+    { labelKey: 'purchases.tabCompleted', value: 'COMPLETED' },
+  ];
+
+  const visibleHistory = history.filter((trip) =>
+    historyTab === 'COMPLETED' ? trip.status === 'COMPLETED' : trip.status !== 'COMPLETED'
+  );
 
   return (
     <div className="pb-20">
@@ -214,9 +270,29 @@ export default function NewPurchasePage() {
         {/* Purchase history */}
         {history.length > 0 && (
           <div className="pt-2">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{t('purchases.historyTitle')}</p>
+            <div className="flex items-center justify-between gap-3 mb-2">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">{t('purchases.historyTitle')}</p>
+              <div className="flex gap-1 rounded-full bg-gray-100 p-0.5">
+                {historyTabs.map((tab) => (
+                  <button
+                    key={tab.value}
+                    onClick={() => setHistoryTab(tab.value)}
+                    className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition ${
+                      historyTab === tab.value
+                        ? 'bg-indigo-600 text-white'
+                        : 'text-gray-500'
+                    }`}
+                  >
+                    {t(tab.labelKey)}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="mb-2">
+              <PurchaseProcessGuide activeStep={historyTab === 'COMPLETED' ? 'COMPLETED' : 'DRAFT'} t={t} />
+            </div>
             <div className="space-y-1.5">
-              {history.slice(0, 5).map((trip) => {
+              {visibleHistory.slice(0, 5).map((trip) => {
                 const date = new Date(trip.createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
                 const cost = (trip.totalItemCost + trip.totalSharedCost).toLocaleString();
                 return (

@@ -48,17 +48,20 @@ public class AuthService : IAuthService
 
     public async Task<AuthResponse> LoginAsync(LoginRequest request)
     {
-        var phone = PhoneNormalizer.Normalize(request.Phone);
+        var identifier = request.Phone.Trim();
+        var isEmailLogin = identifier.Contains('@');
+        var email = isEmailLogin ? identifier.ToLowerInvariant() : null;
+        var phone = isEmailLogin ? null : PhoneNormalizer.Normalize(identifier);
 
         var user = await _db.Users
             .AsNoTracking()
             .Include(u => u.Company)
             .Include(u => u.BusinessUsers)
                 .ThenInclude(bu => bu.Business)
-            .FirstOrDefaultAsync(u => u.Phone == phone && u.IsActive);
+            .FirstOrDefaultAsync(u => u.IsActive && (isEmailLogin ? u.Email == email : u.Phone == phone));
 
         if (user is null || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
-            throw new UnauthorizedAccessException("Invalid phone or password.");
+            throw new UnauthorizedAccessException("Invalid phone/email or password.");
 
         if (user.Company.Status != "ACTIVE")
             throw new UnauthorizedAccessException("This account has been deactivated. Contact support.");
@@ -452,7 +455,7 @@ public class AuthService : IAuthService
     private static string HashVerificationCode(string code) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(code)));
 
-    private static UserDto MapUserDto(User user) => new(user.Id, user.Name, user.Phone, user.Email, user.Role, user.PhotoUrl);
+    private static UserDto MapUserDto(User user) => new(user.Id, user.Name, user.Phone, user.Email, user.Role, user.PhotoUrl, user.CanAccessPos);
 
     private static BusinessDto MapBusinessDto(Business business) => new(
         business.Id, business.Name, business.Currency, business.Country,
@@ -468,6 +471,7 @@ public class AuthService : IAuthService
             new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
             new Claim(ClaimTypes.Name, user.Name),
             new Claim(ClaimTypes.Role, user.Role),
+            new Claim("can_access_pos", user.CanAccessPos.ToString().ToLowerInvariant()),
             new Claim("company_id", user.CompanyId.ToString())
         };
 

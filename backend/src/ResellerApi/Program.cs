@@ -18,6 +18,10 @@ using Scalar.AspNetCore;
 var builder = WebApplication.CreateBuilder(args);
 var config = builder.Configuration;
 
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole();
+builder.Logging.AddDebug();
+
 // ── EF Core ───────────────────────────────────────────────────────────────
 builder.Services.AddScoped<BusinessContext>();
 builder.Services.AddScoped<IBusinessContext>(sp => sp.GetRequiredService<BusinessContext>());
@@ -83,6 +87,7 @@ builder.Services.AddScoped<ICartonService, CartonService>();
 // Phase 4 — Orders
 builder.Services.AddScoped<ICustomerService, CustomerService>();
 builder.Services.AddScoped<IOrderService, OrderService>();
+builder.Services.AddScoped<IExternalOrderService, ExternalOrderService>();
 builder.Services.AddScoped<IRemittanceService, RemittanceService>();
 // Module 15 — Partnership & Capital Ledger (sub-phase 15a)
 builder.Services.AddScoped<IPartnerCapitalService, PartnerCapitalService>();
@@ -196,6 +201,17 @@ builder.Services.AddRateLimiter(options =>
             {
                 PermitLimit = 10,
                 Window = TimeSpan.FromMinutes(15),
+                QueueLimit = 0
+            }));
+    options.AddPolicy("external-orders", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.Request.Headers["X-External-Order-Key"].FirstOrDefault()
+                          ?? httpContext.Connection.RemoteIpAddress?.ToString()
+                          ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 60,
+                Window = TimeSpan.FromMinutes(1),
                 QueueLimit = 0
             }));
     options.OnRejected = async (context, token) =>

@@ -7,7 +7,7 @@ public class PurchaseTrip : BusinessScopedEntity, IBranchScoped
     public Guid? BranchId { get; set; }
     public Branch? Branch { get; set; }
     public string TripNo { get; set; } = null!;
-    public string SourceType { get; set; } = null!; // CHINA_TRIP | ALIBABA | LOCAL_WHOLESALE | AGENT
+    public string SourceType { get; set; } = null!;
     public string Status { get; set; } = "DRAFT";   // DRAFT | PENDING_APPROVAL | RECEIVING | COMPLETED | CANCELLED
     public string? Note { get; set; }
     public DateTime? ExpectedDeliveryDate { get; set; }

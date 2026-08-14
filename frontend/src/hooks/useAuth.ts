@@ -57,7 +57,7 @@ export function useLogin() {
   return useMutation({
     mutationFn: async (data: { phone: string; password: string }) => {
       authDebug("login request started", {
-        phone: data.phone,
+        identifier: data.phone,
         passwordLength: data.password.length,
         apiBaseUrl: process.env.NEXT_PUBLIC_API_URL,
       });

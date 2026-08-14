@@ -7,6 +7,7 @@ import type {
   CapitalInjectionDto,
   CreateCapitalInjectionPayload,
   CapitalLedgerEntryDto,
+  CapitalInjectionApprovalStatusDto,
   PartnerApprovalStatusDto,
   CastApprovalVotePayload,
   CancelPendingPartnerPayload,
@@ -47,6 +48,46 @@ export const recordCapitalInjection = async (
   payload: CreateCapitalInjectionPayload
 ): Promise<CapitalInjectionDto> => {
   const { data } = await api.post(`/partners/${partnerId}/capital-injections`, payload);
+  return data;
+};
+
+export const listPendingCapitalInjections = async (): Promise<CapitalInjectionDto[]> => {
+  const { data } = await api.get('/partners/capital-injections/awaiting-approval');
+  return data;
+};
+
+export const updateCapitalInjection = async (
+  partnerId: string,
+  injectionId: string,
+  payload: CreateCapitalInjectionPayload
+): Promise<CapitalInjectionDto> => {
+  const { data } = await api.put(`/partners/${partnerId}/capital-injections/${injectionId}`, payload);
+  return data;
+};
+
+export const deleteCapitalInjection = async (partnerId: string, injectionId: string): Promise<void> => {
+  await api.delete(`/partners/${partnerId}/capital-injections/${injectionId}`);
+};
+
+export const submitCapitalInjection = async (partnerId: string, injectionId: string): Promise<CapitalInjectionDto> => {
+  const { data } = await api.post(`/partners/${partnerId}/capital-injections/${injectionId}/submit`);
+  return data;
+};
+
+export const getCapitalInjectionApproval = async (
+  partnerId: string,
+  injectionId: string
+): Promise<CapitalInjectionApprovalStatusDto> => {
+  const { data } = await api.get(`/partners/${partnerId}/capital-injections/${injectionId}/approval`);
+  return data;
+};
+
+export const castCapitalInjectionVote = async (
+  partnerId: string,
+  injectionId: string,
+  payload: { decision: 'APPROVE' | 'REJECT'; note?: string }
+): Promise<CapitalInjectionApprovalStatusDto> => {
+  const { data } = await api.post(`/partners/${partnerId}/capital-injections/${injectionId}/votes`, payload);
   return data;
 };
 

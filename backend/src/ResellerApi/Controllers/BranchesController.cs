@@ -35,7 +35,7 @@ public class BranchesController : ControllerBase
     {
         var query = _db.Branches.AsNoTracking().OrderByDescending(b => b.IsDefault).ThenBy(b => b.Name).AsQueryable();
 
-        if (!_currentUser.CanSeeCosts)
+        if (!_currentUser.CanAccessAllBranches)
             query = query.Where(b => b.UserBranches.Any(ub => ub.UserId == _currentUser.UserId));
 
         var branches = await query
@@ -51,7 +51,7 @@ public class BranchesController : ControllerBase
     [HttpGet("mine")]
     public async Task<IActionResult> GetMine()
     {
-        if (_currentUser.CanSeeCosts)
+        if (_currentUser.CanAccessAllBranches)
         {
             var allBranches = await _db.Branches.AsNoTracking()
                 .Where(b => b.IsActive)

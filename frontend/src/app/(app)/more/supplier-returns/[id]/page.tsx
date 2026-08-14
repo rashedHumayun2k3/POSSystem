@@ -18,6 +18,7 @@ import {
 import type { ResolutionType, SupplierReturnItemDto, DamagedStockItem } from '@/types/supplierReturns';
 import { useLanguage } from '@/i18n/LanguageContext';
 import { toastError } from '@/lib/toastError';
+import { PlusIcon } from '@heroicons/react/24/outline';
 
 const STATUS_COLORS: Record<string, string> = {
   DRAFT: 'bg-gray-100 text-gray-600',
@@ -258,8 +259,9 @@ export default function SupplierReturnDetailPage({ params }: { params: Promise<{
         {isDraft && (
           <button
             onClick={() => setShowAddItem(true)}
-            className="w-full border-2 border-dashed border-indigo-200 rounded-xl py-3 text-sm text-indigo-600 font-medium"
+            className="w-full border-2 border-dashed border-indigo-200 rounded-xl py-3 text-sm text-indigo-600 font-medium flex items-center justify-center gap-1"
           >
+            <PlusIcon className="w-4 h-4" />
             {ret.items.length > 0 ? t('supplierReturns.addMoreItem') : t('supplierReturns.addItem')}
           </button>
         )}

@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { listTrips } from '@/lib/purchasesApi';
 import type { TripStatus } from '@/types/purchases';
 import { useLanguage } from '@/i18n/LanguageContext';
+import { PurchaseProcessGuide } from '@/components/purchases/PurchaseProgress';
 
 const STATUS_COLORS: Record<string, string> = {
   DRAFT: 'bg-gray-100 text-gray-600',
@@ -33,22 +34,24 @@ const formatQty = (value: number | null | undefined) =>
 
 export default function PurchasesPage() {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<TripStatus | ''>('');
+  const [activeTab, setActiveTab] = useState<'INCOMPLETE' | 'COMPLETED'>('INCOMPLETE');
   const { t } = useLanguage();
 
-  const TABS: { labelKey: string; value: TripStatus | '' }[] = [
-    { labelKey: 'purchases.tabAll',       value: '' },
-    { labelKey: 'purchases.tabDraft',     value: 'DRAFT' },
-    { labelKey: 'purchases.tabPending',   value: 'PENDING_APPROVAL' },
-    { labelKey: 'purchases.tabReceiving', value: 'RECEIVING' },
-    { labelKey: 'purchases.tabCompleted', value: 'COMPLETED' },
+  const TABS: { labelKey: string; value: 'INCOMPLETE' | 'COMPLETED' }[] = [
+    { labelKey: 'purchases.tabIncomplete', value: 'INCOMPLETE' },
+    { labelKey: 'purchases.tabCompleted',  value: 'COMPLETED' },
   ];
 
   const SOURCE_LABELS: Record<string, string> = {
     CHINA_TRIP:      t('purchases.sourceChinaTrip'),
-    ALIBABA:         t('purchases.sourceAlibaba'),
+    ONLINE_WHOLESALE: t('purchases.sourceOnlineWholesale'),
+    ALIBABA:         t('purchases.sourceOnlineWholesale'),
     LOCAL_WHOLESALE: t('purchases.sourceLocalWholesale'),
     AGENT:           t('purchases.sourceAgent'),
+    FACTORY_DIRECT: t('purchases.sourceFactoryDirect'),
+    IMPORTER_DISTRIBUTOR: t('purchases.sourceImporterDistributor'),
+    SOCIAL_SUPPLIER: t('purchases.sourceSocialSupplier'),
+    EXISTING_SUPPLIER_REORDER: t('purchases.sourceExistingSupplierReorder'),
   };
 
   const STATUS_LABELS: Record<string, string> = {
@@ -67,9 +70,13 @@ export default function PurchasesPage() {
   };
 
   const { data: trips = [], isLoading } = useQuery({
-    queryKey: ['purchase-trips', activeTab],
-    queryFn: () => listTrips(activeTab || undefined),
+    queryKey: ['purchase-trips'],
+    queryFn: () => listTrips(),
   });
+
+  const visibleTrips = trips.filter((trip) =>
+    activeTab === 'COMPLETED' ? trip.status === 'COMPLETED' : trip.status !== 'COMPLETED'
+  );
 
   return (
     <div className="pb-24">
@@ -103,15 +110,18 @@ export default function PurchasesPage() {
       </div>
 
       {/* List */}
+      <div className="px-4 pt-3">
+        <PurchaseProcessGuide activeStep={activeTab === 'COMPLETED' ? 'COMPLETED' : 'DRAFT'} t={t} />
+      </div>
       <div className="px-4 pt-3 space-y-1.5">
         {isLoading ? (
           [1, 2, 3].map((i) => (
             <div key={i} className="h-14 bg-gray-100 rounded-xl animate-pulse" />
           ))
-        ) : trips.length === 0 ? (
+        ) : visibleTrips.length === 0 ? (
           <p className="text-sm text-gray-400 text-center py-12">{t('purchases.noOrders')}</p>
         ) : (
-          trips.map((trip) => {
+          visibleTrips.map((trip) => {
             const date = new Date(trip.createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
             const cost = (trip.totalItemCost + trip.totalSharedCost).toLocaleString();
             return (

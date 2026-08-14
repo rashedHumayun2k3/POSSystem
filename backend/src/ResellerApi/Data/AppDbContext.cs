@@ -81,10 +81,12 @@ public class AppDbContext : DbContext
     public DbSet<OrderStatusHistory> OrderStatusHistories => Set<OrderStatusHistory>();
     public DbSet<OrderPayment> OrderPayments => Set<OrderPayment>();
     public DbSet<CourierRemittance> CourierRemittances => Set<CourierRemittance>();
+    public DbSet<ExternalOrderIntegration> ExternalOrderIntegrations => Set<ExternalOrderIntegration>();
 
     // ── Module 15 — Partnership & Capital Ledger (sub-phase 15a) ───────────
     public DbSet<Partner> Partners => Set<Partner>();
     public DbSet<CapitalInjection> CapitalInjections => Set<CapitalInjection>();
+    public DbSet<CapitalInjectionApprovalVote> CapitalInjectionApprovalVotes => Set<CapitalInjectionApprovalVote>();
     public DbSet<CapitalLedgerEntry> CapitalLedgerEntries => Set<CapitalLedgerEntry>();
     public DbSet<PartnerApprovalVote> PartnerApprovalVotes => Set<PartnerApprovalVote>();
 
@@ -825,6 +827,11 @@ public class AppDbContext : DbContext
             e.HasIndex(x => new { x.BusinessId, x.OrderStatus, x.CreatedAt });
             e.Property(x => x.BranchId).IsRequired();
             e.Property(x => x.Channel).HasMaxLength(20).IsRequired();
+            e.Property(x => x.Source).HasMaxLength(30);
+            e.Property(x => x.ExternalSource).HasMaxLength(200);
+            e.Property(x => x.ExternalOrderId).HasMaxLength(100);
+            e.HasIndex(x => new { x.BusinessId, x.Source });
+            e.HasIndex(x => new { x.BusinessId, x.ExternalOrderId }).HasFilter("[ExternalOrderId] IS NOT NULL");
             e.Property(x => x.BusinessDate).IsRequired();
             e.HasIndex(x => new { x.BusinessId, x.BusinessDate });
             e.Property(x => x.CustomerName).HasMaxLength(200).IsRequired();
@@ -858,6 +865,22 @@ public class AppDbContext : DbContext
                 .HasForeignKey(x => x.RemittanceId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne(x => x.Branch).WithMany()
                 .HasForeignKey(x => x.BranchId).OnDelete(DeleteBehavior.NoAction);
+        });
+
+        // ── External order integrations ─────────────────────────────────────
+        modelBuilder.Entity<ExternalOrderIntegration>(e =>
+        {
+            e.ToTable("external_order_integrations");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
+            e.Property(x => x.Name).HasMaxLength(100).IsRequired();
+            e.Property(x => x.KeyHash).HasMaxLength(64).IsRequired();
+            e.Property(x => x.SourceWebsiteUrl).HasMaxLength(500);
+            e.HasIndex(x => x.KeyHash).IsUnique();
+            e.HasOne(x => x.Business).WithMany()
+                .HasForeignKey(x => x.BusinessId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.CreatedByUser).WithMany()
+                .HasForeignKey(x => x.CreatedBy).OnDelete(DeleteBehavior.Restrict);
         });
 
         // ── OrderItem ─────────────────────────────────────────────────────────
@@ -1070,6 +1093,7 @@ public class AppDbContext : DbContext
             e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
             e.Property(x => x.Name).HasMaxLength(200).IsRequired();
             e.Property(x => x.Phone).HasMaxLength(30);
+            e.Property(x => x.PhotoUrl).HasMaxLength(1000);
             e.Property(x => x.PartnerType).HasMaxLength(20).IsRequired();
             e.Property(x => x.Status).HasMaxLength(20).IsRequired();
             e.Property(x => x.DeferredLossPaisa).HasColumnType("bigint");
@@ -1084,6 +1108,9 @@ public class AppDbContext : DbContext
             e.Property(x => x.EmergencyContactPhone).HasMaxLength(30);
             e.Property(x => x.EmergencyContactRelation).HasMaxLength(100);
             e.HasIndex(x => new { x.BusinessId, x.Phone });
+            e.HasIndex(x => new { x.BusinessId, x.LinkedUserId }).IsUnique().HasFilter("[LinkedUserId] IS NOT NULL");
+            e.HasOne(x => x.LinkedUser).WithMany()
+                .HasForeignKey(x => x.LinkedUserId).OnDelete(DeleteBehavior.Restrict);
         });
 
         // ── PartnerApprovalVote (insert-only, R15.11) ──────────────────────
@@ -1108,11 +1135,34 @@ public class AppDbContext : DbContext
             e.HasKey(x => x.Id);
             e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
             e.Property(x => x.AmountPaisa).HasColumnType("bigint");
+            e.Property(x => x.PaymentMethod).HasMaxLength(20).IsRequired().HasDefaultValue("CASH");
+            e.Property(x => x.PaidTo).HasMaxLength(120).IsRequired().HasDefaultValue("");
+            e.Property(x => x.BankName).HasMaxLength(120);
+            e.Property(x => x.BankAccountNumber).HasMaxLength(80);
+            e.Property(x => x.ChequeNumber).HasMaxLength(80);
+            e.Property(x => x.PaymentReference).HasMaxLength(160);
+            e.Property(x => x.ProofImageUrl).HasMaxLength(500);
             e.Property(x => x.Note).HasMaxLength(500);
+            e.Property(x => x.Status).HasMaxLength(20).IsRequired().HasDefaultValue("DRAFT");
+            e.Property(x => x.RejectionReason).HasMaxLength(500);
             e.HasOne(x => x.Partner).WithMany(p => p.CapitalInjections)
                 .HasForeignKey(x => x.PartnerId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne(x => x.CreatedByUser).WithMany()
                 .HasForeignKey(x => x.CreatedBy).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<CapitalInjectionApprovalVote>(e =>
+        {
+            e.ToTable("capital_injection_approval_votes");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
+            e.Property(x => x.Decision).HasMaxLength(10).IsRequired();
+            e.Property(x => x.Note).HasMaxLength(500);
+            e.HasOne(x => x.CapitalInjection).WithMany(i => i.ApprovalVotes)
+                .HasForeignKey(x => x.CapitalInjectionId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.VotedByPartner).WithMany()
+                .HasForeignKey(x => x.VotedByPartnerId).OnDelete(DeleteBehavior.Restrict);
+            e.HasIndex(x => new { x.CapitalInjectionId, x.VotedByPartnerId }).IsUnique();
         });
 
         // ── CapitalLedgerEntry (insert-only, R15.3) ────────────────────────

@@ -6,6 +6,8 @@ public record PartnerDto(
     Guid Id,
     string Name,
     string? Phone,
+    string? PhotoUrl,
+    Guid? LinkedUserId,
     string PartnerType,
     string Status,
     long DeferredLossPaisa,
@@ -27,6 +29,12 @@ public record PartnerDto(
 public record CreatePartnerRequest(
     string Name,
     string? Phone,
+    string? PhotoUrl,
+    Guid? LinkedUserId,
+    string? LoginPhone,
+    string? LoginEmail,
+    string? TemporaryPassword,
+    bool CanAccessPos,
     string PartnerType,
     DateTime? JoinDate,
     string? Note,
@@ -44,6 +52,8 @@ public record CreatePartnerRequest(
 public record UpdatePartnerRequest(
     string Name,
     string? Phone,
+    string? PhotoUrl,
+    Guid? LinkedUserId,
     string PartnerType,
     DateTime? JoinDate,
     string? Note,
@@ -71,7 +81,6 @@ public record PartnerApprovalVoteDto(
 );
 
 public record CastApprovalVoteRequest(
-    Guid VotedByPartnerId,
     string Decision, // APPROVE | REJECT
     string? Note
 );
@@ -101,14 +110,58 @@ public record CapitalInjectionDto(
     DateTime InjectedAt,
     int LockInMonths,
     DateTime LockInExpiresAt,
-    string? Note
+    string PaymentMethod,
+    string PaidTo,
+    string? BankName,
+    string? BankAccountNumber,
+    string? ChequeNumber,
+    string? PaymentReference,
+    string? ProofImageUrl,
+    string? Note,
+    string Status,
+    DateTime? SubmittedAt,
+    DateTime? ApprovedAt,
+    DateTime? RejectedAt,
+    string? RejectionReason
 );
 
 public record CreateCapitalInjectionRequest(
     long AmountPaisa,
     DateTime? InjectedAt,
     int LockInMonths,
+    string? PaymentMethod,
+    string? PaidTo,
+    string? BankName,
+    string? BankAccountNumber,
+    string? ChequeNumber,
+    string? PaymentReference,
+    string? ProofImageUrl,
     string? Note
+);
+
+public record CapitalInjectionApprovalVoteDto(
+    Guid Id,
+    Guid CapitalInjectionId,
+    Guid VotedByPartnerId,
+    string VotedByPartnerName,
+    string Decision,
+    string? Note,
+    DateTime VotedAt
+);
+
+public record CastCapitalInjectionApprovalVoteRequest(
+    string Decision,
+    string? Note
+);
+
+public record CapitalInjectionApprovalStatusDto(
+    Guid CapitalInjectionId,
+    string Status,
+    int ApproveCount,
+    int RejectCount,
+    int RequiredVotes,
+    int ActiveManagingPartnerCount,
+    List<CapitalInjectionApprovalVoteDto> Votes
 );
 
 public record CapitalLedgerEntryDto(

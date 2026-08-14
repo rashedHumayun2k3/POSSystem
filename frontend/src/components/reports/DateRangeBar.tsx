@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReportPeriod, GroupBy } from "@/types/reports";
+import { useLanguage } from "@/i18n/LanguageContext";
 
 interface Props {
   period: ReportPeriod;
@@ -36,6 +37,20 @@ export function periodToDates(period: ReportPeriod): { from: string; to: string 
 }
 
 export default function DateRangeBar({ period, onPeriod, groupBy, onGroupBy, showGroupBy = true }: Props) {
+  const { lang } = useLanguage();
+  const periodLabel: Record<ReportPeriod, string> = {
+    today: lang === "bn" ? "আজ" : "Today",
+    "7d": "7D",
+    "30d": "30D",
+    "3m": "3M",
+    "6m": "6M",
+  };
+  const groupLabel: Record<GroupBy, string> = {
+    day: lang === "bn" ? "দিন" : "Day",
+    week: lang === "bn" ? "সপ্তাহ" : "Week",
+    month: lang === "bn" ? "মাস" : "Month",
+  };
+
   return (
     <div className="bg-white border-b border-gray-100 px-4 py-2 flex items-center gap-3 overflow-x-auto no-scrollbar">
       <div className="flex bg-gray-100 rounded-xl p-0.5 shrink-0">
@@ -47,7 +62,7 @@ export default function DateRangeBar({ period, onPeriod, groupBy, onGroupBy, sho
               period === p.key ? "bg-white text-indigo-600 shadow-sm" : "text-gray-500"
             }`}
           >
-            {p.label}
+            {periodLabel[p.key] ?? p.label}
           </button>
         ))}
       </div>
@@ -62,7 +77,7 @@ export default function DateRangeBar({ period, onPeriod, groupBy, onGroupBy, sho
                 groupBy === g.key ? "bg-white text-indigo-600 shadow-sm" : "text-gray-500"
               }`}
             >
-              {g.label}
+              {groupLabel[g.key] ?? g.label}
             </button>
           ))}
         </div>

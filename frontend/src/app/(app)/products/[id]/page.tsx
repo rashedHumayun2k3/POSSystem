@@ -23,6 +23,7 @@ import SlidePanel from '@/components/ui/SlidePanel';
 import CustomSelect from '@/components/ui/CustomSelect';
 import { usePressAndHold } from '@/hooks/usePressAndHold';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
+import { PlusIcon } from '@heroicons/react/24/outline';
 
 type TabKey = 'info' | 'variants' | 'prices' | 'stock' | 'orders' | 'sales' | 'reviews' | 'marketplace';
 
@@ -674,24 +675,17 @@ function InfoTab({
             <p className="text-xs text-gray-400">{t('products.nameLabel')}</p>
             <p className="text-sm text-gray-900 mt-0.5">{product.name}</p>
           </div>
-          <div>
-            <p className="text-xs text-gray-400">{t('products.descriptionLabel')}</p>
-            {product.description ? (
+          {product.description && (
+            <div>
+              <p className="text-xs text-gray-400">{t('products.descriptionLabel')}</p>
               <ExpandableText text={product.description} t={t} />
-            ) : (
-              <p className="text-sm text-gray-400 mt-0.5">{t('products.none')}</p>
-            )}
-          </div>
-          <div>
-            <p className="text-xs text-gray-400">{t('products.note')}</p>
-            {product.note ? (
+            </div>
+          )}
+          {product.note && (
+            <div>
+              <p className="text-xs text-gray-400">{t('products.note')}</p>
               <ExpandableText text={product.note} t={t} />
-            ) : (
-              <p className="text-sm text-gray-400 mt-0.5">{t('products.none')}</p>
-            )}
-          </div>
-          {!product.description && !product.note && (
-            <p className="text-xs font-medium text-red-600">{t('products.descriptionNoteMissing')}</p>
+            </div>
           )}
           <div className="bg-blue-200 rounded-lg px-3 py-2 text-center">
             <p className="text-sm text-gray-900">
@@ -3656,7 +3650,14 @@ function MarketplaceTab({ product, t }: { product: ProductDetail; t: (key: strin
                             : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
                         }`}
                       >
-                        {alreadyAdded ? '✓ ' : '+ '}{tp.label}
+                        {alreadyAdded ? (
+                          <>✓ {tp.label}</>
+                        ) : (
+                          <>
+                            <PlusIcon className="w-3 h-3 inline-block align-[-2px] mr-1" />
+                            {tp.label}
+                          </>
+                        )}
                       </button>
                     );
                   })}
@@ -3692,7 +3693,8 @@ function MarketplaceTab({ product, t }: { product: ProductDetail; t: (key: strin
               </div>
             ))}
           </div>
-          <button type="button" onClick={() => addRow(section.key)} className="text-xs text-indigo-600 font-medium mt-2">
+          <button type="button" onClick={() => addRow(section.key)} className="inline-flex items-center gap-1 text-xs text-indigo-600 font-medium mt-2">
+            <PlusIcon className="w-3.5 h-3.5" />
             {t('products.addDetailRow')}
           </button>
         </div>

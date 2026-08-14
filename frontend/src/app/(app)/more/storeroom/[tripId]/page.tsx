@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { getCartons, bulkCreateCartons, deleteCarton } from '@/lib/cartonApi';
 import type { CartonSummary } from '@/types/carton';
 import { useLanguage } from '@/i18n/LanguageContext';
+import { PlusIcon } from '@heroicons/react/24/outline';
 
 const STATUS_COLOR: Record<string, string> = {
   SEALED:  'bg-blue-100 text-blue-700',
@@ -80,8 +81,9 @@ export default function TripCartonsPage() {
         </button>
         <h1 className="flex-1 text-base font-semibold text-gray-900">{t('storeroom.cartons')}</h1>
         <button onClick={() => setShowAdd(true)}
-          className="text-sm font-semibold text-indigo-600">
-          + {t('storeroom.addCartons')}
+          className="flex items-center gap-1 text-sm font-semibold text-indigo-600">
+          <PlusIcon className="w-4 h-4" />
+          {t('storeroom.addCartons')}
         </button>
       </div>
 
@@ -106,8 +108,9 @@ export default function TripCartonsPage() {
           <div className="text-center py-16">
             <p className="text-sm text-gray-400">{t('storeroom.noCartonsYet')}</p>
             <button onClick={() => setShowAdd(true)}
-              className="mt-3 text-sm font-semibold text-indigo-600">
-              + {t('storeroom.addCartons')}
+              className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-indigo-600">
+              <PlusIcon className="w-4 h-4" />
+              {t('storeroom.addCartons')}
             </button>
           </div>
         ) : (

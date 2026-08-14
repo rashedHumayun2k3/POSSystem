@@ -39,6 +39,7 @@ import CustomSelect from '@/components/ui/CustomSelect';
 import SlidePanel from '@/components/ui/SlidePanel';
 import { useLanguage } from '@/i18n/LanguageContext';
 import { useToastStore } from '@/store/toastStore';
+import { PlusIcon } from '@heroicons/react/24/outline';
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -474,6 +475,18 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
     CANCELLED:        t('purchases.statusCancelled'),
   };
 
+  const SOURCE_LABELS: Record<string, string> = {
+    CHINA_TRIP: t('purchases.sourceChinaTrip'),
+    ONLINE_WHOLESALE: t('purchases.sourceOnlineWholesale'),
+    ALIBABA: t('purchases.sourceOnlineWholesale'),
+    LOCAL_WHOLESALE: t('purchases.sourceLocalWholesale'),
+    AGENT: t('purchases.sourceAgent'),
+    FACTORY_DIRECT: t('purchases.sourceFactoryDirect'),
+    IMPORTER_DISTRIBUTOR: t('purchases.sourceImporterDistributor'),
+    SOCIAL_SUPPLIER: t('purchases.sourceSocialSupplier'),
+    EXISTING_SUPPLIER_REORDER: t('purchases.sourceExistingSupplierReorder'),
+  };
+
   // ── Derived state ────────────────────────────────────────────────────────
 
   const totalItemCost = trip?.items.reduce((s, i) => s + i.totalCost, 0) ?? 0;
@@ -581,7 +594,7 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
               {STATUS_LABELS[trip.status] ?? trip.status}
             </span>
           </div>
-          <p className="text-xs text-gray-400 truncate">{trip.sourceType.replace('_', ' ')}</p>
+          <p className="text-xs text-gray-400 truncate">{SOURCE_LABELS[trip.sourceType] ?? trip.sourceType}</p>
         </div>
       </div>
 
@@ -846,7 +859,8 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
               </SlidePanel>
 
               <button onClick={() => setShowAddItem(true)}
-                className="w-full border-2 border-dashed border-indigo-200 rounded-xl py-3 text-sm text-indigo-600 font-medium">
+                className="w-full border-2 border-dashed border-indigo-200 rounded-xl py-3 text-sm text-indigo-600 font-medium flex items-center justify-center gap-1">
+                <PlusIcon className="w-4 h-4" />
                 {trip.items.length > 0 ? t('purchases.addMoreProduct') : t('purchases.addProduct')}
               </button>
             </>
@@ -956,7 +970,8 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
                 </div>
               ) : (
                 <button onClick={() => setShowAddCost(true)}
-                  className={`w-full border-2 border-dashed rounded-xl py-3 text-sm font-medium ${isCompleted ? 'border-amber-200 text-amber-600' : 'border-indigo-200 text-indigo-600'}`}>
+                  className={`w-full border-2 border-dashed rounded-xl py-3 text-sm font-medium flex items-center justify-center gap-1 ${isCompleted ? 'border-amber-200 text-amber-600' : 'border-indigo-200 text-indigo-600'}`}>
+                  <PlusIcon className="w-4 h-4" />
                   {isCompleted ? t('purchases.addLateCost') : t('purchases.addSharedCost')}
                 </button>
               )}
@@ -1141,7 +1156,8 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
             <>
               {selectedForReceiveIds.size > 0 && !showAddSession && (
                 <button onClick={() => setShowAddSession(true)}
-                  className="w-full bg-indigo-600 text-white rounded-xl py-3 text-sm font-semibold">
+                  className="w-full bg-indigo-600 text-white rounded-xl py-3 text-sm font-semibold flex items-center justify-center gap-1">
+                  <PlusIcon className="w-4 h-4" />
                   {t('purchases.recordGoodsCount', { count: selectedForReceiveIds.size })}
                 </button>
               )}

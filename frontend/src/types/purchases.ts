@@ -1,4 +1,13 @@
-export type SourceType = 'CHINA_TRIP' | 'ALIBABA' | 'LOCAL_WHOLESALE' | 'AGENT';
+export type SourceType =
+  | 'CHINA_TRIP'
+  | 'ONLINE_WHOLESALE'
+  | 'ALIBABA'
+  | 'LOCAL_WHOLESALE'
+  | 'AGENT'
+  | 'FACTORY_DIRECT'
+  | 'IMPORTER_DISTRIBUTOR'
+  | 'SOCIAL_SUPPLIER'
+  | 'EXISTING_SUPPLIER_REORDER';
 export type TripStatus = 'DRAFT' | 'PENDING_APPROVAL' | 'RECEIVING' | 'COMPLETED' | 'CANCELLED';
 export type CostType = 'TRANSPORT' | 'LABOR' | 'CUSTOMS' | 'SHIPPING_INTL' | 'CURRENCY_LOSS' | 'AGENT_FEE' | 'PAYMENT_FEE' | 'OTHER';
 export type SessionStatus = 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED';

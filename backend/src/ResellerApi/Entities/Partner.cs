@@ -6,6 +6,8 @@ public class Partner : BusinessScopedEntity
 {
     public string Name { get; set; } = null!;
     public string? Phone { get; set; }
+    public string? PhotoUrl { get; set; }
+    public Guid? LinkedUserId { get; set; }
     public string PartnerType { get; set; } = null!; // MANAGING | SLEEPING — immutable once a ledger entry exists (R15.1)
     public string Status { get; set; } = "PENDING_APPROVAL"; // PENDING_APPROVAL | ACTIVE | REJECTED | EXITED (R15.11)
     public long DeferredLossPaisa { get; set; }        // unabsorbed loss carried forward (R15.4)
@@ -26,4 +28,5 @@ public class Partner : BusinessScopedEntity
     public ICollection<CapitalInjection> CapitalInjections { get; set; } = new List<CapitalInjection>();
     public ICollection<CapitalLedgerEntry> LedgerEntries { get; set; } = new List<CapitalLedgerEntry>();
     public ICollection<PartnerApprovalVote> ApprovalVotes { get; set; } = new List<PartnerApprovalVote>();
+    public User? LinkedUser { get; set; }
 }

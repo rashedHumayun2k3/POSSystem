@@ -317,8 +317,26 @@ namespace ResellerApi.Data.Migrations
                     b.Property<long>("AmountPaisa")
                         .HasColumnType("bigint");
 
+                    b.Property<DateTime?>("ApprovedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("ApprovedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("BankAccountNumber")
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)");
+
+                    b.Property<string>("BankName")
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)");
+
                     b.Property<Guid>("BusinessId")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ChequeNumber")
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
@@ -342,14 +360,59 @@ namespace ResellerApi.Data.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("nvarchar(500)");
 
+                    b.Property<string>("PaidTo")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)")
+                        .HasDefaultValue("");
+
                     b.Property<Guid>("PartnerId")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("PaymentMethod")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasDefaultValue("CASH");
+
+                    b.Property<string>("PaymentReference")
+                        .HasMaxLength(160)
+                        .HasColumnType("nvarchar(160)");
+
+                    b.Property<string>("ProofImageUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<DateTime?>("RejectedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("RejectedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("RejectionReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
 
                     b.Property<byte[]>("RowVer")
                         .IsConcurrencyToken()
                         .IsRequired()
                         .ValueGeneratedOnAddOrUpdate()
                         .HasColumnType("rowversion");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasDefaultValue("DRAFT");
+
+                    b.Property<DateTime?>("SubmittedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("SubmittedBy")
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("datetime2");
@@ -363,6 +426,61 @@ namespace ResellerApi.Data.Migrations
                     b.HasIndex("PartnerId");
 
                     b.ToTable("capital_injections", (string)null);
+                });
+
+            modelBuilder.Entity("ResellerApi.Entities.CapitalInjectionApprovalVote", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasDefaultValueSql("NEWSEQUENTIALID()");
+
+                    b.Property<Guid>("BusinessId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("CapitalInjectionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Decision")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<byte[]>("RowVer")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("VotedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("VotedByPartnerId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BusinessId");
+
+                    b.HasIndex("VotedByPartnerId");
+
+                    b.HasIndex("CapitalInjectionId", "VotedByPartnerId")
+                        .IsUnique();
+
+                    b.ToTable("capital_injection_approval_votes", (string)null);
                 });
 
             modelBuilder.Entity("ResellerApi.Entities.CapitalLedgerEntry", b =>
@@ -1433,6 +1551,63 @@ namespace ResellerApi.Data.Migrations
                     b.ToTable("expense_categories", (string)null);
                 });
 
+            modelBuilder.Entity("ResellerApi.Entities.ExternalOrderIntegration", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasDefaultValueSql("NEWSEQUENTIALID()");
+
+                    b.Property<Guid>("BusinessId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("CreatedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("KeyHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<byte[]>("RowVer")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<string>("SourceWebsiteUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BusinessId");
+
+                    b.HasIndex("CreatedBy");
+
+                    b.HasIndex("KeyHash")
+                        .IsUnique();
+
+                    b.ToTable("external_order_integrations", (string)null);
+                });
+
             modelBuilder.Entity("ResellerApi.Entities.Feedback", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1784,6 +1959,14 @@ namespace ResellerApi.Data.Migrations
                     b.Property<decimal?>("DiscountValue")
                         .HasColumnType("DECIMAL(14,2)");
 
+                    b.Property<string>("ExternalOrderId")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("ExternalSource")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
                     b.Property<string>("FulfillmentStatus")
                         .IsRequired()
                         .HasMaxLength(20)
@@ -1841,6 +2024,10 @@ namespace ResellerApi.Data.Migrations
                         .ValueGeneratedOnAddOrUpdate()
                         .HasColumnType("rowversion");
 
+                    b.Property<string>("Source")
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
                     b.Property<string>("TrackingNo")
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
@@ -1872,10 +2059,15 @@ namespace ResellerApi.Data.Migrations
 
                     b.HasIndex("BusinessId", "CustomerPhone");
 
+                    b.HasIndex("BusinessId", "ExternalOrderId")
+                        .HasFilter("[ExternalOrderId] IS NOT NULL");
+
                     b.HasIndex("BusinessId", "FulfillmentStatus");
 
                     b.HasIndex("BusinessId", "OrderNo")
                         .IsUnique();
+
+                    b.HasIndex("BusinessId", "Source");
 
                     b.HasIndex("BusinessId", "BranchId", "FulfillmentStatus");
 
@@ -2106,6 +2298,9 @@ namespace ResellerApi.Data.Migrations
                     b.Property<DateTime?>("JoinDate")
                         .HasColumnType("datetime2");
 
+                    b.Property<Guid?>("LinkedUserId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -2128,6 +2323,10 @@ namespace ResellerApi.Data.Migrations
                         .HasMaxLength(30)
                         .HasColumnType("nvarchar(30)");
 
+                    b.Property<string>("PhotoUrl")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
                     b.Property<byte[]>("RowVer")
                         .IsConcurrencyToken()
                         .IsRequired()
@@ -2143,6 +2342,12 @@ namespace ResellerApi.Data.Migrations
                         .HasColumnType("datetime2");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("LinkedUserId");
+
+                    b.HasIndex("BusinessId", "LinkedUserId")
+                        .IsUnique()
+                        .HasFilter("[LinkedUserId] IS NOT NULL");
 
                     b.HasIndex("BusinessId", "Phone");
 
@@ -4147,6 +4352,9 @@ namespace ResellerApi.Data.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasDefaultValueSql("NEWSEQUENTIALID()");
 
+                    b.Property<bool>("CanAccessPos")
+                        .HasColumnType("bit");
+
                     b.Property<Guid>("CompanyId")
                         .HasColumnType("uniqueidentifier");
 
@@ -4368,6 +4576,33 @@ namespace ResellerApi.Data.Migrations
                     b.Navigation("CreatedByUser");
 
                     b.Navigation("Partner");
+                });
+
+            modelBuilder.Entity("ResellerApi.Entities.CapitalInjectionApprovalVote", b =>
+                {
+                    b.HasOne("ResellerApi.Entities.Business", "Business")
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("ResellerApi.Entities.CapitalInjection", "CapitalInjection")
+                        .WithMany("ApprovalVotes")
+                        .HasForeignKey("CapitalInjectionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("ResellerApi.Entities.Partner", "VotedByPartner")
+                        .WithMany()
+                        .HasForeignKey("VotedByPartnerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Business");
+
+                    b.Navigation("CapitalInjection");
+
+                    b.Navigation("VotedByPartner");
                 });
 
             modelBuilder.Entity("ResellerApi.Entities.CapitalLedgerEntry", b =>
@@ -4657,6 +4892,25 @@ namespace ResellerApi.Data.Migrations
                     b.Navigation("Business");
                 });
 
+            modelBuilder.Entity("ResellerApi.Entities.ExternalOrderIntegration", b =>
+                {
+                    b.HasOne("ResellerApi.Entities.Business", "Business")
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("ResellerApi.Entities.User", "CreatedByUser")
+                        .WithMany()
+                        .HasForeignKey("CreatedBy")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Business");
+
+                    b.Navigation("CreatedByUser");
+                });
+
             modelBuilder.Entity("ResellerApi.Entities.Feedback", b =>
                 {
                     b.HasOne("ResellerApi.Entities.Business", "Business")
@@ -4886,7 +5140,14 @@ namespace ResellerApi.Data.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.HasOne("ResellerApi.Entities.User", "LinkedUser")
+                        .WithMany()
+                        .HasForeignKey("LinkedUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.Navigation("Business");
+
+                    b.Navigation("LinkedUser");
                 });
 
             modelBuilder.Entity("ResellerApi.Entities.PartnerApprovalVote", b =>
@@ -5603,6 +5864,11 @@ namespace ResellerApi.Data.Migrations
                     b.Navigation("Branches");
 
                     b.Navigation("BusinessUsers");
+                });
+
+            modelBuilder.Entity("ResellerApi.Entities.CapitalInjection", b =>
+                {
+                    b.Navigation("ApprovalVotes");
                 });
 
             modelBuilder.Entity("ResellerApi.Entities.Carton", b =>

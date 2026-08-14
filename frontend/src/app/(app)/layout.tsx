@@ -33,6 +33,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (hasHydrated && !user) router.replace("/login");
   }, [hasHydrated, user, router]);
+  useEffect(() => {
+    if (hasHydrated && user?.canAccessPos === false && (pathname === "/pos" || pathname === "/hawker/night-entry")) {
+      router.replace("/dashboard");
+    }
+  }, [hasHydrated, user, pathname, router]);
   if (!hasHydrated || !user) return null;
 
   const titleMap: Record<string, string> = {

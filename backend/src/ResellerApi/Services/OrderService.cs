@@ -83,6 +83,9 @@ public class OrderService : IOrderService
             BranchId = branchId,
             OrderNo = orderNo,
             Channel = request.Channel,
+            Source = request.Source,
+            ExternalSource = request.ExternalSource,
+            ExternalOrderId = request.ExternalOrderId,
             BusinessDate = request.BusinessDate ?? DateOnly.FromDateTime(DateTime.UtcNow),
             CustomerId = customer.Id,
             CustomerName = request.CustomerName,
@@ -1214,7 +1217,7 @@ public class OrderService : IOrderService
         }
 
         return new OrderListDto(
-            o.Id, o.OrderNo, o.Channel,
+            o.Id, o.OrderNo, o.Channel, o.Source, o.ExternalSource, o.ExternalOrderId,
             o.CustomerName, o.CustomerPhone,
             o.OrderStatus, o.PaymentStatus, o.FulfillmentStatus,
             o.IsDraft, total, Math.Max(0, total - paid),
@@ -1266,7 +1269,7 @@ public class OrderService : IOrderService
         }
 
         return new OrderDetailDto(
-            o.Id, o.OrderNo, o.Channel,
+            o.Id, o.OrderNo, o.Channel, o.Source, o.ExternalSource, o.ExternalOrderId,
             o.CustomerId, o.CustomerName, o.CustomerPhone, o.CustomerAddress,
             o.OrderStatus, o.PaymentStatus, o.FulfillmentStatus, o.IsDraft,
             o.DiscountType, o.DiscountValue,

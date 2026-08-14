@@ -11,9 +11,10 @@ interface Props {
   uploadingLabel: string;
   errorLabel: string;
   removeLabel: string;
+  capture?: 'user' | 'environment';
 }
 
-export default function ImageUploadField({ value, onChange, label, uploadingLabel, errorLabel, removeLabel }: Props) {
+export default function ImageUploadField({ value, onChange, label, uploadingLabel, errorLabel, removeLabel, capture }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState(false);
@@ -81,6 +82,7 @@ export default function ImageUploadField({ value, onChange, label, uploadingLabe
         ref={inputRef}
         type="file"
         accept="image/jpeg,image/png,image/webp"
+        capture={capture}
         className="hidden"
         onChange={(e) => handleFile(e.target.files?.[0])}
       />

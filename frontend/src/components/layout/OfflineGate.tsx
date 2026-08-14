@@ -18,6 +18,7 @@ export default function OfflineGate() {
   // client-side-navigated to yet and so fails to load while offline.
   const businesses = useAuthStore((s) => s.businesses);
   const currentBusinessId = useAuthStore((s) => s.currentBusinessId);
+  const canAccessPos = useAuthStore((s) => s.user?.canAccessPos ?? false);
   const isHawker = businesses
     .find((b) => b.id === currentBusinessId)
     ?.salesChannels?.includes("HAWKER") ?? false;
@@ -34,14 +35,18 @@ export default function OfflineGate() {
       </div>
       <div>
         <p className="text-base font-semibold text-gray-900">{t("connectivity.gateTitle")}</p>
-        <p className="text-sm text-gray-500 mt-1.5 max-w-xs mx-auto">{t("connectivity.gateBody")}</p>
+        <p className="text-sm text-gray-500 mt-1.5 max-w-xs mx-auto">
+          {t(canAccessPos ? "connectivity.gateBody" : "connectivity.gateBodyNoPos")}
+        </p>
       </div>
-      <Link
-        href={sellHref}
-        className="mt-2 inline-flex items-center justify-center px-5 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold active:scale-[0.98] transition"
-      >
-        {sellLabel}
-      </Link>
+      {canAccessPos && (
+        <Link
+          href={sellHref}
+          className="mt-2 inline-flex items-center justify-center px-5 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold active:scale-[0.98] transition"
+        >
+          {sellLabel}
+        </Link>
+      )}
     </div>
   );
 }

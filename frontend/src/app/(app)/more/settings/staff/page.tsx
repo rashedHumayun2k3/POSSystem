@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { getStaff, createStaff, updateStaff, deactivateStaff, resetStaffPassword } from "@/lib/settingsApi";
 import type { StaffUser } from "@/types/settings";
 import { useLanguage } from "@/i18n/LanguageContext";
-import { PencilIcon } from "@heroicons/react/24/outline";
+import { PencilIcon, PlusIcon } from "@heroicons/react/24/outline";
 import SlidePanel from "@/components/ui/SlidePanel";
 import { toastError } from "@/lib/toastError";
 
@@ -113,7 +113,10 @@ export default function StaffPage() {
           </svg>
         </button>
         <h1 className="flex-1 text-base font-semibold text-gray-900">{t("settings.staffTitle")}</h1>
-        <button onClick={openAdd} className="text-sm font-semibold text-indigo-600">{t("settings.addStaff")}</button>
+        <button onClick={openAdd} className="flex items-center gap-1 text-sm font-semibold text-indigo-600">
+          <PlusIcon className="w-4 h-4" />
+          {t("settings.addStaff")}
+        </button>
       </div>
 
       {/* Staff list */}

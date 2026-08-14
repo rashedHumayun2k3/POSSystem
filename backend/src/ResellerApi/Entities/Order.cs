@@ -8,6 +8,9 @@ public class Order : BusinessScopedEntity, IBranchScoped
     public Branch? Branch { get; set; }
     public string OrderNo { get; set; } = null!;
     public string Channel { get; set; } = null!; // FACEBOOK|WHATSAPP|INSTAGRAM|PHONE|SHOP|HAWKER|MYWEBSITE|OTHER
+    public string? Source { get; set; } // MANUAL|POS|CLIENTPAGE|EXTERNAL_WEBSITE
+    public string? ExternalSource { get; set; } // e.g. abcd.com, WooCommerce, custom site
+    public string? ExternalOrderId { get; set; }
 
     // The day the sale actually happened (may be backdated, e.g. hawker night-entry). Reports group by this, not CreatedAt.
     public DateOnly BusinessDate { get; set; }

@@ -2,7 +2,10 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ResellerApi.Data;
+using ResellerApi.DTOs.ExternalOrders;
+using ResellerApi.Entities;
 using ResellerApi.Infrastructure;
+using ResellerApi.Services;
 using ResellerApi.Services.Interfaces;
 
 namespace ResellerApi.Controllers;
@@ -105,7 +108,7 @@ public class BusinessesController : ControllerBase
         var business = await _db.Businesses.FindAsync(_businessContext.CurrentBusinessId);
         if (business is null) return NotFound();
 
-        var url = request.WebsiteUrl?.Trim();
+        var url = NormalizeWebsiteUrl(request.WebsiteUrl);
         if (!string.IsNullOrEmpty(url) && !Uri.IsWellFormedUriString(url, UriKind.Absolute))
             return BadRequest(new { message = "Enter a full URL, e.g. https://example.com" });
 
@@ -135,6 +138,88 @@ public class BusinessesController : ControllerBase
 
         return Ok(new { business.StorefrontEnabled });
     }
+
+    [HttpGet("external-order-integrations")]
+    public async Task<ActionResult<List<ExternalOrderIntegrationDto>>> ListExternalOrderIntegrations()
+    {
+        var integrations = await _db.ExternalOrderIntegrations
+            .AsNoTracking()
+            .OrderByDescending(i => i.CreatedAt)
+            .Select(i => new ExternalOrderIntegrationDto(i.Id, i.Name, i.SourceWebsiteUrl, i.IsActive, i.CreatedAt))
+            .ToListAsync();
+        return Ok(integrations);
+    }
+
+    [HttpPost("external-order-integrations")]
+    public async Task<ActionResult<CreateExternalOrderIntegrationResponse>> CreateExternalOrderIntegration(
+        [FromBody] CreateExternalOrderIntegrationRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.Name))
+            return BadRequest(new { message = "Integration name is required." });
+
+        var url = NormalizeWebsiteUrl(request.SourceWebsiteUrl);
+        if (!string.IsNullOrEmpty(url) && !Uri.IsWellFormedUriString(url, UriKind.Absolute))
+            return BadRequest(new { message = "Enter a full URL, e.g. https://example.com" });
+
+        var apiKey = $"eord_{Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32)).ToLowerInvariant()}";
+        var integration = new ExternalOrderIntegration
+        {
+            BusinessId = _businessContext.CurrentBusinessId,
+            Name = request.Name.Trim(),
+            SourceWebsiteUrl = string.IsNullOrEmpty(url) ? null : url,
+            KeyHash = ExternalOrderService.HashSecret(apiKey),
+            CreatedBy = _currentUser.UserId,
+        };
+
+        _db.ExternalOrderIntegrations.Add(integration);
+        await _db.SaveChangesAsync();
+        await _activityLog.LogAsync(_businessContext.CurrentBusinessId, _currentUser.UserId,
+            "CREATE", "ExternalOrderIntegration", integration.Id, null, new { integration.Name, integration.SourceWebsiteUrl });
+
+        return Ok(new CreateExternalOrderIntegrationResponse(
+            integration.Id, integration.Name, apiKey, integration.SourceWebsiteUrl, integration.IsActive));
+    }
+
+    [HttpPatch("external-order-integrations/{id:guid}/active")]
+    public async Task<IActionResult> SetExternalOrderIntegrationActive(Guid id, [FromBody] SetExternalOrderIntegrationActiveRequest request)
+    {
+        var integration = await _db.ExternalOrderIntegrations.FirstOrDefaultAsync(i => i.Id == id);
+        if (integration is null) return NotFound();
+
+        var before = new { integration.IsActive };
+        integration.IsActive = request.IsActive;
+        await _db.SaveChangesAsync();
+        await _activityLog.LogAsync(_businessContext.CurrentBusinessId, _currentUser.UserId,
+            "UPDATE", "ExternalOrderIntegration", integration.Id, before, new { integration.IsActive });
+
+        return Ok(new { integration.IsActive });
+    }
+
+    [HttpDelete("external-order-integrations/{id:guid}")]
+    public async Task<IActionResult> DeleteExternalOrderIntegration(Guid id)
+    {
+        var integration = await _db.ExternalOrderIntegrations.FirstOrDefaultAsync(i => i.Id == id);
+        if (integration is null) return NotFound();
+
+        var before = new { integration.Name, integration.SourceWebsiteUrl, integration.IsActive };
+        integration.IsActive = false;
+        integration.DeletedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+        await _activityLog.LogAsync(_businessContext.CurrentBusinessId, _currentUser.UserId,
+            "DELETE", "ExternalOrderIntegration", integration.Id, before, null);
+
+        return NoContent();
+    }
+
+    private static string? NormalizeWebsiteUrl(string? value)
+    {
+        var url = value?.Trim();
+        if (string.IsNullOrEmpty(url)) return null;
+        return url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+               url.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
+            ? url
+            : $"https://{url}";
+    }
 }
 
 public record StorefrontSettingsRequest(bool ShowOnMarketplace);
@@ -142,3 +227,4 @@ public record SetSubdomainRequest(string Subdomain);
 public record SetStorefrontEnabledRequest(bool Enabled);
 public record UpdateLogoRequest(string? LogoUrl);
 public record UpdateWebsiteRequest(string? WebsiteUrl);
+public record SetExternalOrderIntegrationActiveRequest(bool IsActive);

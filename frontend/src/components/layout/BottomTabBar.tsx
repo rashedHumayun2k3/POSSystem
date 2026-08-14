@@ -24,6 +24,7 @@ export default function BottomTabBar() {
   const { t } = useLanguage();
   const businesses = useAuthStore((s) => s.businesses);
   const currentBusinessId = useAuthStore((s) => s.currentBusinessId);
+  const canAccessPos = useAuthStore((s) => s.user?.canAccessPos ?? true);
   const isHawker = businesses
     .find((b) => b.id === currentBusinessId)
     ?.salesChannels?.includes("HAWKER") ?? false;
@@ -43,7 +44,7 @@ export default function BottomTabBar() {
   }[] = [
     { href: "/dashboard",    labelKey: "nav.home",        Icon: HomeIcon,                  IconActive: HomeIconSolid },
     { href: "/orders",       labelKey: "nav.orders",      Icon: ClipboardDocumentListIcon, IconActive: OrdersSolid },
-    sellTab,
+    ...(canAccessPos ? [sellTab] : []),
     { href: "/products",     labelKey: "nav.products",    Icon: ArchiveBoxIcon,            IconActive: ProductsSolid },
     { href: "/more",         labelKey: "nav.more",        Icon: Bars3Icon,                 IconActive: MoreSolid },
   ];

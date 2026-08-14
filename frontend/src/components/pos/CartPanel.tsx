@@ -303,7 +303,7 @@ export default function CartPanel({ session, onPayClick }: Props) {
             onClick={() => setShowDiscount(true)}
             className="text-xs text-indigo-500 hover:underline px-1"
           >
-            + Add discount
+            Add discount
           </button>
         ) : (
           <div className="flex gap-2 items-center">

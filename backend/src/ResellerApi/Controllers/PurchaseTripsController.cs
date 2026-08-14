@@ -32,8 +32,19 @@ public class PurchaseTripsController : ControllerBase
     [Authorize(Roles = Roles.Owner)]
     public async Task<IActionResult> Create([FromBody] CreatePurchaseTripRequest request)
     {
-        var trip = await _svc.CreateAsync(request, _user.UserId);
-        return CreatedAtAction(nameof(Get), new { id = trip.Id }, trip);
+        try
+        {
+            var trip = await _svc.CreateAsync(request, _user.UserId);
+            return CreatedAtAction(nameof(Get), new { id = trip.Id }, trip);
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpPatch("{id:guid}/header")]

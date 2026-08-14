@@ -3,23 +3,31 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { getProducts } from '@/lib/catalogApi';
 import { getCategories } from '@/lib/catalogApi';
+import { lookupBarcodeWithFallback } from '@/lib/localDb/catalogCache';
 import { useAuthStore } from '@/store/authStore';
 import type { ProductSummary } from '@/types/catalog';
 import { useLanguage } from '@/i18n/LanguageContext';
 import { resolveMediaUrl } from '@/lib/media';
-import CustomSelect from '@/components/ui/CustomSelect';
+import ProductSearchScanBar from '@/components/catalog/ProductSearchScanBar';
+import CategoryChipFilter from '@/components/catalog/CategoryChipFilter';
+
+const ALL_CATEGORY_ID = 'ALL';
 
 export default function ProductsPage() {
+  const router = useRouter();
   const canSeeCosts = useAuthStore((s) => s.canSeeCosts());
   const isOwner = useAuthStore((s) => s.isOwner());
   const currentBranchId = useAuthStore((s) => s.currentBranchId);
-  const { t } = useLanguage();
+  const { lang, t } = useLanguage();
 
   const [search, setSearch] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState(ALL_CATEGORY_ID);
   const [statusFilter, setStatusFilter] = useState('ACTIVE');
+  const [showScanner, setShowScanner] = useState(false);
+  const [scanError, setScanError] = useState('');
 
   const { data: categories = [] } = useQuery({
     queryKey: ['categories'],
@@ -31,10 +39,21 @@ export default function ProductsPage() {
     queryFn: () =>
       getProducts({
         status: statusFilter || undefined,
-        categoryId: categoryFilter || undefined,
+        categoryId: categoryFilter !== ALL_CATEGORY_ID ? categoryFilter : undefined,
         q: search || undefined,
       }),
   });
+
+  const handleBarcodeScan = async (barcode: string) => {
+    setShowScanner(false);
+    setScanError('');
+    try {
+      const result = await lookupBarcodeWithFallback(barcode, currentBranchId ?? undefined);
+      router.push(`/products/${result.productId}`);
+    } catch {
+      setScanError(`${t('pickers.barcodeNotFound')}: ${barcode}`);
+    }
+  };
 
   return (
     <div className="pb-20">
@@ -60,42 +79,27 @@ export default function ProductsPage() {
           )}
         </div>
 
-        {/* Search */}
-        <input
-          type="text"
-          placeholder={t('products.searchPlaceholder')}
+        <ProductSearchScanBar
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+          onChange={setSearch}
+          placeholder={t('pickers.searchProduct')}
+          scanLabel={t('pickers.scanBarcode')}
+          scannerOpen={showScanner}
+          onOpenScanner={() => { setScanError(''); setShowScanner(true); }}
+          onCloseScanner={() => setShowScanner(false)}
+          onScan={handleBarcodeScan}
+          error={scanError}
         />
-
-        {/* Filters */}
-        <div className="flex gap-2 mt-2 overflow-x-auto pb-1 scrollbar-hide">
-          <div className="shrink-0 w-32">
-            <CustomSelect
-              triggerClassName="w-full flex items-center gap-1 text-xs border border-gray-200 rounded-md px-2 py-1 bg-white text-left"
-              value={statusFilter}
-              onChange={setStatusFilter}
-              options={[
-                { value: '', label: t('products.allStatus') },
-                { value: 'ACTIVE', label: t('products.active') },
-                { value: 'ARCHIVED', label: t('products.archived') },
-              ]}
-            />
-          </div>
-          <div className="shrink-0 w-36">
-            <CustomSelect
-              triggerClassName="w-full flex items-center gap-1 text-xs border border-gray-200 rounded-md px-2 py-1 bg-white text-left"
-              value={categoryFilter}
-              onChange={setCategoryFilter}
-              options={[
-                { value: '', label: t('products.allCategories') },
-                ...categories.map((c) => ({ value: c.id, label: c.name })),
-              ]}
-            />
-          </div>
-        </div>
       </div>
+
+      <CategoryChipFilter
+        selectedId={categoryFilter}
+        onSelect={setCategoryFilter}
+        allLabel={t('pickers.allCategories')}
+        allId={ALL_CATEGORY_ID}
+        categories={categories}
+        lang={lang}
+      />
 
       {/* Product list */}
       <div className="px-4 pt-3">
@@ -178,9 +182,11 @@ function InfoChip({ children, tone }: { children: React.ReactNode; tone?: 'marke
 
 function StatCol({ value, label, valueClassName, divider }: { value: React.ReactNode; label: string; valueClassName?: string; divider?: boolean }) {
   return (
-    <div className={`flex-1 text-center py-2 ${divider ? 'border-l border-gray-500' : ''}`}>
-      <p className={`text-[13px] font-medium ${valueClassName ?? 'text-white'}`}>{value}</p>
-      <p className="text-[11px] text-gray-300 mt-0.5">{label}</p>
+    <div className={`flex-1 min-w-0 px-1.5 py-1.5 ${divider ? 'border-l border-gray-500' : ''}`}>
+      <div className="flex min-w-0 items-center justify-center gap-1.5 text-center">
+        <span className={`shrink-0 text-[12px] font-semibold leading-none ${valueClassName ?? 'text-white'}`}>{value}</span>
+        <span className="min-w-0 truncate text-[10px] font-medium leading-none text-gray-300">{label}</span>
+      </div>
     </div>
   );
 }

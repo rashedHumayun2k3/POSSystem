@@ -12,6 +12,7 @@ import CustomSelect from '@/components/ui/CustomSelect';
 import { categoryDisplayName } from '@/lib/categoryDisplay';
 import { toastError } from '@/lib/toastError';
 import { useToastStore } from '@/store/toastStore';
+import { PlusIcon } from '@heroicons/react/24/outline';
 
 type VariantRow = { values: Record<string, string>; qty: string; costPrice: string };
 
@@ -306,8 +307,9 @@ export default function NewProductPage() {
           <button
             type="button"
             onClick={() => setShowMarketPrice(true)}
-            className="text-xs text-indigo-600 font-medium"
+            className="inline-flex items-center gap-1 text-xs text-indigo-600 font-medium"
           >
+            <PlusIcon className="w-3.5 h-3.5" />
             {t('products.addDiscountPrice')}
           </button>
         ) : (
@@ -495,8 +497,9 @@ export default function NewProductPage() {
               <button
                 type="button"
                 onClick={addVariantRow}
-                className="text-xs text-indigo-600 font-medium"
+                className="inline-flex items-center gap-1 text-xs text-indigo-600 font-medium"
               >
+                <PlusIcon className="w-3.5 h-3.5" />
                 {t('products.addRow')}
               </button>
             )}

@@ -10,6 +10,7 @@ import { listOrders } from "@/lib/ordersApi";
 import { useLanguage } from "@/i18n/LanguageContext";
 import { useAuthStore } from "@/store/authStore";
 import StatusBadge from "@/components/ui/StatusBadge";
+import { OrderProcessGuide } from "@/components/orders/OrderProgress";
 import { itemsSummaryText } from "@/lib/orderListHelpers";
 // Same date-range convention already used across Reports (DateRangeBar) — reused here instead of
 // inventing a parallel "last 7/30 days" concept just for this page.
@@ -251,6 +252,12 @@ function OrdersPageInner() {
       {/* Header */}
       <div className="bg-white border-b border-gray-100 px-4 py-3.5 flex items-center justify-between shrink-0">
         <h1 className="text-base font-semibold text-gray-900">{t("orders.ordersList")}</h1>
+        <Link
+          href="/orders/new"
+          className="shrink-0 px-3 py-1.5 bg-indigo-600 text-white text-xs font-semibold rounded-lg active:scale-[0.98] transition"
+        >
+          + {t("orders.newOrder")}
+        </Link>
       </div>
 
       {/* Tabs — left/right arrows over a fade so a narrow phone screen still hints that more
@@ -340,16 +347,11 @@ function OrdersPageInner() {
         </div>
       )}
 
-      {/* Create Order — full width, its own row, so it's an easy full-thumb-width tap target on
-          a narrow phone screen instead of competing for space next to the search box. */}
-      <div className="px-3 pb-2">
-        <Link
-          href="/orders/new"
-          className="block w-full text-center px-3 py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-lg"
-        >
-          + {t("orders.newOrder")}
-        </Link>
-      </div>
+      {activeTab !== "" && (
+        <div className="px-3 pb-3">
+          <OrderProcessGuide activeStep={activeTab} t={t} />
+        </div>
+      )}
 
       {/* List */}
       <div className="flex-1 overflow-y-auto px-3 pb-24 space-y-4">
@@ -412,7 +414,7 @@ function OrdersPageInner() {
                     carry the useful info by then), or per-item qty/stock while it's still new
                     (that's what actually matters before confirm/cancel). Short/out-of-stock still
                     get a red accent — a color cue, not a different container or font size. */}
-                <div className="bg-gray-600 rounded-lg border border-gray-500 px-2.5 py-1.5 mb-1 space-y-1">
+                <div className="bg-gray-50 rounded-lg border border-gray-200 px-2.5 py-1.5 mb-1 space-y-1">
                   {isNew ? (
                     // isNew === order.isDraft here, so every item below is genuinely still at
                     // risk of failing to confirm — a confirmed order (Waiting for Courier
@@ -423,13 +425,13 @@ function OrdersPageInner() {
                       return (
                         <div key={idx}>
                           <p className="text-xs truncate">
-                            <span className="font-semibold text-white">{item.productName}</span>{" "}
-                            <span className={outOfStock || short ? "text-red-400 font-semibold" : "text-gray-300"}>
+                            <span className="font-semibold text-gray-800">{item.productName}</span>{" "}
+                            <span className={outOfStock || short ? "text-red-600 font-semibold" : "text-gray-500"}>
                               ({t("orders.qty")}: {item.qty} | {t("orders.stock")}: {item.availableStock})
                             </span>
                           </p>
                           {outOfStock && (
-                            <p className="text-[11px] text-red-400 font-semibold mt-0.5">
+                            <p className="text-[11px] text-red-600 font-semibold mt-0.5">
                               {t("orders.outOfStockWarning")}
                             </p>
                           )}
@@ -437,7 +439,7 @@ function OrdersPageInner() {
                       );
                     })
                   ) : (
-                    <p className="text-xs font-semibold text-white truncate">
+                    <p className="text-xs font-semibold text-gray-800 truncate">
                       {itemsSummaryText(order.items)}
                     </p>
                   )}

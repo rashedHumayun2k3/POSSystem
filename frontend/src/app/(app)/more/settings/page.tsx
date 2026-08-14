@@ -4,114 +4,15 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useLanguage } from "@/i18n/LanguageContext";
 import { useAuthStore } from "@/store/authStore";
-import {
-  UsersIcon,
-  TruckIcon,
-  TagIcon,
-  Cog6ToothIcon,
-  ChevronRightIcon,
-  BanknotesIcon,
-  BuildingStorefrontIcon,
-  CreditCardIcon,
-  GlobeAltIcon,
-  QrCodeIcon,
-} from "@heroicons/react/24/outline";
+import { getSettingsMenuItems } from "@/lib/settingsMenu";
+import { ChevronRightIcon } from "@heroicons/react/24/outline";
 
 export default function SettingsPage() {
   const router = useRouter();
   const { t } = useLanguage();
   const isOwner = useAuthStore((s) => s.isOwner());
 
-  const sections = [
-    {
-      href: "/more/settings/staff",
-      icon: UsersIcon,
-      color: "bg-indigo-100 text-indigo-600",
-      title: t("settings.staff"),
-      desc: t("settings.staffDesc"),
-    },
-    {
-      href: "/more/settings/couriers",
-      icon: TruckIcon,
-      color: "bg-blue-100 text-blue-600",
-      title: t("settings.couriers"),
-      desc: t("settings.couriersDesc"),
-    },
-    {
-      href: "/more/settings/expense-categories",
-      icon: TagIcon,
-      color: "bg-amber-100 text-amber-600",
-      title: t("settings.expenseCategories"),
-      desc: t("settings.expenseCategoriesDesc"),
-    },
-    {
-      href: "/more/settings/config",
-      icon: Cog6ToothIcon,
-      color: "bg-emerald-100 text-emerald-600",
-      title: t("settings.businessConfig"),
-      desc: t("settings.businessConfigDesc"),
-    },
-    // Business-wide, owner-only (same rationale as Branches/Partners/Subscription/Storefront below)
-    ...(isOwner
-      ? [
-          {
-            href: "/more/settings/shop-type",
-            icon: QrCodeIcon,
-            color: "bg-orange-100 text-orange-600",
-            title: t("settings.shopType"),
-            desc: t("settings.shopTypeDesc"),
-          },
-        ]
-      : []),
-    // Owner-only: branch create/edit/toggle-active are OWNER-only actions server-side
-    ...(isOwner
-      ? [
-          {
-            href: "/more/settings/branches",
-            icon: BuildingStorefrontIcon,
-            color: "bg-teal-100 text-teal-600",
-            title: t("settings.branches"),
-            desc: t("settings.branchesDesc"),
-          },
-        ]
-      : []),
-    // Module 15 — Owner-only (GTR-10 / R15.10: STAFF never sees capital/profit data, not even in nav)
-    ...(isOwner
-      ? [
-          {
-            href: "/more/settings/partners",
-            icon: BanknotesIcon,
-            color: "bg-rose-100 text-rose-600",
-            title: t("settings.partners"),
-            desc: t("settings.partnersDesc"),
-          },
-        ]
-      : []),
-    // Billing is business-wide, owner-only (same rationale as Branches/Partners)
-    ...(isOwner
-      ? [
-          {
-            href: "/more/settings/subscription",
-            icon: CreditCardIcon,
-            color: "bg-violet-100 text-violet-600",
-            title: t("settings.subscription"),
-            desc: t("settings.subscriptionDesc"),
-          },
-        ]
-      : []),
-    // Marketplace visibility is a business-wide decision, owner-only (same rationale as above)
-    ...(isOwner
-      ? [
-          {
-            href: "/more/settings/storefront",
-            icon: GlobeAltIcon,
-            color: "bg-sky-100 text-sky-600",
-            title: t("settings.storefront"),
-            desc: t("settings.storefrontDesc"),
-          },
-        ]
-      : []),
-  ];
+  const sections = getSettingsMenuItems(isOwner);
 
   return (
     <div className="pb-24">
@@ -125,7 +26,7 @@ export default function SettingsPage() {
       </div>
 
       <div className="px-4 pt-4 space-y-2">
-        {sections.map(({ href, icon: Icon, color, title, desc }) => (
+        {sections.map(({ href, icon: Icon, color, titleKey, descKey }) => (
           <Link
             key={href}
             href={href}
@@ -135,8 +36,8 @@ export default function SettingsPage() {
               <Icon className="w-6 h-6" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-gray-900">{title}</p>
-              <p className="text-xs text-gray-400 mt-0.5">{desc}</p>
+              <p className="text-sm font-semibold text-gray-900">{t(titleKey)}</p>
+              <p className="text-xs text-gray-400 mt-0.5">{t(descKey)}</p>
             </div>
             <ChevronRightIcon className="w-4 h-4 text-gray-300 shrink-0" />
           </Link>

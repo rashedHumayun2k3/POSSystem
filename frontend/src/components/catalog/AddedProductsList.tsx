@@ -6,12 +6,16 @@ import { listAddedProducts } from "@/lib/catalogTemplatesApi";
 import { resolveMediaUrl } from "@/lib/media";
 import { useLanguage } from "@/i18n/LanguageContext";
 
-export default function AddedProductsList() {
+export default function AddedProductsList({ search = "" }: { search?: string }) {
   const { t } = useLanguage();
   const { data: products = [], isLoading } = useQuery({
     queryKey: ["catalog-templates-added-products"],
     queryFn: listAddedProducts,
   });
+  const normalizedSearch = search.trim().toLowerCase();
+  const visibleProducts = normalizedSearch
+    ? products.filter((product) => product.name.toLowerCase().includes(normalizedSearch))
+    : products;
 
   if (isLoading) {
     return (
@@ -25,9 +29,13 @@ export default function AddedProductsList() {
     return <p className="text-sm text-gray-400 py-2">{t("catalogTemplates.noAddedProductsYet")}</p>;
   }
 
+  if (visibleProducts.length === 0) {
+    return <p className="text-sm text-gray-400 py-2">{t("catalogTemplates.noProductSearchResults")}</p>;
+  }
+
   return (
     <div className="space-y-2">
-      {products.map((product) => {
+      {visibleProducts.map((product) => {
         const isOutOfStock = product.totalStock <= 0;
         const isLowStock = !isOutOfStock && product.totalStock < product.lowStockThreshold;
         return (

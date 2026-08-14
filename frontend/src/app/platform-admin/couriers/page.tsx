@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { PlusIcon } from "@heroicons/react/24/outline";
 import {
   getPlatformAdminToken,
   clearPlatformAdminToken,
@@ -113,7 +114,10 @@ export default function PlatformAdminCouriersPage() {
           <h1 className="text-base font-semibold text-gray-900">Courier Catalog</h1>
           <p className="text-xs text-gray-400">Platform-wide list businesses pick couriers from</p>
         </div>
-        <button onClick={openAdd} className="text-sm font-semibold text-indigo-600">+ Add</button>
+        <button onClick={openAdd} className="flex items-center gap-1 text-sm font-semibold text-indigo-600">
+          <PlusIcon className="w-4 h-4" />
+          Add
+        </button>
         <button onClick={logout} className="text-xs text-gray-400">Logout</button>
       </div>
 

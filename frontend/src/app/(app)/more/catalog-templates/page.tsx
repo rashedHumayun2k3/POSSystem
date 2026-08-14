@@ -7,6 +7,7 @@ import {
   listSuggestedCategories,
   addSuggestedCategories,
   listCategoriesWithSuggestions,
+  listAddedProducts,
 } from "@/lib/catalogTemplatesApi";
 import { deleteCategory } from "@/lib/catalogApi";
 import ProductSuggestionsPicker from "@/components/catalog/ProductSuggestionsPicker";
@@ -18,7 +19,7 @@ import { useToastStore } from "@/store/toastStore";
 import { toastError } from "@/lib/toastError";
 import { useAuthStore } from "@/store/authStore";
 
-type TabKey = "categories" | "myAddedProducts";
+type TabKey = "selectCategory" | "selectedCategories" | "myAddedProducts";
 
 export default function CatalogTemplatesPage() {
   const router = useRouter();
@@ -27,7 +28,8 @@ export default function CatalogTemplatesPage() {
   const owner = useAuthStore((s) => s.isOwner());
   const [addingId, setAddingId] = useState<string | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<TabKey>("categories");
+  const [activeTab, setActiveTab] = useState<TabKey>("selectCategory");
+  const [search, setSearch] = useState("");
   const tabsScrollRef = useRef<HTMLDivElement>(null);
 
   const { data: suggestedCategories = [], isLoading: loadingCategories } = useQuery({
@@ -38,6 +40,11 @@ export default function CatalogTemplatesPage() {
   const { data: categoriesWithSuggestions = [], isLoading: loadingProducts } = useQuery({
     queryKey: ["catalog-templates-categories"],
     queryFn: listCategoriesWithSuggestions,
+  });
+
+  const { data: addedProducts = [] } = useQuery({
+    queryKey: ["catalog-templates-added-products"],
+    queryFn: listAddedProducts,
   });
 
   const addOneMutation = useMutation({
@@ -85,17 +92,31 @@ export default function CatalogTemplatesPage() {
     removeMutation.mutate(categoryId);
   };
 
-  // Grouped by business type so an already-added category (e.g. Wallet) stays in its own
-  // section (e.g. 👜 Bags & Accessories) alongside the not-yet-added ones of that same type,
-  // instead of being pulled out into a separate flat block.
-  const groupedByType = suggestedCategories.reduce<Record<string, typeof suggestedCategories>>((acc, c) => {
+  const normalizedSearch = search.trim().toLowerCase();
+  const matchesSearch = (name: string, businessTypeCode?: string) => {
+    if (!normalizedSearch) return true;
+    const displayName = suggestedCategoryDisplayName(name, lang).toLowerCase();
+    return (
+      name.toLowerCase().includes(normalizedSearch) ||
+      displayName.includes(normalizedSearch) ||
+      businessTypeCode?.toLowerCase().includes(normalizedSearch)
+    );
+  };
+
+  const selectableCategories = suggestedCategories.filter(
+    (c) => !c.alreadyAdded && matchesSearch(c.name, c.businessTypeCode)
+  );
+  const filteredSelectedCategories = categoriesWithSuggestions.filter((cat) => matchesSearch(cat.name));
+
+  const groupedByType = selectableCategories.reduce<Record<string, typeof selectableCategories>>((acc, c) => {
     (acc[c.businessTypeCode] ??= []).push(c);
     return acc;
   }, {});
 
   const TABS: { key: TabKey; label: string }[] = [
-    { key: "categories", label: t("catalogTemplates.tabMySelectedCategories") },
-    { key: "myAddedProducts", label: t("catalogTemplates.tabMyAddedProducts") },
+    { key: "selectCategory", label: t("catalogTemplates.tabChooseCategories") },
+    { key: "selectedCategories", label: `${t("catalogTemplates.tabMySelectedCategories")} (${categoriesWithSuggestions.length})` },
+    { key: "myAddedProducts", label: `${t("catalogTemplates.tabMyAddedProducts")} (${addedProducts.length})` },
   ];
 
   return (
@@ -143,74 +164,46 @@ export default function CatalogTemplatesPage() {
       </div>
 
       <div className="px-4 pt-4">
-        {activeTab === "categories" && (
-          <div>
-            {!loadingProducts && categoriesWithSuggestions.length > 0 && (
-              <div className="mb-4">
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
-                  {t("catalogTemplates.selectedCategoriesForBusiness")}
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {categoriesWithSuggestions.map((cat) => (
-                    <span
-                      key={cat.categoryId}
-                      className="flex items-center gap-1.5 text-xs font-medium text-green-800 bg-green-50 border border-green-200 rounded-full pl-3 pr-1.5 py-1.5"
-                    >
-                      {getCategoryEmoji(cat.name)} {suggestedCategoryDisplayName(cat.name, lang)}
-                      {owner && (
-                        <button
-                          type="button"
-                          onClick={() => handleRemove(cat.categoryId)}
-                          disabled={removingId === cat.categoryId}
-                          aria-label={t("common.remove")}
-                          className="shrink-0 w-4 h-4 flex items-center justify-center rounded-full text-green-600 hover:bg-green-100 disabled:opacity-40"
-                        >
-                          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
-                          </svg>
-                        </button>
-                      )}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
+        {(activeTab !== "myAddedProducts" || addedProducts.length > 0) && (
+          <div className="relative mb-4">
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder={
+                activeTab === "myAddedProducts"
+                  ? t("catalogTemplates.searchProductPlaceholder")
+                  : t("catalogTemplates.searchPlaceholder")
+              }
+              className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 pr-9 text-sm focus:bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400"
+            />
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-300 pointer-events-none">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+            </span>
+          </div>
+        )}
 
+        {activeTab === "selectCategory" && (
+          <div>
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
               {t("catalogTemplates.categoriesTitle")}
             </p>
 
             {loadingProducts || loadingCategories ? (
               <div className="h-24 bg-gray-100 rounded-xl animate-pulse" />
-            ) : suggestedCategories.length === 0 ? (
+            ) : selectableCategories.length === 0 ? (
               <p className="text-sm text-gray-400 py-2">{t("catalogTemplates.noCategoriesYet")}</p>
             ) : (
               <div className="space-y-4">
-                {categoriesWithSuggestions.length > 0 && (
-                  <p className="flex items-start gap-1.5 text-xs text-indigo-700 bg-indigo-50 rounded-lg px-3 py-2">
-                    <span>💡</span>
-                    <span>{t("catalogTemplates.addProductsTip")}</span>
-                  </p>
-                )}
-
                 {Object.entries(groupedByType).map(([typeCode, cats]) => {
-                  // Already-added categories of this type, resolved to their real Category
-                  // (with its live suggestion count) so they render as green pills here,
-                  // in the same section as the not-yet-added ones of the same business type.
-                  const addedInGroup = cats
-                    .filter((c) => c.alreadyAdded)
-                    .map((c) => categoriesWithSuggestions.find((cws) => cws.suggestedCategoryId === c.id))
-                    .filter((c): c is NonNullable<typeof c> => !!c);
-                  const notAddedInGroup = cats.filter((c) => !c.alreadyAdded);
-
                   return (
                     <div key={typeCode}>
                       <p className="text-[11px] text-gray-400 mb-1.5">
                         {getBusinessTypeEmoji(typeCode)} {t(`onboarding.type.${typeCode}`)}
                       </p>
                       <div className="space-y-2">
-                        {addedInGroup.length > 0 && <ProductSuggestionsPicker categories={addedInGroup} />}
-                        {notAddedInGroup.map((cat) => (
+                        {cats.map((cat) => (
                           <div
                             key={cat.id}
                             className="flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl border border-gray-100 bg-white"
@@ -237,7 +230,44 @@ export default function CatalogTemplatesPage() {
           </div>
         )}
 
-        {activeTab === "myAddedProducts" && <AddedProductsList />}
+        {activeTab === "selectedCategories" && (
+          <div>
+            {loadingProducts ? (
+              <div className="h-24 bg-gray-100 rounded-xl animate-pulse" />
+            ) : filteredSelectedCategories.length === 0 ? (
+              <p className="text-sm text-gray-400 py-2">{t("catalogTemplates.noSelectedCategoriesYet")}</p>
+            ) : (
+              <div className="space-y-4">
+                <div className="flex flex-wrap gap-2">
+                  {filteredSelectedCategories.map((cat) => (
+                    <span
+                      key={cat.categoryId}
+                      className="flex items-center gap-1.5 text-xs font-medium text-green-800 bg-green-50 border border-green-200 rounded-full pl-3 pr-1.5 py-1.5"
+                    >
+                      {getCategoryEmoji(cat.name)} {suggestedCategoryDisplayName(cat.name, lang)}
+                      {owner && (
+                        <button
+                          type="button"
+                          onClick={() => handleRemove(cat.categoryId)}
+                          disabled={removingId === cat.categoryId}
+                          aria-label={t("common.remove")}
+                          className="shrink-0 w-4 h-4 flex items-center justify-center rounded-full text-green-600 hover:bg-green-100 disabled:opacity-40"
+                        >
+                          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      )}
+                    </span>
+                  ))}
+                </div>
+                <ProductSuggestionsPicker categories={filteredSelectedCategories} />
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === "myAddedProducts" && <AddedProductsList search={search} />}
       </div>
     </div>
   );

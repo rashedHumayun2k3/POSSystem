@@ -133,7 +133,10 @@ public record CreateOrderRequest(
     // provided. Lets the New Order builder pin a branch up front and keep every item check/submit
     // against that same branch even if the header switcher changes underneath it mid-session
     // (same override pattern as StockAdjustmentService.ResolveBranchIdAsync).
-    Guid? BranchId = null
+    Guid? BranchId = null,
+    string? Source = null,
+    string? ExternalSource = null,
+    string? ExternalOrderId = null
 );
 
 public record UpdateOrderRequest(
@@ -265,6 +268,9 @@ public record OrderListDto(
     Guid Id,
     string OrderNo,
     string Channel,
+    string? Source,
+    string? ExternalSource,
+    string? ExternalOrderId,
     string CustomerName,
     string CustomerPhone,
     string OrderStatus,
@@ -292,6 +298,9 @@ public record OrderDetailDto(
     Guid Id,
     string OrderNo,
     string Channel,
+    string? Source,
+    string? ExternalSource,
+    string? ExternalOrderId,
     Guid? CustomerId,
     string CustomerName,
     string CustomerPhone,

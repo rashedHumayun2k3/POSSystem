@@ -15,6 +15,7 @@ export default function ConnectivityBanner() {
   // hawker-channel businesses, so the link needs to follow suit.
   const businesses = useAuthStore((s) => s.businesses);
   const currentBusinessId = useAuthStore((s) => s.currentBusinessId);
+  const canAccessPos = useAuthStore((s) => s.user?.canAccessPos ?? false);
   const isHawker = businesses
     .find((b) => b.id === currentBusinessId)
     ?.salesChannels?.includes("HAWKER") ?? false;
@@ -26,14 +27,16 @@ export default function ConnectivityBanner() {
   return (
     <div className="bg-red-50 text-red-700">
       <div className="text-xs font-medium text-center px-4 py-2">
-        {t("connectivity.offline")}
+        {t(canAccessPos ? "connectivity.offline" : "connectivity.offlineNoPos")}
       </div>
 
-      <div className="text-center pb-2">
-        <Link href={sellHref} className="text-xs font-semibold underline underline-offset-2">
-          {sellLabel}
-        </Link>
-      </div>
+      {canAccessPos && (
+        <div className="text-center pb-2">
+          <Link href={sellHref} className="text-xs font-semibold underline underline-offset-2">
+            {sellLabel}
+          </Link>
+        </div>
+      )}
     </div>
   );
 }

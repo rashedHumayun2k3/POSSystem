@@ -18,7 +18,7 @@ export default function LoginPage() {
 }
 
 function LoginPageInner() {
-  const [phone, setPhone] = useState("");
+  const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const login = useLogin();
@@ -33,7 +33,7 @@ function LoginPageInner() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    login.mutate({ phone, password }, { onError: (err) => toastError(err, t("auth.loginFailed")) });
+    login.mutate({ phone: identifier, password }, { onError: (err) => toastError(err, t("auth.loginFailed")) });
   };
 
   return (
@@ -45,15 +45,16 @@ function LoginPageInner() {
       </div>
 
       <form onSubmit={handleSubmit} className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 space-y-4">
-        {/* Phone */}
+        {/* Phone / Email */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">{t("auth.phone")}</label>
+          <label className="block text-sm font-medium text-gray-700 mb-1">{t("auth.loginIdentifier")}</label>
           <input
-            type="tel"
-            inputMode="tel"
-            placeholder="01700000000"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
+            type="text"
+            inputMode="email"
+            autoComplete="username"
+            placeholder={t("auth.loginIdentifierPlaceholder")}
+            value={identifier}
+            onChange={(e) => setIdentifier(e.target.value)}
             required
             className="w-full h-12 px-4 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
           />

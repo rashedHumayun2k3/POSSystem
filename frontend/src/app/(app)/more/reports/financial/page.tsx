@@ -7,14 +7,43 @@ import DateRangeBar, { periodToDates } from "@/components/reports/DateRangeBar";
 import type { ReportPeriod, GroupBy } from "@/types/reports";
 import { useAuthStore } from "@/store/authStore";
 import { useMounted } from "@/hooks/useMounted";
-import { EXPENSE_CATEGORY_ICONS } from "@/lib/expenseCategoryIcons";
-import { ChevronDownIcon } from "@heroicons/react/24/outline";
+import { useLanguage, type Lang } from "@/i18n/LanguageContext";
+import ExpenseCategoryBreakdown from "@/components/reports/ExpenseCategoryBreakdown";
 import {
-  AreaChart, Area, LineChart, Line, PieChart, Pie, Cell,
+  AreaChart, Area, LineChart, Line,
   ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid,
 } from "recharts";
 
-const COLORS = ["#6366f1", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#14b8a6"];
+const TEXT: Record<Lang, Record<string, string>> = {
+  en: {
+    loading: "Loading...",
+    summary: "Profit & Loss Summary",
+    revenue: "Revenue",
+    cogs: "Cost of Goods (COGS)",
+    grossProfit: "Gross Profit",
+    totalExpenses: "Total Expenses",
+    netProfit: "Net Profit",
+    discounts: "Discounts Given",
+    revenueProfitTrend: "Revenue vs Profit Trend",
+    expenseTrend: "Expense Trend",
+    expenses: "Expenses",
+    profit: "Profit",
+  },
+  bn: {
+    loading: "লোড হচ্ছে...",
+    summary: "লাভ-লোকসানের সারাংশ",
+    revenue: "মোট বিক্রি",
+    cogs: "মালের কেনা খরচ",
+    grossProfit: "মোট লাভ",
+    totalExpenses: "মোট খরচ",
+    netProfit: "নিট লাভ",
+    discounts: "ডিসকাউন্ট দেওয়া হয়েছে",
+    revenueProfitTrend: "বিক্রি ও লাভের চলতি হিসাব",
+    expenseTrend: "খরচের চলতি হিসাব",
+    expenses: "খরচ",
+    profit: "লাভ",
+  },
+};
 
 function PnlRow({ label, value, pct, highlight }: { label: string; value: number; pct?: number; highlight?: "green" | "red" | "blue" | "gray" }) {
   const clr = highlight === "green" ? "text-emerald-600" : highlight === "red" ? "text-red-600" : highlight === "blue" ? "text-indigo-600" : "text-gray-800";
@@ -36,9 +65,10 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 export default function FinancialReportPage() {
   const [period, setPeriod] = useState<ReportPeriod>("30d");
   const [groupBy, setGroupBy] = useState<GroupBy>("day");
-  const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
   const currentBranchId = useAuthStore((s) => s.currentBranchId);
   const mounted = useMounted();
+  const { lang } = useLanguage();
+  const label = TEXT[lang];
 
   const { from, to } = periodToDates(period);
 
@@ -54,25 +84,25 @@ export default function FinancialReportPage() {
       <DateRangeBar period={period} onPeriod={setPeriod} groupBy={groupBy} onGroupBy={setGroupBy} />
 
       <div className="px-4 py-4 pb-10">
-        {(!mounted || isLoading) && <div className="flex items-center justify-center h-40 text-gray-400 text-sm">Loading...</div>}
+        {(!mounted || isLoading) && <div className="flex items-center justify-center h-40 text-gray-400 text-sm">{label.loading}</div>}
         {mounted && !isLoading && data && (
           <>
             {/* P&L Summary */}
             <div className="bg-white rounded-2xl border border-gray-100 p-4">
-              <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">Profit & Loss Summary</p>
-              <PnlRow label="Revenue" value={data.revenue} highlight="blue" />
-              <PnlRow label="Cost of Goods (COGS)" value={data.cogs} highlight="gray" />
-              <PnlRow label="Gross Profit" value={data.grossProfit} pct={data.grossMarginPct} highlight={data.grossProfit >= 0 ? "green" : "red"} />
-              <PnlRow label="Total Expenses" value={data.totalExpenses} highlight="red" />
+              <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">{label.summary}</p>
+              <PnlRow label={label.revenue} value={data.revenue} highlight="blue" />
+              <PnlRow label={label.cogs} value={data.cogs} highlight="gray" />
+              <PnlRow label={label.grossProfit} value={data.grossProfit} pct={data.grossMarginPct} highlight={data.grossProfit >= 0 ? "green" : "red"} />
+              <PnlRow label={label.totalExpenses} value={data.totalExpenses} highlight="red" />
               <div className={`mt-2 pt-2 border-t-2 ${data.netProfit >= 0 ? "border-emerald-200" : "border-red-200"}`}>
-                <PnlRow label="Net Profit" value={data.netProfit} pct={data.netMarginPct} highlight={data.netProfit >= 0 ? "green" : "red"} />
+                <PnlRow label={label.netProfit} value={data.netProfit} pct={data.netMarginPct} highlight={data.netProfit >= 0 ? "green" : "red"} />
               </div>
             </div>
 
             {/* Also show discount */}
             {data.totalDiscount > 0 && (
               <div className="mt-2 bg-amber-50 border border-amber-100 rounded-xl p-3 flex justify-between text-sm">
-                <span className="text-amber-700">Discounts Given</span>
+                <span className="text-amber-700">{label.discounts}</span>
                 <span className="font-semibold text-amber-700">৳{data.totalDiscount.toLocaleString()}</span>
               </div>
             )}
@@ -85,7 +115,7 @@ export default function FinancialReportPage() {
                 profit: data.profitTrend[i]?.value ?? 0,
               }));
               return (
-            <><SectionTitle>Revenue vs Profit Trend</SectionTitle>
+            <><SectionTitle>{label.revenueProfitTrend}</SectionTitle>
             <div className="bg-white rounded-2xl border border-gray-100 p-3">
               <ResponsiveContainer width="100%" height={180}>
                 <AreaChart data={combinedTrend} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
@@ -103,8 +133,8 @@ export default function FinancialReportPage() {
                   <XAxis dataKey="label" tick={{ fontSize: 9 }} interval="preserveStartEnd" />
                   <YAxis tick={{ fontSize: 9 }} tickFormatter={(v) => `৳${(Number(v) / 1000).toFixed(0)}k`} />
                   <Tooltip formatter={(v) => `৳${Number(v ?? 0).toLocaleString()}`} labelStyle={{ fontSize: 11 }} />
-                  <Area type="monotone" dataKey="revenue" stroke="#6366f1" fill="url(#revG)" strokeWidth={2} dot={false} name="Revenue" />
-                  <Area type="monotone" dataKey="profit" stroke="#10b981" fill="url(#profG)" strokeWidth={2} dot={false} name="Profit" />
+                  <Area type="monotone" dataKey="revenue" stroke="#6366f1" fill="url(#revG)" strokeWidth={2} dot={false} name={label.revenue} />
+                  <Area type="monotone" dataKey="profit" stroke="#10b981" fill="url(#profG)" strokeWidth={2} dot={false} name={label.profit} />
                 </AreaChart>
               </ResponsiveContainer>
             </div></>
@@ -114,14 +144,14 @@ export default function FinancialReportPage() {
             {/* Expense trend */}
             {data.expenseTrend.some((d) => d.value > 0) && (
               <>
-                <SectionTitle>Expense Trend</SectionTitle>
+                <SectionTitle>{label.expenseTrend}</SectionTitle>
                 <div className="bg-white rounded-2xl border border-gray-100 p-3">
                   <ResponsiveContainer width="100%" height={160}>
                     <LineChart data={data.expenseTrend} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                       <XAxis dataKey="label" tick={{ fontSize: 9 }} interval="preserveStartEnd" />
                       <YAxis tick={{ fontSize: 9 }} tickFormatter={(v) => `৳${(v / 1000).toFixed(0)}k`} />
-                      <Tooltip formatter={(v) => [`৳${Number(v ?? 0).toLocaleString()}`, "Expenses"]} labelStyle={{ fontSize: 11 }} />
+                      <Tooltip formatter={(v) => [`৳${Number(v ?? 0).toLocaleString()}`, label.expenses]} labelStyle={{ fontSize: 11 }} />
                       <Line type="monotone" dataKey="value" stroke="#ef4444" strokeWidth={2} dot={false} />
                     </LineChart>
                   </ResponsiveContainer>
@@ -129,72 +159,7 @@ export default function FinancialReportPage() {
               </>
             )}
 
-            {/* Expense by category — the pie chart only makes sense with actual money in it, but
-                the list below always shows every category (৳0 if nothing logged yet this period)
-                so the full set is visible and expandable regardless of data. */}
-            {data.expenseByCategory.length > 0 && (
-              <>
-                <SectionTitle>Expenses by Category</SectionTitle>
-                {data.expenseByCategory.some((c) => c.value > 0) && (
-                  <div className="bg-white rounded-2xl border border-gray-100 p-3 flex items-center gap-4">
-                    <ResponsiveContainer width="50%" height={160}>
-                      <PieChart>
-                        <Pie data={data.expenseByCategory.filter((c) => c.value > 0)} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={65} innerRadius={35}>
-                          {data.expenseByCategory.filter((c) => c.value > 0).map((_, i) => (
-                            <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                          ))}
-                        </Pie>
-                        <Tooltip formatter={(v) => `৳${Number(v ?? 0).toLocaleString()}`} />
-                      </PieChart>
-                    </ResponsiveContainer>
-                    <div className="flex-1 space-y-1.5">
-                      {data.expenseByCategory.filter((c) => c.value > 0).map((c, i) => (
-                        <div key={c.name} className="flex items-center gap-2 text-xs">
-                          <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: COLORS[i % COLORS.length] }} />
-                          <span className="text-gray-600 truncate flex-1">{c.name}</span>
-                          <span className="font-medium text-gray-800 shrink-0">৳{c.value.toLocaleString()}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Tap a category to expand its subtype breakdown — the pie/legend above answers
-                    "which category costs most," this answers "what specifically within it." */}
-                <div className="mt-2 bg-white rounded-2xl border border-gray-100 divide-y divide-gray-50">
-                  {data.expenseByCategory.map((c) => {
-                    const isOpen = expandedCategory === c.code;
-                    return (
-                      <div key={c.code}>
-                        <button
-                          onClick={() => setExpandedCategory(isOpen ? null : c.code)}
-                          className="w-full flex items-center gap-3 px-4 py-3 text-left"
-                        >
-                          <span className="text-xl shrink-0">{EXPENSE_CATEGORY_ICONS[c.code] ?? "📋"}</span>
-                          <span className="flex-1 text-sm font-medium text-gray-800 truncate">{c.name}</span>
-                          <span className="text-sm font-semibold text-gray-900 shrink-0">৳{c.value.toLocaleString()}</span>
-                          <ChevronDownIcon className={`w-4 h-4 text-gray-400 shrink-0 transition-transform ${isOpen ? "rotate-180" : ""}`} />
-                        </button>
-                        {isOpen && (
-                          <div className="px-4 pb-3 pl-12 space-y-1.5">
-                            {c.subtypes.length === 0 ? (
-                              <p className="text-xs text-gray-400">No expenses logged yet.</p>
-                            ) : (
-                              c.subtypes.map((s) => (
-                                <div key={s.name} className="flex justify-between text-xs">
-                                  <span className="text-gray-500">{s.name}</span>
-                                  <span className="text-gray-700 font-medium">৳{s.value.toLocaleString()}</span>
-                                </div>
-                              ))
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </>
-            )}
+            <ExpenseCategoryBreakdown categories={data.expenseByCategory} />
           </>
         )}
       </div>
