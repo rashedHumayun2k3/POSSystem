@@ -331,14 +331,17 @@ public class AuthServicePasswordResetTests
         public int PasswordResetEmailsSent { get; private set; }
         public string? LastPasswordResetCode { get; private set; }
 
-        public Task SendVerificationCodeAsync(string email, string code) => Task.CompletedTask;
+        public Task SendVerificationCodeAsync(string email, string code, string? lang = null) => Task.CompletedTask;
 
-        public Task SendPasswordResetCodeAsync(string email, string code)
+        public Task SendPasswordResetCodeAsync(string email, string code, string? lang = null)
         {
             PasswordResetEmailsSent++;
             LastPasswordResetCode = code;
             return Task.CompletedTask;
         }
+
+        public Task SendEmailWithAttachmentAsync(string email, string subject, string htmlBody,
+            byte[] attachmentBytes, string attachmentFileName, string attachmentContentType) => Task.CompletedTask;
     }
 
     private class FakeActivityLogService : IActivityLogService

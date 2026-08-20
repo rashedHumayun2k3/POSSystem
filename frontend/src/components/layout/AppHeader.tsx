@@ -68,15 +68,13 @@ export default function AppHeader({ title, backHref, extraActions }: Props) {
       }`}
     >
       {backHref ? (
-        <Link href={backHref} className="text-indigo-600 mr-1">
-          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <Link href={backHref} className="flex items-center gap-2 min-w-0 flex-1 text-indigo-600 mr-1">
+          <svg className="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
+          <span className="truncate text-sm font-semibold text-gray-900">{title}</span>
         </Link>
-      ) : null}
-
-      {/* Business switcher — owner only */}
-      {isOwner() && businesses.length > 1 ? (
+      ) : isOwner() && businesses.length > 1 ? (
         <div className="flex-1 min-w-0">
           <CustomSelect
             triggerClassName="w-full flex items-center gap-1 text-sm font-semibold text-gray-900 text-left"
@@ -91,10 +89,9 @@ export default function AppHeader({ title, backHref, extraActions }: Props) {
         </Link>
       )}
 
-      {/* Branch switcher — everyone, on every page (including ones with a back button);
-          OWNER/MANAGER get an "All Branches" option, others only see it once they have more
-          than one assigned branch. */}
-      {(canAccessAllBranches() ? branches.length > 0 : branches.length > 1) ? (
+      {/* A sole branch is selected automatically and needs no switcher. Multi-branch users can
+          switch here; authorized roles also get the "All Branches" option. */}
+      {branches.length > 1 ? (
         <div className="max-w-[110px] shrink-0">
           <CustomSelect
             triggerClassName="w-full flex items-center gap-1 text-xs font-medium text-indigo-600 bg-indigo-50 rounded-lg px-2 py-1 text-left"

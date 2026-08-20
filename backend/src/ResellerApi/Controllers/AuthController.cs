@@ -99,13 +99,23 @@ public class AuthController : ControllerBase
 
         try
         {
-            await _authService.RequestSignupCodeAsync(request);
+            await _authService.RequestSignupCodeAsync(request, ResolveLang());
             return NoContent();
         }
         catch (InvalidOperationException ex)
         {
             return Conflict(new { code = "EMAIL_TAKEN", message = ex.Message });
         }
+    }
+
+    private string ResolveLang()
+    {
+        var headerLang = Request.Headers["X-App-Lang"].FirstOrDefault();
+        if (string.Equals(headerLang, "bn", StringComparison.OrdinalIgnoreCase))
+            return "bn";
+
+        var acceptLanguage = Request.Headers.AcceptLanguage.FirstOrDefault();
+        return acceptLanguage?.StartsWith("bn", StringComparison.OrdinalIgnoreCase) == true ? "bn" : "en";
     }
 
     [HttpPost("signup/verify-code")]
@@ -183,7 +193,7 @@ public class AuthController : ControllerBase
 
         try
         {
-            await _authService.RequestPasswordResetCodeAsync(request);
+            await _authService.RequestPasswordResetCodeAsync(request, ResolveLang());
             return NoContent();
         }
         catch (InvalidOperationException ex)

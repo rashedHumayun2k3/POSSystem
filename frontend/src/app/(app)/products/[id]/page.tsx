@@ -47,6 +47,26 @@ export default function ProductDetailPage() {
     queryFn: () => getProduct(id),
   });
 
+  const { data: tabOrders = [] } = useQuery<OrderListItem[]>({
+    queryKey: ['product-orders', id],
+    queryFn: () => listOrdersByProduct(id),
+    staleTime: 30_000,
+  });
+
+  const { data: tabReviews = [] } = useQuery<AdminProductReview[]>({
+    queryKey: ['product-reviews', id],
+    queryFn: () => getProductReviews(id),
+    enabled: canManageReviews,
+  });
+
+  const { data: tabSalesPoints = [] } = useQuery({
+    queryKey: ['product-sales-timeseries', id, '7d'],
+    queryFn: () => getProductSalesTimeseries(id, '7d'),
+    enabled: canAdjustStock,
+    staleTime: 30_000,
+  });
+  const hasTabSales = tabSalesPoints.some((point) => point.qty > 0);
+
   const archiveMutation = useMutation({
     mutationFn: () => archiveProduct(id),
     onSuccess: () => {
@@ -81,11 +101,15 @@ export default function ProductDetailPage() {
     { key: 'variants', label: t('products.tabVariants') },
     ...(isOwner ? [{ key: 'prices' as TabKey, label: t('products.tabPrices') }] : []),
     ...(canAdjustStock ? [{ key: 'stock' as TabKey, label: t('products.tabStockLabel') }] : []),
-    { key: 'orders', label: t('products.tabOrders') },
+    ...(tabOrders.length > 0 ? [{ key: 'orders' as TabKey, label: t('products.tabOrders') }] : []),
     // Owner/Manager only — the tab shows Profit, gated server-side too (GTR-10), not just hidden here.
-    ...(canAdjustStock ? [{ key: 'sales' as TabKey, label: t('products.tabSales') }] : []),
-    ...(canManageReviews ? [{ key: 'reviews' as TabKey, label: t('products.tabReviews') }] : []),
-    ...(isOwner ? [{ key: 'marketplace' as TabKey, label: t('products.tabMarketplace') }] : []),
+    ...(canAdjustStock && hasTabSales ? [{ key: 'sales' as TabKey, label: t('products.tabSales') }] : []),
+    ...(canManageReviews && tabReviews.length > 0
+      ? [{ key: 'reviews' as TabKey, label: t('products.tabReviews') }]
+      : []),
+    ...(isOwner && (product.showOnMarketplace ?? true)
+      ? [{ key: 'marketplace' as TabKey, label: t('products.tabMarketplace') }]
+      : []),
   ];
 
   return (
@@ -194,16 +218,16 @@ export default function ProductDetailPage() {
             t={t}
           />
         )}
-        {activeTab === 'orders' && (
+        {activeTab === 'orders' && tabOrders.length > 0 && (
           <OrdersTab productId={id} />
         )}
-        {activeTab === 'sales' && canAdjustStock && (
+        {activeTab === 'sales' && canAdjustStock && hasTabSales && (
           <SalesTab productId={id} t={t} />
         )}
-        {activeTab === 'reviews' && canManageReviews && (
+        {activeTab === 'reviews' && canManageReviews && tabReviews.length > 0 && (
           <ReviewsTab productId={id} t={t} />
         )}
-        {activeTab === 'marketplace' && isOwner && (
+        {activeTab === 'marketplace' && isOwner && (product.showOnMarketplace ?? true) && (
           <MarketplaceTab product={product} t={t} />
         )}
       </div>
@@ -594,6 +618,7 @@ function InfoTab({
     enabled: canAdjustStock,
     staleTime: 30_000,
   });
+  const hasSales = salesPoints.some((point) => point.qty > 0);
 
   const fmtShortDate = (d: string) => new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
 
@@ -842,23 +867,18 @@ function InfoTab({
       )}
 
       {/* Section 7 — Order history (latest 5) */}
-      <div className="bg-teal-50 rounded-2xl p-4">
-        <div className="flex items-center justify-between mb-3">
-          <SectionLabel className="text-teal-700">{t('products.orderHistoryLatest')}</SectionLabel>
-          {orders.length > 5 && (
-            <TabNavButton
-              icon={<OrdersIcon className="w-4 h-4" />}
-              label={t('products.viewAllOrdersButton')}
-              onClick={() => onNavigateToTab('orders')}
-            />
-          )}
-        </div>
-        {recentOrders.length === 0 ? (
-          <div className="text-center py-6">
-            <OrdersIcon className="w-8 h-8 text-gray-200 mx-auto mb-1.5" />
-            <p className="text-sm text-gray-400">{t('products.noOrdersYet')}</p>
+      {orders.length > 0 && (
+        <div className="bg-teal-50 rounded-2xl p-4">
+          <div className="flex items-center justify-between mb-3">
+            <SectionLabel className="text-teal-700">{t('products.orderHistoryLatest')}</SectionLabel>
+            {orders.length > 5 && (
+              <TabNavButton
+                icon={<OrdersIcon className="w-4 h-4" />}
+                label={t('products.viewAllOrdersButton')}
+                onClick={() => onNavigateToTab('orders')}
+              />
+            )}
           </div>
-        ) : (
           <div className="divide-y divide-gray-100">
             {recentOrders.map((order) => {
               const qty = order.items.filter((i) => i.productId === product.id).reduce((s, i) => s + i.qty, 0);
@@ -882,11 +902,11 @@ function InfoTab({
               );
             })}
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Section 8 — Reviews (latest 5) */}
-      {canManageReviews && (
+      {canManageReviews && reviews.length > 0 && (
         <div className="bg-pink-50 rounded-2xl p-4">
           <div className="flex items-start justify-between mb-3">
             <div>
@@ -907,21 +927,17 @@ function InfoTab({
               />
             )}
           </div>
-          {recentReviews.length === 0 ? (
-            <p className="text-sm text-gray-400 text-center py-6">{t('products.noReviewsYet')}</p>
-          ) : (
-            <div className="divide-y divide-gray-100">
-              {recentReviews.map((r) => (
-                <div key={r.id} className="py-2.5 first:pt-0 last:pb-0">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-medium text-gray-900 truncate">{r.reviewerName}</span>
-                    <Stars rating={r.rating} />
-                  </div>
-                  <p className="text-xs text-gray-500 mt-1 line-clamp-2">{r.body}</p>
+          <div className="divide-y divide-gray-100">
+            {recentReviews.map((r) => (
+              <div key={r.id} className="py-2.5 first:pt-0 last:pb-0">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-medium text-gray-900 truncate">{r.reviewerName}</span>
+                  <Stars rating={r.rating} />
                 </div>
-              ))}
-            </div>
-          )}
+                <p className="text-xs text-gray-500 mt-1 line-clamp-2">{r.body}</p>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -929,7 +945,7 @@ function InfoTab({
           fixed to the default 7-day range — no range picker here, that's what "See Details" is
           for; it jumps to the Sales tab where the range can actually be changed. Owner/Manager
           only, matching the Sales tab itself (see canAdjustStock gate on the query above). */}
-      {canAdjustStock && (
+      {canAdjustStock && hasSales && (
         <div className="bg-indigo-50 rounded-2xl p-4">
           <div className="flex items-center justify-between mb-2">
             <SectionLabel className="text-indigo-700">{t('products.tabSales')}</SectionLabel>
@@ -1270,6 +1286,7 @@ function VariantsTab({
                   uploadingLabel={t('products.imageUploading')}
                   errorLabel={t('products.imageUploadFailed')}
                   removeLabel={t('products.imageRemove')}
+                  variant="overlay"
                 />
                 <p className="text-[11px] text-gray-400 mt-1">{t('products.variantImageHint')}</p>
               </div>
@@ -1480,6 +1497,7 @@ function VariantsTab({
             uploadingLabel={t('products.imageUploading')}
             errorLabel={t('products.imageUploadFailed')}
             removeLabel={t('products.imageRemove')}
+            variant="overlay"
           />
 
 

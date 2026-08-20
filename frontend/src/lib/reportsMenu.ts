@@ -6,14 +6,15 @@ import {
   ShoppingBagIcon,
   HomeIcon,
   ScaleIcon,
+  EnvelopeIcon,
 } from "@heroicons/react/24/outline";
 
 export type ReportsMenuItem = {
   href: string;
   icon: ComponentType<SVGProps<SVGSVGElement>>;
   color: string;
-  title: string;
-  desc: string;
+  titleKey: string;
+  descKey: string;
 };
 
 export const REPORT_MENU_ITEMS: ReportsMenuItem[] = [
@@ -21,42 +22,49 @@ export const REPORT_MENU_ITEMS: ReportsMenuItem[] = [
     href: "/more/reports/dashboard",
     icon: HomeIcon,
     color: "bg-indigo-50 text-indigo-600",
-    title: "Dashboard",
-    desc: "KPI cards, trends, top products",
+    titleKey: "reports.menu.dashboard",
+    descKey: "reports.menu.dashboardDesc",
+  },
+  {
+    href: "/more/reports/daily-closing",
+    icon: EnvelopeIcon,
+    color: "bg-sky-50 text-sky-600",
+    titleKey: "reports.menu.dailyClosing",
+    descKey: "reports.menu.dailyClosingDesc",
   },
   {
     href: "/more/reports/sales",
     icon: ChartBarIcon,
     color: "bg-emerald-50 text-emerald-600",
-    title: "Sales Reports",
-    desc: "Revenue, orders, by product & category",
+    titleKey: "reports.menu.sales",
+    descKey: "reports.menu.salesDesc",
   },
   {
     href: "/more/reports/inventory",
     icon: CubeIcon,
     color: "bg-amber-50 text-amber-600",
-    title: "Inventory Reports",
-    desc: "Stock levels, low stock, movements",
+    titleKey: "reports.menu.inventory",
+    descKey: "reports.menu.inventoryDesc",
   },
   {
     href: "/more/reports/financial",
     icon: BanknotesIcon,
     color: "bg-purple-50 text-purple-600",
-    title: "Financial Reports",
-    desc: "P&L, gross profit, expenses",
+    titleKey: "reports.menu.financial",
+    descKey: "reports.menu.financialDesc",
   },
   {
     href: "/more/reports/orders",
     icon: ShoppingBagIcon,
     color: "bg-rose-50 text-rose-600",
-    title: "Order Reports",
-    desc: "Status breakdown, returns, channels",
+    titleKey: "reports.menu.orders",
+    descKey: "reports.menu.ordersDesc",
   },
   {
     href: "/more/reports/stock-valuation",
     icon: ScaleIcon,
     color: "bg-teal-50 text-teal-600",
-    title: "Stock Valuation",
-    desc: "Stock value, potential & realized profit by category",
+    titleKey: "reports.menu.stockValuation",
+    descKey: "reports.menu.stockValuationDesc",
   },
 ];

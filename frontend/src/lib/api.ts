@@ -57,8 +57,10 @@ api.interceptors.request.use((config) => {
     token = localStorage.getItem("accessToken");
     businessId = localStorage.getItem("businessId");
     branchId = localStorage.getItem("branchId");
+    const lang = localStorage.getItem("lang");
     if (token) config.headers.Authorization = `Bearer ${token}`;
     if (businessId) config.headers["X-Business-Id"] = businessId;
+    if (lang === "en" || lang === "bn") config.headers["X-App-Lang"] = lang;
     // Only fill in the ambient branch if the caller hasn't already set one explicitly — lets a
     // caller pin a specific branch per-request (e.g. New Order keeping every call scoped to the
     // branch it started with) regardless of what the header switcher currently says.
@@ -72,6 +74,7 @@ api.interceptors.request.use((config) => {
     hasToken: Boolean(token),
     businessId,
     branchId,
+    lang: typeof window !== "undefined" ? localStorage.getItem("lang") : null,
   });
 
   return config;

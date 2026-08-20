@@ -2,6 +2,7 @@
 
 import { useEffect, useCallback, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import Link from "next/link";
 import { createOrder, addOrderPayment } from "@/lib/ordersApi";
 import { enqueueOfflineSale, isNetworkError, useOfflineSyncEngine, usePendingSalesCount, usePendingSaleItems } from "@/lib/posSync";
 import {
@@ -262,9 +263,17 @@ export default function NightEntryPage() {
     <>
       <div className="px-4 py-4 space-y-2">
         {canSeeCosts() && (
-          <p className="text-xs text-emerald-600 font-medium">
-            {t("hawker.todaysProfit")}: ৳{todayHawkerProfit.toLocaleString()}
-          </p>
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs text-emerald-600 font-medium">
+              {t("hawker.todaysProfit")}: ৳{todayHawkerProfit.toLocaleString()}
+            </p>
+            <Link
+              href={`/sales-record?channel=SHOP&from=${todayStr()}&to=${todayStr()}`}
+              className="shrink-0 text-xs font-semibold text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-full px-3 py-1.5 active:bg-indigo-100"
+            >
+              Today sell history
+            </Link>
+          </div>
         )}
 
         {/* Category filter + search toggle — search replaces this row entirely while active,
@@ -360,6 +369,7 @@ export default function NightEntryPage() {
               const displayName = stripDiscountSuffix(p.productName);
               const soldToday = (todaySold[p.variantId]?.qty ?? 0) + (pendingByVariant[p.variantId]?.qty ?? 0);
               const soldTodayAmount = (todaySold[p.variantId]?.amount ?? 0) + (pendingByVariant[p.variantId]?.amount ?? 0);
+              const hasSoldToday = soldToday > 0 || soldTodayAmount > 0;
 
               return (
                 <button
@@ -386,10 +396,12 @@ export default function NightEntryPage() {
                   <span className="text-sm font-medium text-gray-700 text-center leading-tight line-clamp-2">
                     {displayName}
                   </span>
-                  <div className="flex items-center justify-between text-xs bg-orange-700 text-white rounded-lg px-2 py-1">
-                    <span className="text-orange-100">{t("hawker.todaySale")}</span>
-                    <span className="font-semibold">৳{soldTodayAmount.toLocaleString()} ({soldToday} {p.unitCode || "pcs"})</span>
-                  </div>
+                  {hasSoldToday && (
+                    <div className="flex items-center justify-between text-xs bg-orange-700 text-white rounded-lg px-2 py-1">
+                      <span className="text-orange-100">{t("hawker.todaySale")}</span>
+                      <span className="font-semibold">৳{soldTodayAmount.toLocaleString()} ({soldToday} {p.unitCode || "pcs"})</span>
+                    </div>
+                  )}
                 </button>
               );
             })}

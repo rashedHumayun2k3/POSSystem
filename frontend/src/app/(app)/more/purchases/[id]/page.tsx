@@ -20,6 +20,7 @@ import {
   closeTrip,
   previewSession,
   updateTripHeader,
+  updateTripAttachments,
 } from '@/lib/purchasesApi';
 import { createSupplierReturn, addSupplierReturnItem } from '@/lib/supplierReturnsApi';
 import type {
@@ -28,6 +29,7 @@ import type {
   TransportMode,
   ForceCloseRequired,
   PurchaseReceiveSessionDto,
+  PurchaseReceiveAttachment,
   SessionPreview,
 } from '@/types/purchases';
 import type { ProductSearchResult } from '@/types/catalog';
@@ -39,7 +41,8 @@ import CustomSelect from '@/components/ui/CustomSelect';
 import SlidePanel from '@/components/ui/SlidePanel';
 import { useLanguage } from '@/i18n/LanguageContext';
 import { useToastStore } from '@/store/toastStore';
-import { PlusIcon } from '@heroicons/react/24/outline';
+import { resolveMediaUrl, uploadFile } from '@/lib/media';
+import { DocumentIcon, PaperClipIcon, PlusIcon, XMarkIcon } from '@heroicons/react/24/outline';
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -63,11 +66,12 @@ const STATUS_COLORS: Record<string, string> = {
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
-type Tab = 'items' | 'costs' | 'receive' | 'damage';
+type Tab = 'items' | 'costs' | 'receive' | 'attachments' | 'damage';
 
 interface SessionItemEntry {
   qtyUsable: string;
   qtyDamaged: string;
+  qtyMissing: string;
   packets: string;
   itemsPerPacket: string;
 }
@@ -82,6 +86,9 @@ function getApiErrorMessage(error: unknown, fallback: string) {
 
 const formatQty = (value: number) =>
   value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+
+const formatFileSize = (bytes: number) =>
+  bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.ceil(bytes / 1024)} KB`;
 
 const RETURN_STATUS_COLORS: Record<string, string> = {
   DRAFT: 'bg-gray-100 text-gray-500',
@@ -100,11 +107,12 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
   const router = useRouter();
   const qc = useQueryClient();
   const isOwner = useAuthStore((s) => s.isOwner());
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
 
   const [tab, setTab] = useState<Tab>('items');
   const [showAddItem, setShowAddItem] = useState(false);
   const [showAddCost, setShowAddCost] = useState(false);
+  const [uploadingPoAttachments, setUploadingPoAttachments] = useState(false);
   const [editingItem, setEditingItem] = useState<PurchaseItemDto | null>(null);
 
   // Trip header inline editing
@@ -139,10 +147,13 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
     note: '',
   });
   const [sessionItemEntries, setSessionItemEntries] = useState<Record<string, SessionItemEntry>>({});
+  const [sessionAttachments, setSessionAttachments] = useState<PurchaseReceiveAttachment[]>([]);
+  const [uploadingAttachments, setUploadingAttachments] = useState(false);
   // Which pending items the user has picked to receive right now — the "+ Record Goods" trigger
   // stays hidden until at least one is picked, and the session form (once opened) only shows entry
   // rows for these, instead of every still-outstanding item in the trip.
   const [selectedForReceiveIds, setSelectedForReceiveIds] = useState<Set<string>>(new Set());
+  const [receiveConfirmItem, setReceiveConfirmItem] = useState<PurchaseItemDto | null>(null);
   // Selecting an item seeds sensible defaults for it — packets = the whole remaining qty in one
   // packet, so সঠিক প্রডাক্ট পরিমাণ starts out equal to রিসিভ অপেক্ষমাণ and the user only has to
   // touch নষ্ট প্রডাক্ট পরিমাণ if some of it turned out damaged.
@@ -162,6 +173,7 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
           itemsPerPacket: '1',
           qtyUsable: String(remaining),
           qtyDamaged: '',
+          qtyMissing: '',
         },
       }));
     }
@@ -169,7 +181,31 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
   const resetReceiveSelection = () => {
     setShowAddSession(false);
     setSessionItemEntries({});
+    setSessionAttachments([]);
     setSelectedForReceiveIds(new Set());
+  };
+
+  const handleSessionAttachments = async (files: FileList | null) => {
+    if (!files?.length) return;
+    const availableSlots = 10 - sessionAttachments.length;
+    if (availableSlots <= 0 || files.length > availableSlots) {
+      useToastStore.getState().show(t('purchases.attachmentLimit'), 'error');
+      return;
+    }
+    setUploadingAttachments(true);
+    try {
+      const uploaded = await Promise.all(Array.from(files).map(async (file) => ({
+        name: file.name,
+        url: await uploadFile(file),
+        contentType: file.type,
+        sizeBytes: file.size,
+      })));
+      setSessionAttachments((current) => [...current, ...uploaded]);
+    } catch (error) {
+      useToastStore.getState().show(getApiErrorMessage(error, t('purchases.attachmentUploadFailed')), 'error');
+    } finally {
+      setUploadingAttachments(false);
+    }
   };
 
   // Session review
@@ -191,7 +227,11 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
         setHeaderPoRef(data.supplierPoRef ?? '');
         setHeaderInitialized(true);
       }
-      return data;
+      return {
+        ...data,
+        attachments: data.attachments ?? [],
+        sessions: data.sessions.map((session) => ({ ...session, attachments: session.attachments ?? [] })),
+      };
     },
   });
 
@@ -222,21 +262,67 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
 
   const [itemForm, setItemForm] = useState({
     qtyBought: '',
-    totalCost: '',
+    unitPrice: '',
+    unitWeight: '',
+    weightUnit: 'G' as 'G' | 'KG',
   });
+
+  const poAttachmentsMutation = useMutation({
+    mutationFn: (attachments: PurchaseReceiveAttachment[]) => updateTripAttachments(id, attachments),
+    onSuccess: (updated) => qc.setQueryData(['purchase-trip', id], updated),
+    onError: (error) => useToastStore.getState().show(getApiErrorMessage(error, t('common.error')), 'error'),
+  });
+
+  const handlePoAttachments = async (files: FileList | null) => {
+    if (!files?.length || !trip) return;
+    const currentAttachments = trip.attachments ?? [];
+    if (currentAttachments.length + files.length > 10) {
+      useToastStore.getState().show(t('purchases.attachmentLimit'), 'error');
+      return;
+    }
+    setUploadingPoAttachments(true);
+    try {
+      const uploaded = await Promise.all(Array.from(files).map(async (file) => ({
+        name: file.name,
+        url: await uploadFile(file),
+        contentType: file.type,
+        sizeBytes: file.size,
+      })));
+      await poAttachmentsMutation.mutateAsync([...currentAttachments, ...uploaded]);
+    } catch (error) {
+      useToastStore.getState().show(getApiErrorMessage(error, t('purchases.attachmentUploadFailed')), 'error');
+    } finally {
+      setUploadingPoAttachments(false);
+    }
+  };
+
+  const removePoAttachment = (index: number) => {
+    if (!trip) return;
+    poAttachmentsMutation.mutate((trip.attachments ?? []).filter((_, itemIndex) => itemIndex !== index));
+  };
   // "আমি বাকি রাখতে চাই" — unchecked by default (assume fully paid, the common case). Paid Now
   // is always derived, never typed directly: totalCost when unchecked, totalCost − due when checked.
   const [wantsDue, setWantsDue] = useState(false);
   const [dueInput, setDueInput] = useState('');
 
-  const totalCostNumber = Number(itemForm.totalCost);
+  const qtyBoughtNumber = Number(itemForm.qtyBought);
+  const unitPriceNumber = Number(itemForm.unitPrice);
+  const totalCostNumber = Number.isFinite(qtyBoughtNumber) && Number.isFinite(unitPriceNumber)
+    ? Math.round(qtyBoughtNumber * unitPriceNumber * 100) / 100
+    : 0;
+  const unitWeightNumber = Number(itemForm.unitWeight);
+  const unitWeightGrams = itemForm.unitWeight && Number.isFinite(unitWeightNumber)
+    ? unitWeightNumber * (itemForm.weightUnit === 'KG' ? 1000 : 1)
+    : 0;
+  const totalWeightGrams = Number.isFinite(qtyBoughtNumber) ? qtyBoughtNumber * unitWeightGrams : 0;
+  const totalWeightUsesKg = totalWeightGrams >= 1000;
   const dueNumber = wantsDue ? Number(dueInput || '0') : 0;
   const paidNowComputed = Number.isFinite(totalCostNumber)
     ? Math.max(totalCostNumber - (Number.isFinite(dueNumber) ? dueNumber : 0), 0)
     : 0;
 
   const dueError = (() => {
-    if (!wantsDue || !dueInput || !itemForm.totalCost) return '';
+    if (!wantsDue || !dueInput || totalCostNumber <= 0) return '';
     if (!Number.isFinite(dueNumber) || dueNumber < 0) return t('purchases.dueInvalid');
     if (Number.isFinite(totalCostNumber) && dueNumber > totalCostNumber)
       return t('purchases.dueExceedsTotal', { due: dueNumber.toLocaleString(), total: totalCostNumber.toLocaleString() });
@@ -248,7 +334,8 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
       addItem(id, {
         variantId: selectedVariant!.variantId,
         qtyBought: parseFloat(itemForm.qtyBought),
-        totalCost: parseFloat(itemForm.totalCost),
+        totalCost: totalCostNumber,
+        unitWeightGrams,
         supplierId: selectedSupplier?.id || undefined,
         paidNow: paidNowComputed,
         dueAmount: dueNumber,
@@ -261,7 +348,8 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
     mutationFn: () =>
       updateItem(id, editingItem!.id, {
         qtyBought: parseFloat(itemForm.qtyBought),
-        totalCost: parseFloat(itemForm.totalCost),
+        totalCost: totalCostNumber,
+        unitWeightGrams,
         supplierId: selectedSupplier?.id || undefined,
         paidNow: paidNowComputed,
         dueAmount: dueNumber,
@@ -296,7 +384,7 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
   });
 
   const resetItemForm = () => {
-    setItemForm({ qtyBought: '', totalCost: '' });
+    setItemForm({ qtyBought: '', unitPrice: '', unitWeight: '', weightUnit: 'G' });
     setWantsDue(false);
     setDueInput('');
     setSelectedVariant(null);
@@ -311,7 +399,16 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
         ? { id: item.supplierId, name: item.supplierName ?? '', address: item.supplierAddress, phone: null, notes: null, usageCount: 0, lastUsedAt: null }
         : null
     );
-    setItemForm({ qtyBought: String(item.qtyBought), totalCost: String(item.totalCost) });
+    const savedUnitWeightGrams = item.unitWeightGrams ?? 0;
+    const useKilograms = savedUnitWeightGrams >= 1000;
+    setItemForm({
+      qtyBought: String(item.qtyBought),
+      unitPrice: item.qtyBought > 0 ? String(Number((item.totalCost / item.qtyBought).toFixed(4))) : '',
+      unitWeight: savedUnitWeightGrams > 0
+        ? String(Number((savedUnitWeightGrams / (useKilograms ? 1000 : 1)).toFixed(3)))
+        : '',
+      weightUnit: useKilograms ? 'KG' : 'G',
+    });
     setWantsDue(item.dueAmount > 0);
     setDueInput(item.dueAmount > 0 ? String(item.dueAmount) : '');
   };
@@ -358,12 +455,13 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
     mutationFn: () => {
       const items = (trip?.items ?? [])
         .filter((item) => {
-          const remaining = item.qtyBought - item.qtyUsable - item.qtyDamaged;
+          const remaining = item.qtyBought - item.qtyUsable - item.qtyDamaged - item.qtyMissing;
           const entry = sessionItemEntries[item.id];
           if (!entry) return false;
           const u = Number(entry.qtyUsable || '0');
           const d = Number(entry.qtyDamaged || '0');
-          return u + d > 0 && remaining > 0;
+          const m = Number(entry.qtyMissing || '0');
+          return u + d + m > 0 && remaining > 0;
         })
         .map((item) => {
           const entry = sessionItemEntries[item.id];
@@ -376,6 +474,7 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
             purchaseItemId: item.id,
             qtyUsable: Number(entry?.qtyUsable || '0'),
             qtyDamaged: Number(entry?.qtyDamaged || '0'),
+            qtyMissing: Number(entry?.qtyMissing || '0'),
             perLotValuesJson: JSON.stringify(lotData),
           };
         });
@@ -388,6 +487,7 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
         vehicleOrTrackingNo: sessionFormMeta.vehicleOrTrackingNo || undefined,
         note: sessionFormMeta.note || undefined,
         items,
+        attachments: sessionAttachments,
       });
     },
     onSuccess: () => {
@@ -505,12 +605,12 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
   const isReceiving = trip.status === 'RECEIVING' || trip.status === 'DRAFT';
   const isCompleted = trip.status === 'COMPLETED';
 
-  const qtyBoughtNumber = Number(itemForm.qtyBought);
   const isSavingItem = addItemMutation.isPending || updateItemMutation.isPending;
   const hasSelectedVariant = Boolean(editingItem || selectedVariant);
   const hasValidQty = Number.isFinite(qtyBoughtNumber) && qtyBoughtNumber > 0;
-  const hasValidTotalCost = Number.isFinite(totalCostNumber) && totalCostNumber > 0;
-  const canSaveItem = hasSelectedVariant && hasValidQty && hasValidTotalCost && !dueError && !isSavingItem;
+  const hasValidUnitPrice = Number.isFinite(unitPriceNumber) && unitPriceNumber > 0;
+  const hasValidWeight = !itemForm.unitWeight || (Number.isFinite(unitWeightNumber) && unitWeightNumber > 0);
+  const canSaveItem = hasSelectedVariant && hasValidQty && hasValidUnitPrice && hasValidWeight && !dueError && !isSavingItem;
 
   // Not blocked — the same variant showing up twice is a real scenario (e.g. same item bought
   // from two suppliers, or a second batch at a different cost within the same trip), so this is
@@ -522,7 +622,7 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
     : 0;
 
   const itemsWithRemaining = (trip.items ?? []).filter(
-    (i) => i.qtyBought - i.qtyUsable - i.qtyDamaged > 0
+    (i) => i.qtyBought - i.qtyUsable - i.qtyDamaged - i.qtyMissing > 0
   );
   // Just the ones picked via the per-item "Add for receive" button — what the session form
   // actually shows entry rows for, instead of every outstanding item in the trip at once.
@@ -568,6 +668,7 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
       <ProductPicker
         open={showProductPicker}
         onClose={() => setShowProductPicker(false)}
+        showAverageCost={false}
         onSelect={(r: ProductSearchResult) => {
           setSelectedVariant({ variantId: r.variantId, productName: r.productName, variantSku: r.variantSku, unitCode: r.unitCode || 'pcs' });
           setShowProductPicker(false);
@@ -678,13 +779,14 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
           items:   { label: t('purchases.tabItems'),   text: 'text-blue-600',    border: 'border-blue-500',    dot: 'bg-blue-500'    },
           costs:   { label: t('purchases.tabCosts'),   text: 'text-amber-600',   border: 'border-amber-500',   dot: 'bg-amber-500'   },
           receive: { label: t('purchases.tabReceive'), text: 'text-emerald-600', border: 'border-emerald-500', dot: 'bg-emerald-500' },
+          attachments: { label: t('purchases.tabAttachments'), text: 'text-indigo-600', border: 'border-indigo-500', dot: 'bg-indigo-500' },
           damage:  { label: t('purchases.tabDamage'),  text: 'text-rose-600',    border: 'border-rose-500',    dot: 'bg-rose-500'    },
         };
         const TAB_LIST: Tab[] = damagedItems.length > 0
-          ? ['items', 'costs', 'receive', 'damage']
-          : ['items', 'costs', 'receive'];
+          ? ['items', 'costs', 'receive', 'attachments', 'damage']
+          : ['items', 'costs', 'receive', 'attachments'];
         return (
-          <div className="flex border-b border-indigo-200 bg-indigo-100">
+          <div className="flex overflow-x-auto border-b border-indigo-200 bg-indigo-100">
             {TAB_LIST.map((t2) => {
               const m = TAB_META[t2];
               const active = tab === t2;
@@ -692,14 +794,16 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
                 <button
                   key={t2}
                   onClick={() => setTab(t2)}
-                  className={`flex-1 py-3 text-xs font-medium flex items-center justify-center gap-1.5 border-b-2 transition-colors ${
+                  className={`min-w-[76px] flex-1 py-3 text-xs font-medium flex items-center justify-center gap-1.5 border-b-2 transition-colors ${
                     active ? `${m.text} ${m.border}` : 'text-gray-400 border-transparent'
                   }`}
                 >
                   <span className={`w-5 h-5 rounded-full text-[10px] flex items-center justify-center font-bold transition-colors ${
                     active ? `${m.dot} text-white` : 'bg-gray-100 text-gray-500'
                   }`}>
-                    {t2 === 'items' ? '📦' : t2 === 'costs' ? '💰' : t2 === 'receive' ? '🚚' : '↩️'}
+                    {t2 === 'attachments'
+                      ? <PaperClipIcon className="h-3.5 w-3.5" />
+                      : t2 === 'items' ? '📦' : t2 === 'costs' ? '💰' : t2 === 'receive' ? '🚚' : '↩️'}
                   </span>
                   {m.label}
                   {t2 === 'receive' && pendingSessions.length > 0 && (
@@ -707,6 +811,11 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
                   )}
                   {t2 === 'damage' && damagedItems.length > 0 && (
                     <span className="bg-rose-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">{damagedItems.length}</span>
+                  )}
+                  {t2 === 'attachments' && (trip.attachments.length + trip.sessions.reduce((sum, session) => sum + session.attachments.length, 0)) > 0 && (
+                    <span className="bg-indigo-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">
+                      {trip.attachments.length + trip.sessions.reduce((sum, session) => sum + session.attachments.length, 0)}
+                    </span>
                   )}
                 </button>
               );
@@ -785,9 +894,69 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
                           </div>
                         </div>
                         <div>
-                          <label className="text-xs text-gray-500 mb-1 block">{t('purchases.totalCost')} <span className="text-red-500">*</span></label>
-                          <input type="number" required min="0" className="w-full border border-indigo-200 rounded-lg px-3 py-2 text-sm bg-white" placeholder="10000"
-                            value={itemForm.totalCost} onChange={(e) => setItemForm((f) => ({ ...f, totalCost: e.target.value }))} />
+                          <label className="text-xs text-gray-500 mb-1 block">{t('purchases.unitPurchasePrice')} <span className="text-red-500">*</span></label>
+                          <input type="number" required min="0" step="0.01" className="w-full border border-indigo-200 rounded-lg px-3 py-2 text-sm bg-white" placeholder="100"
+                            value={itemForm.unitPrice} onChange={(e) => setItemForm((f) => ({ ...f, unitPrice: e.target.value }))} />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="text-xs text-gray-500 mb-1 block">{t('purchases.totalPurchasePrice')}</label>
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-500">৳</span>
+                          <input
+                            type="text"
+                            readOnly
+                            value={totalCostNumber > 0 ? totalCostNumber.toLocaleString() : ''}
+                            className="w-full rounded-lg border border-indigo-100 bg-indigo-50 py-2 pl-7 pr-3 text-sm font-semibold text-gray-700"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-xs text-gray-500 mb-1 block">{t('purchases.unitWeight')}</label>
+                          <div className="flex rounded-lg border border-indigo-200 bg-white p-0.5">
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.001"
+                              placeholder="0"
+                              value={itemForm.unitWeight}
+                              onChange={(e) => setItemForm((f) => ({ ...f, unitWeight: e.target.value }))}
+                              className="min-w-0 flex-1 bg-transparent px-2.5 py-1.5 text-sm outline-none"
+                            />
+                            <div className="flex shrink-0 rounded-md bg-gray-100 p-0.5">
+                              {(['G', 'KG'] as const).map((unit) => (
+                                <button
+                                  type="button"
+                                  key={unit}
+                                  onClick={() => setItemForm((f) => ({ ...f, weightUnit: unit }))}
+                                  className={`min-w-8 rounded px-1.5 py-1 text-[10px] font-semibold transition ${
+                                    itemForm.weightUnit === unit ? 'bg-indigo-600 text-white' : 'text-gray-500'
+                                  }`}
+                                >
+                                  {unit === 'G' ? t('purchases.gramShort') : t('purchases.kilogramShort')}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                        <div>
+                          <label className="text-xs text-gray-500 mb-1 block">{t('purchases.totalWeight')}</label>
+                          <div className="relative">
+                            <input
+                              type="text"
+                              readOnly
+                              value={totalWeightGrams > 0
+                                ? Number((totalWeightGrams / (totalWeightUsesKg ? 1000 : 1)).toFixed(3)).toLocaleString()
+                                : ''}
+                              className="w-full rounded-lg border border-indigo-100 bg-indigo-50 px-3 py-2 pr-12 text-sm font-semibold text-gray-700"
+                            />
+                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">
+                              {totalWeightUsesKg ? t('purchases.kilogramShort') : t('purchases.gramShort')}
+                            </span>
+                          </div>
                         </div>
                       </div>
 
@@ -874,9 +1043,12 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
                 {trip.items.length} {trip.items.length !== 1 ? t('purchases.items') : t('purchases.item')}
               </p>
               {trip.items.map((item) => {
-                const received = item.qtyUsable + item.qtyDamaged;
+                const received = item.qtyUsable + item.qtyDamaged + item.qtyMissing;
                 const remaining = item.qtyBought - received;
                 const notReceivedYet = remaining > 0;
+                const itemUnitPrice = item.qtyBought > 0 ? item.totalCost / item.qtyBought : 0;
+                const itemTotalWeightGrams = (item.unitWeightGrams ?? 0) * item.qtyBought;
+                const itemWeightUsesKg = itemTotalWeightGrams >= 1000;
                 return (
                   <div
                     key={item.id}
@@ -904,15 +1076,25 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
                       <span>{t('purchases.bought')}: <strong>{formatQty(item.qtyBought)}</strong></span>
                       {received > 0 && <span>{t('purchases.received')}: <strong className="text-green-700">{formatQty(item.qtyUsable)}</strong></span>}
                       {item.qtyDamaged > 0 && <span>{t('purchases.damaged')}: <strong className="text-red-600">{formatQty(item.qtyDamaged)}</strong></span>}
+                      {item.qtyMissing > 0 && <span>{t('purchases.missing')}: <strong className="text-amber-700">{formatQty(item.qtyMissing)}</strong></span>}
                       {remaining > 0 && <span className="text-amber-600">{t('purchases.remaining')}: <strong>{formatQty(remaining)}</strong></span>}
-                      <span>Cost: <strong>৳{item.totalCost.toLocaleString()}</strong></span>
+                      <span>{t('purchases.unitPurchasePrice')}: <strong>{itemUnitPrice.toLocaleString(undefined, { maximumFractionDigits: 4 })}</strong></span>
+                      <span>{t('purchases.totalPurchasePrice')}: <strong>{item.totalCost.toLocaleString()}</strong></span>
+                      {itemTotalWeightGrams > 0 && (
+                        <span>
+                          {t('purchases.totalWeight')}: <strong>
+                            {(itemTotalWeightGrams / (itemWeightUsesKg ? 1000 : 1)).toLocaleString(undefined, { maximumFractionDigits: 3 })}{' '}
+                            {itemWeightUsesKg ? t('purchases.kilogramShort') : t('purchases.gramShort')}
+                          </strong>
+                        </span>
+                      )}
                       {item.dueAmount > 0 && <span className="text-amber-600">Due: ৳{item.dueAmount}</span>}
                     </div>
                     {notReceivedYet && (
                       <div className="flex items-center justify-between gap-2 mt-2">
                         <p className="text-xs text-red-600 font-medium">{t('purchases.notReceivedWarning')}</p>
                         <button
-                          onClick={() => setTab('receive')}
+                          onClick={() => setReceiveConfirmItem(item)}
                           className="shrink-0 text-xs font-semibold text-white bg-indigo-600 px-3 py-1.5 rounded-lg"
                         >
                           {t('purchases.receiveNowButton')}
@@ -1041,12 +1223,12 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
               </div>
               <div className="space-y-2">
                 {trip.items.map((item) => {
-                  const remaining = item.qtyBought - item.qtyUsable - item.qtyDamaged;
+                  const remaining = item.qtyBought - item.qtyUsable - item.qtyDamaged - item.qtyMissing;
                   const pendingQty = (trip.sessions ?? [])
                     .filter((s) => s.status === 'PENDING_APPROVAL')
                     .flatMap((s) => s.items)
                     .filter((si) => si.purchaseItemId === item.id)
-                    .reduce((sum, si) => sum + si.qtyUsable + si.qtyDamaged, 0);
+                    .reduce((sum, si) => sum + si.qtyUsable + si.qtyDamaged + si.qtyMissing, 0);
 
                   const isSelected = selectedForReceiveIds.has(item.id);
                   return (
@@ -1063,6 +1245,7 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
                             <span className="text-gray-500">{t('purchases.ordered')}: <strong>{formatQty(item.qtyBought)}</strong></span>
                             {item.qtyUsable > 0 && <span className="text-green-700">{t('purchases.approved')}: <strong>{formatQty(item.qtyUsable)}</strong></span>}
                             {item.qtyDamaged > 0 && <span className="text-red-600">{t('purchases.damaged')}: <strong>{formatQty(item.qtyDamaged)}</strong></span>}
+                            {item.qtyMissing > 0 && <span className="text-amber-700">{t('purchases.missing')}: <strong>{formatQty(item.qtyMissing)}</strong></span>}
                             {pendingQty > 0 && <span className="text-purple-600">{t('purchases.pending')}: <strong>{formatQty(pendingQty)}</strong></span>}
                             {remaining > 0 && <span className="text-amber-600">{t('purchases.remaining')}: <strong>{formatQty(remaining)}</strong></span>}
                             {remaining === 0 && <span className="text-green-600 font-semibold">{t('purchases.complete')}</span>}
@@ -1169,7 +1352,7 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
                 footer={
                   <button
                     onClick={() => createSessionMutation.mutate()}
-                    disabled={createSessionMutation.isPending || itemsSelectedForSession.length === 0}
+                    disabled={createSessionMutation.isPending || uploadingAttachments || itemsSelectedForSession.length === 0}
                     className="w-full bg-indigo-600 text-white py-3 rounded-xl text-sm font-semibold disabled:opacity-50"
                   >
                     {createSessionMutation.isPending ? t('purchases.submitting') : isOwner ? t('purchases.submitApprove') : t('purchases.submitApproval')}
@@ -1177,6 +1360,11 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
                 }
               >
                 <div className="px-4 py-4 space-y-3">
+                  <div className="border-l-4 border-indigo-600 bg-indigo-50 px-3 py-2.5">
+                    <p className="text-xs font-medium text-indigo-700">{t('purchases.receivePurchaseOrder')}</p>
+                    <p className="mt-0.5 text-base font-bold text-gray-950">{trip.tripNo}</p>
+                  </div>
+
                   <div>
                     <label className="text-xs text-gray-500 mb-1 block">{t('purchases.receivedAt')}</label>
                     <input
@@ -1217,33 +1405,71 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
                     />
                   </div>
 
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">{t('purchases.receiveAttachments')}</label>
+                    <label className="flex cursor-pointer items-center justify-center gap-2 border border-dashed border-indigo-300 bg-indigo-50 px-3 py-2.5 text-sm font-medium text-indigo-700">
+                      <PaperClipIcon className="h-4 w-4" />
+                      <span>{uploadingAttachments ? t('purchases.uploadingAttachments') : t('purchases.addAttachments')}</span>
+                      <input
+                        type="file"
+                        multiple
+                        accept="image/jpeg,image/png,image/webp,application/pdf"
+                        disabled={uploadingAttachments}
+                        className="hidden"
+                        onChange={(event) => {
+                          void handleSessionAttachments(event.target.files);
+                          event.target.value = '';
+                        }}
+                      />
+                    </label>
+                    <p className="mt-1 text-[11px] text-gray-400">{t('purchases.attachmentHint')}</p>
+                    {sessionAttachments.length > 0 && (
+                      <div className="mt-2 divide-y divide-gray-100 border border-gray-100 bg-white">
+                        {sessionAttachments.map((attachment, index) => (
+                          <div key={`${attachment.url}-${index}`} className="flex items-center gap-2 px-2.5 py-2">
+                            <DocumentIcon className="h-4 w-4 shrink-0 text-indigo-500" />
+                            <span className="min-w-0 flex-1 truncate text-xs text-gray-700">{attachment.name}</span>
+                            <button
+                              type="button"
+                              title={t('common.remove')}
+                              onClick={() => setSessionAttachments((current) => current.filter((_, itemIndex) => itemIndex !== index))}
+                              className="p-1 text-gray-400 hover:text-red-600"
+                            >
+                              <XMarkIcon className="h-4 w-4" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
                   <p className="text-xs font-medium text-gray-700 pt-1">{t('purchases.enterQty')}</p>
                   {itemsSelectedForSession.length === 0 ? (
                     <p className="text-xs text-gray-400">{t('purchases.allAccounted')}</p>
                   ) : (
                     itemsSelectedForSession.map((item) => {
-                      const remaining = item.qtyBought - item.qtyUsable - item.qtyDamaged;
+                      const remaining = item.qtyBought - item.qtyUsable - item.qtyDamaged - item.qtyMissing;
                       const entry = sessionItemEntries[item.id];
                       const usable = Number(entry?.qtyUsable || '0');
                       const damaged = Number(entry?.qtyDamaged || '0');
-                      const overLimit = usable + damaged > remaining;
+                      const missing = Number(entry?.qtyMissing || '0');
+                      const overLimit = usable + damaged + missing > remaining;
 
                       const packets = Number(entry?.packets || '0');
                       const ipp = Number(entry?.itemsPerPacket || '0');
                       const expectedTotal = packets > 0 && ipp > 0 ? packets * ipp : null;
 
-                      const EMPTY_ENTRY: SessionItemEntry = { qtyUsable: '', qtyDamaged: '', packets: '', itemsPerPacket: '' };
-                      // সঠিক প্রডাক্ট পরিমাণ is never typed directly — it's always derived from
-                      // packets × প্রতি প্যাকেটে, minus whatever gets marked নষ্ট, so it stays in sync
-                      // no matter which of those three fields the user actually touches.
+                      const EMPTY_ENTRY: SessionItemEntry = { qtyUsable: '', qtyDamaged: '', qtyMissing: '', packets: '', itemsPerPacket: '' };
+                      // Good quantity stays in sync with the expected, damaged, and missing counts.
                       const upd = (patch: Partial<SessionItemEntry>) =>
                         setSessionItemEntries((s) => {
                           const merged: SessionItemEntry = { ...EMPTY_ENTRY, ...s[item.id], ...patch };
                           const p = Number(merged.packets || '0');
                           const ipp = Number(merged.itemsPerPacket || '0');
                           const dmg = Number(merged.qtyDamaged || '0');
-                          const total = p > 0 && ipp > 0 ? p * ipp : 0;
-                          merged.qtyUsable = String(Math.max(total - dmg, 0));
+                          const miss = Number(merged.qtyMissing || '0');
+                          const total = p > 0 && ipp > 0 ? p * ipp : remaining;
+                          merged.qtyUsable = String(Math.max(total - dmg - miss, 0));
                           return { ...s, [item.id]: merged };
                         });
 
@@ -1252,6 +1478,13 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
                           <div>
                             <p className="text-sm font-medium text-gray-900">{item.productName}</p>
                             <p className="text-xs text-gray-400">{item.variantSku} · {t('purchases.remaining')}: <strong className="text-amber-600">{formatQty(remaining)}</strong></p>
+                          </div>
+
+                          <div className="grid grid-cols-4 divide-x divide-gray-200 border-y border-gray-100 py-2 text-center">
+                            <div><p className="text-[10px] text-gray-400">{t('purchases.ordered')}</p><p className="text-sm font-semibold text-gray-900">{formatQty(item.qtyBought)}</p></div>
+                            <div><p className="text-[10px] text-gray-400">{t('purchases.good')}</p><p className="text-sm font-semibold text-emerald-700">{formatQty(usable)}</p></div>
+                            <div><p className="text-[10px] text-gray-400">{t('purchases.damaged')}</p><p className="text-sm font-semibold text-red-600">{formatQty(damaged)}</p></div>
+                            <div><p className="text-[10px] text-gray-400">{t('purchases.missing')}</p><p className="text-sm font-semibold text-amber-700">{formatQty(missing)}</p></div>
                           </div>
 
                           {/* Packet helper — optional */}
@@ -1276,8 +1509,8 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
                                 />
                               </div>
                               {expectedTotal !== null && (
-                                <div className="mt-4 text-right shrink-0 bg-gray-800 rounded-lg px-3 py-1.5">
-                                  <p className="text-[10px] text-gray-300">{t('purchases.expected')}</p>
+                                <div className="mt-4 shrink-0 rounded-lg bg-[#800000] px-3 py-1.5 text-right">
+                                  <p className="text-[10px] text-rose-100">{t('purchases.expectedQuantity')}</p>
                                   <p className="text-lg font-bold text-white">{expectedTotal}</p>
                                 </div>
                               )}
@@ -1285,7 +1518,7 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
                           </div>
 
                           {/* Actual qty */}
-                          <div className="grid grid-cols-2 gap-2">
+                          <div className="grid grid-cols-3 gap-2">
                             <div>
                               <label className="text-xs text-gray-500 mb-1 block">{t('purchases.usableQty')}</label>
                               <input type="number" readOnly tabIndex={-1}
@@ -1301,12 +1534,22 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
                                 onChange={(e) => upd({ qtyDamaged: e.target.value })}
                               />
                             </div>
+                            <div>
+                              <label className="text-xs text-gray-500 mb-1 block">{t('purchases.missingQty')}</label>
+                              <input type="number" min="0" className="w-full border border-amber-200 rounded-lg px-3 py-2 text-sm"
+                                value={entry?.qtyMissing ?? ''}
+                                placeholder="0"
+                                onChange={(e) => upd({ qtyMissing: e.target.value })}
+                              />
+                            </div>
                           </div>
                           {overLimit && (
                             <p className="text-xs text-red-500">{t('purchases.exceedsRemaining', { qty: formatQty(remaining) })}</p>
                           )}
                           {expectedTotal !== null && (() => {
-                            const entered = Number(entry?.qtyUsable || '0') + Number(entry?.qtyDamaged || '0');
+                            const entered = Number(entry?.qtyUsable || '0')
+                              + Number(entry?.qtyDamaged || '0')
+                              + Number(entry?.qtyMissing || '0');
                             if (entered > 0 && entered !== expectedTotal) {
                               return (
                                 <p className="text-[11px] text-amber-600">
@@ -1404,6 +1647,98 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
                 </div>
               )}
             </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Attachments tab ───────────────────────────────────────────── */}
+      {tab === 'attachments' && (
+        <div className="px-4 pt-3 space-y-5">
+          <section>
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <h2 className="text-sm font-semibold text-gray-900">{t('purchases.poDocuments')}</h2>
+              <span className="text-xs text-gray-400">{trip.attachments.length}/10</span>
+            </div>
+
+            {isOwner && (
+              <label className="flex cursor-pointer items-center justify-center gap-2 border border-dashed border-indigo-300 bg-indigo-50 px-3 py-2.5 text-sm font-medium text-indigo-700">
+                <PaperClipIcon className="h-4 w-4" />
+                <span>{uploadingPoAttachments || poAttachmentsMutation.isPending ? t('purchases.uploadingAttachments') : t('purchases.addPoAttachments')}</span>
+                <input
+                  type="file"
+                  multiple
+                  accept="image/jpeg,image/png,image/webp,application/pdf"
+                  disabled={uploadingPoAttachments || poAttachmentsMutation.isPending}
+                  className="hidden"
+                  onChange={(event) => {
+                    void handlePoAttachments(event.target.files);
+                    event.target.value = '';
+                  }}
+                />
+              </label>
+            )}
+            <p className="mt-1 text-[11px] text-gray-400">{t('purchases.attachmentHint')}</p>
+
+            {trip.attachments.length === 0 ? (
+              <p className="mt-3 py-4 text-center text-xs text-gray-400">{t('purchases.noPoAttachments')}</p>
+            ) : (
+              <div className="mt-3 divide-y divide-gray-100 border-y border-gray-100">
+                {trip.attachments.map((attachment, index) => (
+                  <div key={`${attachment.url}-${index}`} className="flex items-center gap-2 py-2.5">
+                    <DocumentIcon className="h-5 w-5 shrink-0 text-indigo-500" />
+                    <a
+                      href={resolveMediaUrl(attachment.url) ?? attachment.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="min-w-0 flex-1"
+                    >
+                      <p className="truncate text-xs font-medium text-gray-800">{attachment.name}</p>
+                      <p className="text-[10px] text-gray-400">{formatFileSize(attachment.sizeBytes)}</p>
+                    </a>
+                    {isOwner && (
+                      <button
+                        type="button"
+                        title={t('common.remove')}
+                        disabled={poAttachmentsMutation.isPending}
+                        onClick={() => removePoAttachment(index)}
+                        className="p-1.5 text-gray-400 hover:text-red-600 disabled:opacity-50"
+                      >
+                        <XMarkIcon className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          {trip.sessions.some((session) => session.attachments.length > 0) && (
+            <section>
+              <h2 className="mb-2 text-sm font-semibold text-gray-900">{t('purchases.receiveDocuments')}</h2>
+              <div className="space-y-3">
+                {trip.sessions.filter((session) => session.attachments.length > 0).map((session) => (
+                  <div key={session.id} className="border-l-2 border-emerald-400 pl-3">
+                    <p className="text-xs font-semibold text-gray-700">{session.sessionNo}</p>
+                    <p className="text-[10px] text-gray-400">{formatDate(session.receivedAt)}</p>
+                    <div className="mt-1 divide-y divide-gray-100">
+                      {session.attachments.map((attachment, index) => (
+                        <a
+                          key={`${attachment.url}-${index}`}
+                          href={resolveMediaUrl(attachment.url) ?? attachment.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex items-center gap-2 py-2"
+                        >
+                          <DocumentIcon className="h-4 w-4 shrink-0 text-emerald-600" />
+                          <span className="min-w-0 flex-1 truncate text-xs text-gray-700">{attachment.name}</span>
+                          <span className="shrink-0 text-[10px] text-gray-400">{formatFileSize(attachment.sizeBytes)}</span>
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
           )}
         </div>
       )}
@@ -1517,6 +1852,62 @@ export default function TripDetailPage({ params }: { params: Promise<{ id: strin
         </div>
       )}
 
+      {receiveConfirmItem && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center" role="dialog" aria-modal="true" aria-labelledby="receive-confirm-title">
+          <button
+            type="button"
+            aria-label={t('common.cancel')}
+            onClick={() => setReceiveConfirmItem(null)}
+            className="absolute inset-0 bg-black/40"
+          />
+          <div className="relative w-full max-w-[768px] rounded-t-2xl bg-white px-4 pb-8 pt-4 shadow-xl">
+            <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-gray-200" />
+            <div className="rounded-xl bg-amber-50 p-4">
+              <p id="receive-confirm-title" className="text-base font-semibold text-amber-900">
+                {t('purchases.receiveConfirmTitle')}
+              </p>
+              <p className="mt-2 text-sm leading-6 text-gray-700">
+                {t('purchases.receiveConfirmBody', {
+                  tripNo: trip.tripNo,
+                  date: new Intl.DateTimeFormat(lang === 'bn' ? 'bn-BD' : 'en-BD', {
+                    day: 'numeric',
+                    month: 'long',
+                    year: 'numeric',
+                    timeZone: 'Asia/Dhaka',
+                  }).format(new Date(trip.createdAt)),
+                  product: receiveConfirmItem.productName,
+                })}
+              </p>
+              <p className="mt-2 text-xs font-medium text-amber-800">
+                {t('purchases.receiveConfirmRemaining', {
+                  qty: formatQty(receiveConfirmItem.qtyBought - receiveConfirmItem.qtyUsable - receiveConfirmItem.qtyDamaged - receiveConfirmItem.qtyMissing),
+                  unit: receiveConfirmItem.unitCode,
+                })}
+              </p>
+            </div>
+            <div className="mt-4 flex gap-3">
+              <button
+                type="button"
+                onClick={() => setReceiveConfirmItem(null)}
+                className="h-12 flex-1 rounded-xl border border-gray-200 text-sm font-semibold text-gray-700"
+              >
+                {t('purchases.receiveConfirmLater')}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setReceiveConfirmItem(null);
+                  setTab('receive');
+                }}
+                className="h-12 flex-1 rounded-xl bg-indigo-600 text-sm font-semibold text-white"
+              >
+                {t('purchases.receiveConfirmAction')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Bottom action bar ──────────────────────────────────────────── */}
       <div className="fixed bottom-16 left-1/2 -translate-x-1/2 w-full max-w-[768px] bg-white border-t border-gray-100 px-4 py-3 space-y-2">
         {isDraft && tab === 'items' && !isOwner && trip.items.length > 0 && (
@@ -1594,6 +1985,22 @@ function SessionCard({
           <p className="text-xs opacity-70 mt-0.5">{formatDate(session.receivedAt)} · {session.receivedByName}</p>
           <p className="text-xs opacity-70">{transportLabel}{session.vehicleOrTrackingNo ? ` · ${session.vehicleOrTrackingNo}` : ''}</p>
           {session.note && <p className="text-xs opacity-60 italic mt-0.5">{session.note}</p>}
+          {session.attachments.length > 0 && (
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
+              {session.attachments.map((attachment, index) => (
+                <a
+                  key={`${attachment.url}-${index}`}
+                  href={resolveMediaUrl(attachment.url) ?? attachment.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex max-w-full items-center gap-1 border border-current/20 bg-white/50 px-2 py-1 text-[11px] font-medium hover:bg-white"
+                >
+                  <PaperClipIcon className="h-3.5 w-3.5 shrink-0" />
+                  <span className="truncate">{attachment.name}</span>
+                </a>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 

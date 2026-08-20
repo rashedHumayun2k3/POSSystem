@@ -116,7 +116,7 @@ export default function MorePage() {
 
               {reportsOpen && (
                 <div className="border-t border-orange-200 bg-orange-500 px-3 py-2 space-y-2">
-                  {REPORT_MENU_ITEMS.map(({ href: childHref, icon: ChildIcon, color, title, desc }) => (
+                  {REPORT_MENU_ITEMS.map(({ href: childHref, icon: ChildIcon, color, titleKey, descKey }) => (
                     <Link
                       key={childHref}
                       href={childHref}
@@ -126,8 +126,8 @@ export default function MorePage() {
                         <ChildIcon className="w-5 h-5" />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-gray-900">{title}</p>
-                        <p className="text-xs text-gray-400 mt-0.5">{desc}</p>
+                        <p className="text-sm font-semibold text-gray-900">{t(titleKey)}</p>
+                        <p className="text-xs text-gray-400 mt-0.5">{t(descKey)}</p>
                       </div>
                       <ChevronRightIcon className="w-4 h-4 text-gray-300 shrink-0" />
                     </Link>

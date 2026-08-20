@@ -69,3 +69,16 @@ export async function uploadImage(file: File): Promise<string> {
   });
   return data.url;
 }
+
+export async function uploadFile(file: File): Promise<string> {
+  if (file.type.startsWith('image/')) return uploadImage(file);
+  if (file.type !== 'application/pdf') throw new Error('Only images and PDF files are allowed.');
+  if (file.size > 5 * 1024 * 1024) throw new Error('File must be 5MB or smaller.');
+
+  const formData = new FormData();
+  formData.append('file', file);
+  const { data } = await mediaApi.post<{ url: string }>('/api/v1/media/upload', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return data.url;
+}

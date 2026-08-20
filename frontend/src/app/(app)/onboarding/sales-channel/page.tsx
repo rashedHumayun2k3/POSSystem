@@ -28,7 +28,7 @@ export default function SalesChannelOnboardingPage() {
     if (!selected) return;
     const channels = SHOP_TYPES.find((o) => o.value === selected)!.channels;
     setSalesChannels.mutate(
-      { salesChannels: channels },
+      { salesChannels: channels, shopType: selected },
       {
         onSuccess: () => router.replace("/onboarding/business-type"),
         onError: (err) => toastError(err, t("onboarding.setSalesChannelsFailed")),

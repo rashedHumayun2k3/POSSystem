@@ -25,3 +25,36 @@ public static class SalesChannels
     public static string ToJson(IEnumerable<string> salesChannels) =>
         JsonSerializer.Serialize(salesChannels);
 }
+
+public static class ShopTypes
+{
+    public const string BigSupershop = "BIG_SUPERSHOP";
+    public const string SmallShowroom = "SMALL_SHOWROOM";
+    public const string HawkerShop = "HAWKER_SHOP";
+
+    public static readonly IReadOnlySet<string> All = new HashSet<string>
+    {
+        BigSupershop,
+        SmallShowroom,
+        HawkerShop
+    };
+
+    public static string? FromChannels(IEnumerable<string> channels)
+    {
+        var set = channels as ICollection<string> ?? channels.ToList();
+        if (set.Contains(SalesChannels.Pos)) return BigSupershop;
+        if (set.Contains(SalesChannels.Hawker)) return HawkerShop;
+        return null;
+    }
+
+    public static bool MatchesChannels(string shopType, IEnumerable<string> channels)
+    {
+        var set = channels as ICollection<string> ?? channels.ToList();
+        return shopType switch
+        {
+            BigSupershop => set.Contains(SalesChannels.Pos) && !set.Contains(SalesChannels.Hawker),
+            SmallShowroom or HawkerShop => set.Contains(SalesChannels.Hawker) && !set.Contains(SalesChannels.Pos),
+            _ => false
+        };
+    }
+}

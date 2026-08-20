@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
+import { CameraIcon, TrashIcon } from '@heroicons/react/24/outline';
 import { resolveMediaUrl, uploadImage } from '@/lib/media';
 import ImageLightbox from './ImageLightbox';
 
@@ -12,9 +13,10 @@ interface Props {
   errorLabel: string;
   removeLabel: string;
   capture?: 'user' | 'environment';
+  variant?: 'default' | 'overlay';
 }
 
-export default function ImageUploadField({ value, onChange, label, uploadingLabel, errorLabel, removeLabel, capture }: Props) {
+export default function ImageUploadField({ value, onChange, label, uploadingLabel, errorLabel, removeLabel, capture, variant = 'default' }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState(false);
@@ -34,6 +36,68 @@ export default function ImageUploadField({ value, onChange, label, uploadingLabe
       if (inputRef.current) inputRef.current.value = '';
     }
   };
+
+  if (variant === 'overlay') {
+    return (
+      <div>
+        <div className="relative mt-1">
+          <button
+            type="button"
+            onClick={() => (value ? setViewerOpen(true) : inputRef.current?.click())}
+            aria-label={label}
+            className="w-full h-48 rounded-xl bg-gray-100 border border-gray-200 flex items-center justify-center overflow-hidden active:bg-gray-200"
+          >
+            {value ? (
+              <img src={resolveMediaUrl(value) ?? ''} alt="" className="w-full h-full object-cover" />
+            ) : (
+              <div className="flex items-center justify-center text-gray-400">
+                <CameraIcon className="w-9 h-9" />
+              </div>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => inputRef.current?.click()}
+            disabled={uploading}
+            aria-label={uploading ? uploadingLabel : label}
+            title={uploading ? uploadingLabel : label}
+            className="absolute right-3 bottom-3 w-11 h-11 rounded-full bg-white/95 shadow-md border border-white flex items-center justify-center text-gray-700 active:bg-gray-100 disabled:opacity-60"
+          >
+            {uploading ? (
+              <span className="w-4 h-4 border-2 border-gray-300 border-t-gray-700 rounded-full animate-spin" />
+            ) : (
+              <CameraIcon className="w-5 h-5" />
+            )}
+          </button>
+
+          {value && !uploading && (
+            <button
+              type="button"
+              onClick={() => onChange(null)}
+              aria-label={removeLabel}
+              title={removeLabel}
+              className="absolute right-3 top-3 w-11 h-11 rounded-full bg-white/95 shadow-md border border-white flex items-center justify-center text-red-600 active:bg-red-50"
+            >
+              <TrashIcon className="w-5 h-5" />
+            </button>
+          )}
+        </div>
+        {error && <p className="text-xs text-red-600 mt-1">{errorLabel}</p>}
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          capture={capture}
+          className="hidden"
+          onChange={(e) => handleFile(e.target.files?.[0])}
+        />
+        {value && (
+          <ImageLightbox open={viewerOpen} onClose={() => setViewerOpen(false)} url={value} title={label} />
+        )}
+      </div>
+    );
+  }
 
   return (
     <div>

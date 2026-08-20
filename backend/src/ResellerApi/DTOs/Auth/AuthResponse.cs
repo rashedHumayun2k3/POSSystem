@@ -8,4 +8,4 @@ public record AuthResponse(
 );
 
 public record UserDto(Guid Id, string Name, string Phone, string? Email, string Role, string? PhotoUrl, bool CanAccessPos);
-public record BusinessDto(Guid Id, string Name, string Currency, string? Country, string[] BusinessTypes, string[] SalesChannels, bool OnboardingCompleted);
+public record BusinessDto(Guid Id, string Name, string Currency, string? Country, string[] BusinessTypes, string[] SalesChannels, string? ShopType, bool OnboardingCompleted);

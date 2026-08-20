@@ -76,4 +76,30 @@ public class SalesChannelsTests
     {
         Assert.True(SalesChannels.IsValidCombination(new[] { SalesChannels.Hawker }));
     }
+
+    [Theory]
+    [InlineData(ShopTypes.SmallShowroom)]
+    [InlineData(ShopTypes.HawkerShop)]
+    public void ShopType_HawkerBasedTypes_MatchSameChannels(string shopType)
+    {
+        Assert.True(ShopTypes.MatchesChannels(
+            shopType,
+            new[] { SalesChannels.Hawker, SalesChannels.Online }));
+    }
+
+    [Fact]
+    public void ShopType_BigSupershop_DoesNotMatchHawkerChannels()
+    {
+        Assert.False(ShopTypes.MatchesChannels(
+            ShopTypes.BigSupershop,
+            new[] { SalesChannels.Hawker, SalesChannels.Online }));
+    }
+
+    [Fact]
+    public void ShopType_FromLegacyHawkerChannels_DefaultsToHawkerShop()
+    {
+        Assert.Equal(
+            ShopTypes.HawkerShop,
+            ShopTypes.FromChannels(new[] { SalesChannels.Hawker, SalesChannels.Online }));
+    }
 }

@@ -4,6 +4,7 @@ using ResellerApi.DTOs.Reports;
 using ResellerApi.Entities;
 using ResellerApi.Infrastructure;
 using ResellerApi.Services.Interfaces;
+using System.Text.Json;
 
 namespace ResellerApi.Services;
 
@@ -161,30 +162,82 @@ public class ReportService : IReportService
     // "All Branches" view) or filter to one branch otherwise.
     private async Task<(int LowStockCount, int OutOfStockCount)> GetStockAlertCountsAsync()
     {
-        var stockByVariant = await _db.BranchVariantInventories.AsNoTracking()
-            .Where(vi => _db.CurrentBranchId == null || vi.BranchId == _db.CurrentBranchId)
-            .GroupBy(vi => vi.VariantId)
-            .Select(g => new { VariantId = g.Key, OnHand = g.Sum(x => x.OnHand) })
-            .Join(_db.ProductVariants.AsNoTracking(), x => x.VariantId, pv => pv.Id,
-                (x, pv) => new { x.OnHand, pv.ProductId })
-            .Join(_db.Products.AsNoTracking(), x => x.ProductId, p => p.Id,
-                (x, p) => new { x.OnHand, p.LowStockThreshold })
+        var stockByVariant = await _db.ProductVariants.AsNoTracking()
+            .Where(v => v.DeletedAt == null && v.Product.DeletedAt == null && v.Product.Status == "ACTIVE")
+            .Select(v => new
+            {
+                v.Product.LowStockThreshold,
+                Available = _db.BranchVariantInventories
+                    .Where(i => i.VariantId == v.Id && (_db.CurrentBranchId == null || i.BranchId == _db.CurrentBranchId))
+                    .Sum(i => (decimal?)(i.OnHand - i.Committed - i.Damaged)) ?? 0
+            })
             .ToListAsync();
 
-        var lowStockCount = stockByVariant.Count(x => x.OnHand > 0 && x.OnHand <= x.LowStockThreshold);
-        var outOfStockCount = stockByVariant.Count(x => x.OnHand <= 0);
+        var lowStockCount = stockByVariant.Count(x => x.Available > 0 && x.Available <= x.LowStockThreshold);
+        var outOfStockCount = stockByVariant.Count(x => x.Available <= 0);
         return (lowStockCount, outOfStockCount);
     }
 
     // ── Home summary (mobile home page tiles) ────────────────────────────────────
 
-    public async Task<HomeSummaryDto> GetHomeSummaryAsync()
+    public async Task<HomeSummaryDto> GetHomeSummaryAsync(bool canSeeCosts)
     {
-        var todayUtc = DateTime.UtcNow.Date;
-        var tomorrowUtc = todayUtc.AddDays(1);
+        var todayLocal = DhakaTime.UtcToLocal(DateTime.UtcNow).Date;
+        var today = DateOnly.FromDateTime(todayLocal);
+        var yesterday = today.AddDays(-1);
+        var sevenDaysAgo = today.AddDays(-6);
+        var todayUtc = DhakaTime.LocalToUtc(todayLocal);
+        var tomorrowUtc = DhakaTime.LocalToUtc(todayLocal.AddDays(1));
 
-        var todayOrders = await _db.Orders.AsNoTracking()
-            .CountAsync(OrderFinancials.SoldOrderFilter(todayUtc, tomorrowUtc));
+        var recentOrders = await _db.Orders.AsNoTracking()
+            .Where(o => o.BusinessDate >= sevenDaysAgo && o.BusinessDate <= today
+                && o.OrderStatus != "CANCELLED" && !o.IsDraft)
+            .Include(o => o.Items.Where(i => i.DeletedAt == null))
+                .ThenInclude(i => i.Variant)
+                    .ThenInclude(v => v.Product)
+            .ToListAsync();
+
+        var todayOrderRows = recentOrders.Where(o => o.BusinessDate == today).ToList();
+        var todaySales = todayOrderRows.Sum(OrderFinancials.ComputeOrderRevenue);
+        var yesterdaySales = recentOrders
+            .Where(o => o.BusinessDate == yesterday)
+            .Sum(OrderFinancials.ComputeOrderRevenue);
+        decimal? salesChangePercent = yesterdaySales > 0
+            ? Math.Round((todaySales - yesterdaySales) / yesterdaySales * 100, 1)
+            : null;
+
+        decimal? todayProfit = canSeeCosts
+            ? todayOrderRows.Sum(o => OrderFinancials.ComputeOrderRevenue(o) - OrderFinancials.ComputeOrderCogs(o))
+            : null;
+        decimal? todayMarginPercent = canSeeCosts && todaySales > 0
+            ? Math.Round(todayProfit.GetValueOrDefault() / todaySales * 100, 1)
+            : canSeeCosts ? 0 : null;
+
+        var sevenDaySales = Enumerable.Range(0, 7)
+            .Select(offset =>
+            {
+                var date = sevenDaysAgo.AddDays(offset);
+                var sales = recentOrders
+                    .Where(o => o.BusinessDate == date)
+                    .Sum(OrderFinancials.ComputeOrderRevenue);
+                return new DatePoint(date.ToString("yyyy-MM-dd"), sales);
+            })
+            .ToList();
+
+        var topProductsToday = todayOrderRows
+            .SelectMany(o => o.Items)
+            .GroupBy(i => i.Variant.Product.Name)
+            .Select(g => new HomeTopProductDto(
+                g.Key,
+                g.Sum(i => i.Qty),
+                g.Sum(i => i.Qty * i.UnitPrice)))
+            .OrderByDescending(x => x.Revenue)
+            .Take(3)
+            .ToList();
+
+        var pendingOrders = await _db.Orders.AsNoTracking()
+            .CountAsync(o => o.OrderStatus != "CANCELLED" && !o.IsDraft
+                && (o.FulfillmentStatus == "UNFULFILLED" || o.FulfillmentStatus == "PACKED"));
 
         // "Pending deliveries" = handed to courier, not yet delivered to the customer — not
         // "confirmed but still sitting in the warehouse" (that's Waiting for Courier territory).
@@ -193,6 +246,9 @@ public class ReportService : IReportService
         // OrderService.CancelAsync), so every IN_TRANSIT order already satisfies both anyway.
         var pendingDeliveries = await _db.Orders.AsNoTracking()
             .CountAsync(o => o.FulfillmentStatus == "IN_TRANSIT");
+
+        var todayReturns = await _db.Orders.AsNoTracking()
+            .CountAsync(o => o.ReturnedAt >= todayUtc && o.ReturnedAt < tomorrowUtc);
 
         var (lowStockCount, outOfStockCount) = await GetStockAlertCountsAsync();
 
@@ -217,22 +273,59 @@ public class ReportService : IReportService
             .ToListAsync();
         var customerReceivable = receivableOrders.Sum(o =>
             Math.Max(0, OrderFinancials.ComputeOrderRevenue(o) - o.Payments.Sum(p => p.Amount)));
+        var customersWithDue = receivableOrders
+            .Select(o => o.CustomerId?.ToString() ?? o.CustomerPhone)
+            .Where(key => !string.IsNullOrWhiteSpace(key))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Count();
 
         // Cash actually taken in today — doesn't net out cash spent from the drawer (petty cash
         // expenses), since there's no shift/drawer concept yet to track an opening float against.
         var todayCash = await _db.OrderPayments.AsNoTracking()
-            .Where(p => p.Method == "CASH" && p.CreatedAt >= todayUtc && p.CreatedAt < tomorrowUtc)
+            .Where(p => p.Method == "CASH" && p.ReceivedAt >= todayUtc && p.ReceivedAt < tomorrowUtc)
             .Join(_db.Orders.AsNoTracking().Where(o => o.OrderStatus != "CANCELLED" && !o.IsDraft),
                 p => p.OrderId, o => o.Id, (p, o) => p)
             .SumAsync(p => p.Amount);
 
+        decimal? supplierPayable = null;
+        int? suppliersWithDue = null;
+        if (canSeeCosts)
+        {
+            var supplierDueRows = await _db.PurchaseItems.AsNoTracking()
+                .Where(i => i.DeletedAt == null && i.DueAmount > 0)
+                .Join(_db.PurchaseTrips.AsNoTracking().Where(t => t.Status != "CANCELLED"),
+                    i => i.TripId, t => t.Id,
+                    (i, t) => new { i.DueAmount, i.SupplierId, i.ShopName })
+                .ToListAsync();
+
+            supplierPayable = supplierDueRows.Sum(x => x.DueAmount);
+            suppliersWithDue = supplierDueRows
+                .Select(x => x.SupplierId?.ToString() ?? x.ShopName?.Trim())
+                .Where(key => !string.IsNullOrWhiteSpace(key))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Count();
+        }
+
         return new HomeSummaryDto(
-            todayOrders,
+            todaySales,
+            yesterdaySales,
+            salesChangePercent,
+            todayProfit,
+            todayMarginPercent,
+            todayOrderRows.Count,
+            pendingOrders,
             pendingDeliveries,
-            lowStockCount + outOfStockCount,
+            todayReturns,
+            lowStockCount,
+            outOfStockCount,
             customerReceivable,
+            customersWithDue,
             moneyAtCourier,
-            todayCash
+            todayCash,
+            supplierPayable,
+            suppliersWithDue,
+            sevenDaySales,
+            topProductsToday
         );
     }
 
@@ -352,12 +445,14 @@ public class ReportService : IReportService
 
         var stockItems = items.Select(x =>
         {
-            var available = x.OnHand - x.Committed;
-            var isLow = x.OnHand > 0 && x.OnHand <= x.p.LowStockThreshold;
-            var isOut = x.OnHand <= 0;
+            var available = x.OnHand - x.Committed - x.Damaged;
+            var isLow = available > 0 && available <= x.p.LowStockThreshold;
+            var isOut = available <= 0;
             return new StockStatusItem(
                 x.pv.Sku, x.p.Name,
                 x.pv.VariantValuesJson == "{}" ? null : x.pv.VariantValuesJson,
+                x.pv.Barcode,
+                x.pv.ImageUrl ?? x.p.ImageUrl,
                 x.OnHand, x.Committed, available, x.Damaged,
                 x.p.LowStockThreshold, isLow, isOut
             );
@@ -549,6 +644,282 @@ public class ReportService : IReportService
         return new OrdersReportDto(
             total, completed, pending, cancelled, returned, returnRate,
             ordersTrend, cancelledTrend, returnReasons, byChannel
+        );
+    }
+
+    // ── Daily Closing Summary ──────────────────────────────────────────────────
+
+    public async Task<DailyClosingReportDto> GetDailyClosingReportAsync(DateTime date, bool canSeeCosts)
+    {
+        var localDate = DateOnly.FromDateTime(date.Date);
+        var fromUtc = DhakaTime.LocalToUtc(date.Date);
+        var toUtc = DhakaTime.LocalToUtc(date.Date.AddDays(1));
+
+        var businessName = await _db.Businesses.AsNoTracking()
+            .Where(b => b.Id == _db.CurrentBusinessId)
+            .Select(b => b.Name)
+            .FirstOrDefaultAsync() ?? "Business";
+        var branchName = _db.CurrentBranchId == null
+            ? "All Branches"
+            : await _db.Branches.AsNoTracking()
+                .Where(b => b.Id == _db.CurrentBranchId)
+                .Select(b => b.Name)
+                .FirstOrDefaultAsync() ?? "Selected Branch";
+
+        var orders = await _db.Orders.AsNoTracking()
+            .Where(o => o.BusinessDate == localDate && !o.IsDraft)
+            .Include(o => o.Customer)
+            .Include(o => o.Items.Where(i => i.DeletedAt == null))
+                .ThenInclude(i => i.Variant)
+                    .ThenInclude(v => v.Product)
+            .Include(o => o.Payments.Where(p => p.DeletedAt == null))
+            .ToListAsync();
+
+        var saleOrders = orders.Where(o => o.OrderStatus != "CANCELLED").ToList();
+        var totalSales = saleOrders.Sum(OrderFinancials.ComputeOrderRevenue);
+        var totalProfit = canSeeCosts
+            ? saleOrders.Sum(o => OrderFinancials.ComputeOrderRevenue(o) - OrderFinancials.ComputeOrderCogs(o))
+            : 0;
+        var totalPaid = saleOrders.Sum(o => o.Payments.Sum(p => p.Amount));
+        var totalDue = saleOrders.Sum(o => Math.Max(0, OrderFinancials.ComputeOrderRevenue(o) - o.Payments.Sum(p => p.Amount)));
+        var totalDiscount = saleOrders.Sum(o =>
+        {
+            var subtotal = o.Items.Sum(i => i.Qty * i.UnitPrice);
+            return OrderFinancials.ComputeDiscount(o, subtotal);
+        });
+        var netSales = totalSales - totalDiscount;
+        var averageOrderValue = saleOrders.Count == 0 ? 0 : netSales / saleOrders.Count;
+
+        var statusRows = orders
+            .GroupBy(o => o.FulfillmentStatus)
+            .Select(g => new DailyClosingStatusCountDto(g.Key, g.Count()))
+            .OrderByDescending(x => x.Count)
+            .ToList();
+
+        var paymentMethods = saleOrders
+            .SelectMany(o => o.Payments)
+            .GroupBy(p => p.Method)
+            .Select(g => new NameValue(g.Key, g.Sum(p => p.Amount)))
+            .OrderByDescending(x => x.Value)
+            .ToList();
+
+        var soldProducts = saleOrders
+            .SelectMany(o => o.Items.Select(i => new
+            {
+                ProductName = i.Variant.Product.Name,
+                VariantLabel = FormatVariantLabel(i.Variant.VariantValuesJson),
+                i.Variant.Sku,
+                i.Qty,
+                Revenue = i.Qty * i.UnitPrice,
+                Profit = canSeeCosts ? i.Qty * (i.UnitPrice - i.UnitCostSnapshot.GetValueOrDefault()) : 0
+            }))
+            .GroupBy(x => new { x.ProductName, x.VariantLabel, x.Sku })
+            .Select(g => new DailyClosingSoldProductDto(
+                g.Key.ProductName,
+                string.IsNullOrWhiteSpace(g.Key.VariantLabel) ? null : g.Key.VariantLabel,
+                g.Key.Sku,
+                g.Sum(x => x.Qty),
+                g.Sum(x => x.Revenue),
+                g.Sum(x => x.Profit)
+            ))
+            .OrderByDescending(x => x.Revenue)
+            .Take(50)
+            .ToList();
+        var topSellingProduct = soldProducts.Count == 0 ? null : soldProducts[0].ProductName;
+
+        var activeVariantRows = await _db.ProductVariants.AsNoTracking()
+            .Where(v => v.DeletedAt == null && v.Product.DeletedAt == null && v.Product.Status == "ACTIVE")
+            .Select(v => new
+            {
+                Variant = v,
+                Product = v.Product,
+                Quantity = _db.BranchVariantInventories
+                    .Where(i => i.VariantId == v.Id && (_db.CurrentBranchId == null || i.BranchId == _db.CurrentBranchId))
+                    .Sum(i => (decimal?)(i.OnHand - i.Committed - i.Damaged)) ?? 0
+            })
+            .ToListAsync();
+
+        var lowStockProducts = activeVariantRows
+            .Where(x => x.Quantity <= x.Product.LowStockThreshold)
+            .OrderBy(x => x.Quantity)
+            .ThenBy(x => x.Product.Name)
+            .Take(30)
+            .Select(x => new DailyClosingLowStockDto(
+                x.Product.Name,
+                FormatVariantLabel(x.Variant.VariantValuesJson),
+                x.Variant.Sku,
+                x.Quantity,
+                x.Product.LowStockThreshold
+            ))
+            .ToList();
+
+        var purchaseTrips = await _db.PurchaseTrips.AsNoTracking()
+            .Where(t => t.Status == "COMPLETED" && t.CompletedAt >= fromUtc && t.CompletedAt < toUtc)
+            .Include(t => t.Items.Where(i => i.DeletedAt == null))
+                .ThenInclude(i => i.Variant)
+                    .ThenInclude(v => v.Product)
+            .ToListAsync();
+
+        var purchaseItems = purchaseTrips
+            .SelectMany(t => t.Items)
+            .GroupBy(i => new
+            {
+                ProductName = i.Variant.Product.Name,
+                VariantLabel = FormatVariantLabel(i.Variant.VariantValuesJson),
+                i.Variant.Sku
+            })
+            .Select(g => new DailyClosingPurchaseItemDto(
+                g.Key.ProductName,
+                string.IsNullOrWhiteSpace(g.Key.VariantLabel) ? null : g.Key.VariantLabel,
+                g.Key.Sku,
+                g.Sum(i => i.QtyBought),
+                g.Sum(i => i.TotalCost + i.AllocatedSharedCost)
+            ))
+            .OrderByDescending(x => x.TotalCost)
+            .Take(50)
+            .ToList();
+
+        var totalExpenses = await _db.Expenses.AsNoTracking()
+            .Where(e => e.Status == "APPROVED" && e.ExpenseDate >= fromUtc && e.ExpenseDate < toUtc)
+            .SumAsync(e => e.Amount);
+
+        var expenseRows = canSeeCosts
+            ? await _db.Expenses.AsNoTracking()
+                .Where(e => e.Status == "APPROVED" && e.ExpenseDate >= fromUtc && e.ExpenseDate < toUtc)
+                .GroupBy(e => e.SubType)
+                .Select(g => new { Type = g.Key, Amount = g.Sum(e => e.Amount) })
+                .OrderByDescending(x => x.Amount)
+                .ToListAsync()
+            : [];
+        var expenses = expenseRows
+            .Select(x => new DailyClosingExpenseDto(x.Type, x.Amount))
+            .ToList();
+
+        var dueCollection = await _db.OrderPayments.AsNoTracking()
+            .Where(p => p.ReceivedAt >= fromUtc && p.ReceivedAt < toUtc
+                && p.Order.BusinessDate < localDate
+                && p.Order.OrderStatus != "CANCELLED"
+                && !p.Order.IsDraft)
+            .SumAsync(p => p.Amount);
+
+        var totalOutstandingDue = await _db.Orders.AsNoTracking()
+            .Where(o => !o.IsDraft && o.OrderStatus != "CANCELLED")
+            .Include(o => o.Items.Where(i => i.DeletedAt == null))
+            .Include(o => o.Payments.Where(p => p.DeletedAt == null))
+            .ToListAsync();
+        var outstandingDue = totalOutstandingDue
+            .Sum(o => Math.Max(0, OrderFinancials.ComputeOrderRevenue(o) - o.Payments.Sum(p => p.Amount)));
+
+        DailyClosingOrderItemDto OrderItem(Order o, string? note = null) =>
+            new(o.OrderNo, o.CustomerName, OrderFinancials.ComputeOrderRevenue(o), o.FulfillmentStatus, note ?? o.Note);
+
+        var newOrders = orders
+            .OrderByDescending(o => o.CreatedAt)
+            .Take(25)
+            .Select(o => OrderItem(o))
+            .ToList();
+        var deliveredOrders = orders
+            .Where(o => o.DeliveredAt >= fromUtc && o.DeliveredAt < toUtc || o.FulfillmentStatus == "DELIVERED")
+            .OrderByDescending(o => o.DeliveredAt ?? o.UpdatedAt)
+            .Take(25)
+            .Select(o => OrderItem(o))
+            .ToList();
+        var returnedOrders = orders
+            .Where(o => o.ReturnedAt >= fromUtc && o.ReturnedAt < toUtc || o.FulfillmentStatus == "RETURNED")
+            .OrderByDescending(o => o.ReturnedAt ?? o.UpdatedAt)
+            .Take(25)
+            .Select(o => OrderItem(o, o.ReturnReason ?? o.ReturnNote))
+            .ToList();
+        var pendingOrders = saleOrders
+            .Where(o => o.FulfillmentStatus != "DELIVERED" && o.FulfillmentStatus != "RETURNED")
+            .OrderByDescending(o => o.CreatedAt)
+            .Take(25)
+            .Select(o => OrderItem(o, "Waiting for delivery"))
+            .ToList();
+
+        var customerIds = saleOrders.Where(o => o.CustomerId != null).Select(o => o.CustomerId!.Value).Distinct().ToList();
+        var newCustomersToday = saleOrders
+            .Where(o => o.Customer != null && o.Customer.CreatedAt >= fromUtc && o.Customer.CreatedAt < toUtc)
+            .Select(o => o.CustomerId)
+            .Distinct()
+            .Count();
+        var returningCustomers = customerIds.Count == 0
+            ? 0
+            : await _db.Orders.AsNoTracking()
+                .Where(o => o.CustomerId != null && customerIds.Contains(o.CustomerId.Value) && o.BusinessDate < localDate && !o.IsDraft)
+                .Select(o => o.CustomerId)
+                .Distinct()
+                .CountAsync();
+        var highestCustomer = saleOrders
+            .GroupBy(o => o.CustomerName)
+            .Select(g => new { Name = g.Key, Amount = g.Sum(OrderFinancials.ComputeOrderRevenue) })
+            .OrderByDescending(x => x.Amount)
+            .FirstOrDefault();
+        var complaints = orders.Count(o => !string.IsNullOrWhiteSpace(o.ReturnReason) || !string.IsNullOrWhiteSpace(o.ReturnNote));
+
+        var netProfit = canSeeCosts ? totalProfit - totalExpenses : 0;
+        var ordersDelivered = deliveredOrders.Count;
+        var ordersReturned = returnedOrders.Count;
+        var ordersPending = pendingOrders.Count;
+        var actionItems = new List<string>();
+        if (lowStockProducts.Count > 0) actionItems.Add("Restock low inventory items");
+        if (ordersPending > 0) actionItems.Add("Follow up pending orders");
+        if (outstandingDue > 0) actionItems.Add("Collect outstanding payments");
+        if (newCustomersToday > 0) actionItems.Add("Contact today's new customers for feedback");
+        if (actionItems.Count == 0) actionItems.Add("No urgent action needed for tomorrow");
+
+        var ownerDashboard = new List<DailyClosingHealthDto>
+        {
+            new("Sales", totalSales > 0 ? "Good" : "No sales today", totalSales > 0 ? "GREEN" : "YELLOW"),
+            new("Profit", !canSeeCosts ? "Hidden" : netProfit >= 0 ? "Positive" : "Loss", !canSeeCosts ? "GRAY" : netProfit >= 0 ? "GREEN" : "RED"),
+            new("Stock", lowStockProducts.Count == 0 ? "Healthy" : $"{lowStockProducts.Count} item(s) need attention", lowStockProducts.Count == 0 ? "GREEN" : "YELLOW"),
+            new("Pending Delivery", ordersPending == 0 ? "Clear" : $"{ordersPending} pending", ordersPending == 0 ? "GREEN" : "RED")
+        };
+
+        return new DailyClosingReportDto(
+            date.Date,
+            date.Date.DayOfWeek.ToString(),
+            businessName,
+            branchName,
+            _db.CurrentBranchId == null,
+            totalSales,
+            netSales,
+            totalProfit,
+            netProfit,
+            totalDue,
+            totalPaid,
+            totalDiscount,
+            canSeeCosts ? totalExpenses : 0,
+            averageOrderValue,
+            dueCollection,
+            totalDue,
+            outstandingDue,
+            orders.Count,
+            ordersDelivered,
+            ordersPending,
+            ordersReturned,
+            orders.Count(o => o.OrderStatus == "CANCELLED"),
+            purchaseItems.Sum(i => i.TotalCost),
+            purchaseItems.Sum(i => i.Qty),
+            topSellingProduct,
+            statusRows,
+            paymentMethods,
+            soldProducts,
+            lowStockProducts,
+            purchaseItems,
+            newOrders,
+            deliveredOrders,
+            returnedOrders,
+            pendingOrders,
+            expenses,
+            new DailyClosingCustomerInsightDto(
+                newCustomersToday,
+                returningCustomers,
+                highestCustomer?.Name,
+                highestCustomer?.Amount ?? 0,
+                complaints),
+            actionItems,
+            ownerDashboard
         );
     }
 
@@ -745,6 +1116,21 @@ public class ReportService : IReportService
                 var d = from.AddDays(i);
                 return new DatePoint(d.ToString("MMM dd"), grouped.TryGetValue(d, out var v) ? v : 0);
             }).ToList();
+        }
+    }
+
+    private static string FormatVariantLabel(string? variantValuesJson)
+    {
+        if (string.IsNullOrWhiteSpace(variantValuesJson) || variantValuesJson == "{}")
+            return "";
+        try
+        {
+            var values = JsonSerializer.Deserialize<Dictionary<string, string>>(variantValuesJson);
+            return values is null ? "" : string.Join(" / ", values.Values.Where(v => !string.IsNullOrWhiteSpace(v)));
+        }
+        catch (JsonException)
+        {
+            return "";
         }
     }
 }

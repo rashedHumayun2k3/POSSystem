@@ -1,6 +1,6 @@
-import type { SalesChannel } from "@/types/auth";
+import type { SalesChannel, ShopType } from "@/types/auth";
 
-export type ShopType = "BIG_SUPERSHOP" | "SMALL_SHOWROOM" | "HAWKER_SHOP";
+export type { ShopType } from "@/types/auth";
 
 // Online is bundled into every option (no separate toggle) — dashboard/page.tsx and
 // BottomTabBar.tsx already gate the lightweight (no-barcode) experience purely on
@@ -12,10 +12,8 @@ export const SHOP_TYPES: { value: ShopType; icon: string; channels: SalesChannel
   { value: "HAWKER_SHOP", icon: "🧺", channels: ["HAWKER", "ONLINE"] },
 ];
 
-// Reverse-map stored channels back to a default selection when reopening the settings screen.
-// SMALL_SHOWROOM and HAWKER_SHOP both save as the same ["HAWKER","ONLINE"], so there's no stored
-// signal for which of the two was originally picked — default to HAWKER_SHOP (the more general
-// label) in that case.
+// Support businesses saved before the exact ShopType field was introduced. Those legacy records
+// only contain channels, so the shared Hawker/Small Showroom channel set falls back to Hawker Shop.
 export function shopTypeFromChannels(channels: SalesChannel[] | undefined): ShopType | null {
   if (!channels || channels.length === 0) return null;
   if (channels.includes("POS")) return "BIG_SUPERSHOP";

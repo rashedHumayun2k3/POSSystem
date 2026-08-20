@@ -4,11 +4,13 @@ import { useRef, useState } from "react";
 import { useAuthStore } from "@/store/authStore";
 import { uploadImage } from "@/lib/media";
 import { updateMyPhoto } from "@/lib/usersApi";
+import { getErrorMessage } from "@/lib/api";
+import { sendDailyClosingReport } from "@/lib/reportsApi";
 import Avatar from "@/components/ui/Avatar";
 import { useLanguage } from "@/i18n/LanguageContext";
 import { useToastStore } from "@/store/toastStore";
 import { useLogout } from "@/hooks/useAuth";
-import { ArrowRightOnRectangleIcon } from "@heroicons/react/24/outline";
+import { ArrowRightOnRectangleIcon, EnvelopeIcon } from "@heroicons/react/24/outline";
 
 const ROLE_KEY: Record<string, string> = {
   OWNER: "settings.roleOwner",
@@ -17,12 +19,24 @@ const ROLE_KEY: Record<string, string> = {
   WAREHOUSE: "settings.roleWarehouse",
 };
 
+function Spinner({ className = "w-5 h-5" }: { className?: string }) {
+  return (
+    <span
+      className={`${className} inline-block rounded-full border-2 border-current border-t-transparent animate-spin`}
+      aria-hidden="true"
+    />
+  );
+}
+
 export default function ProfilePage() {
-  const { t } = useLanguage();
+  const { lang, t } = useLanguage();
   const user = useAuthStore((s) => s.user);
   const updateUserPhoto = useAuthStore((s) => s.updateUserPhoto);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  const [logoutSheetOpen, setLogoutSheetOpen] = useState(false);
+  const [sendingReport, setSendingReport] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
   const logout = useLogout();
 
   if (!user) return null;
@@ -41,6 +55,45 @@ export default function ProfilePage() {
       useToastStore.getState().show(t("profile.uploadFailed"), "error");
     } finally {
       setUploading(false);
+    }
+  };
+
+  const canOfferClosingReport = user.role === "OWNER" || user.role === "MANAGER" || user.role === "STAFF";
+  const isStaff = user.role === "STAFF";
+  const logoutNow = async () => {
+    setLoggingOut(true);
+    await logout();
+  };
+
+  const handleLogoutClick = () => {
+    if (canOfferClosingReport) {
+      setLogoutSheetOpen(true);
+      return;
+    }
+    void logoutNow();
+  };
+
+  const handleSendReportAndLogout = async () => {
+    setSendingReport(true);
+    try {
+      const res = await sendDailyClosingReport({ lang });
+      useToastStore.getState().show(res.message || t(isStaff ? "profile.dailyReport.sentFallbackStaff" : "profile.dailyReport.sentFallbackOwner"));
+      await logoutNow();
+    } catch (err) {
+      useToastStore.getState().show(getErrorMessage(err, t("profile.dailyReport.failed")), "error");
+      setSendingReport(false);
+    }
+  };
+
+  const handleSendReportOnly = async () => {
+    setSendingReport(true);
+    try {
+      const res = await sendDailyClosingReport({ lang });
+      useToastStore.getState().show(res.message || t(isStaff ? "profile.dailyReport.sentFallbackStaff" : "profile.dailyReport.sentFallbackOwner"));
+    } catch (err) {
+      useToastStore.getState().show(getErrorMessage(err, t("profile.dailyReport.failed")), "error");
+    } finally {
+      setSendingReport(false);
     }
   };
 
@@ -93,8 +146,37 @@ export default function ProfilePage() {
         </div>
       </div>
 
+      {canOfferClosingReport && (
+        <div className="space-y-2">
+          <button
+            type="button"
+            onClick={handleSendReportOnly}
+            disabled={sendingReport || loggingOut}
+            className="flex items-center gap-4 w-full bg-white rounded-2xl px-4 h-16 border border-sky-100 text-sky-700 active:scale-[0.98] transition disabled:opacity-70"
+          >
+            <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-sky-50">
+              {sendingReport ? <Spinner className="w-5 h-5 text-sky-600" /> : <EnvelopeIcon className="w-5 h-5 text-sky-600" />}
+            </div>
+            <div className="flex-1 text-left min-w-0">
+              <p className="text-sm font-semibold">{sendingReport ? t("profile.dailyReport.sendingTitle") : t("profile.dailyReport.button")}</p>
+              <p className="text-xs text-sky-500 truncate">
+                {sendingReport
+                  ? t("profile.dailyReport.sendingSubtitle")
+                  : t(isStaff ? "profile.dailyReport.staffSubtitle" : "profile.dailyReport.ownerSubtitle")}
+              </p>
+            </div>
+          </button>
+          {sendingReport && (
+            <div className="rounded-xl border border-sky-100 bg-sky-50 px-3 py-2 text-xs text-sky-700">
+              {t("profile.dailyReport.sendingNotice")}
+            </div>
+          )}
+        </div>
+      )}
+
       <button
-        onClick={logout}
+        onClick={handleLogoutClick}
+        disabled={loggingOut}
         className="flex items-center gap-4 w-full bg-white rounded-2xl px-4 h-16 border border-gray-100 text-red-500 active:scale-[0.98] transition"
       >
         <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-red-50">
@@ -102,6 +184,63 @@ export default function ProfilePage() {
         </div>
         <p className="text-sm font-semibold">{t("more.logout")}</p>
       </button>
+
+      {logoutSheetOpen && (
+        <div className="fixed inset-0 z-50 flex flex-col justify-end">
+          <button
+            type="button"
+            aria-label="Close"
+            onClick={() => setLogoutSheetOpen(false)}
+            className="absolute inset-0 bg-black/40"
+          />
+          <div className="relative bg-white rounded-t-2xl px-4 pt-4 pb-8 space-y-4 w-full max-w-[768px] mx-auto">
+            <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto" />
+            <div className="space-y-1 pr-8">
+              <p className="text-base font-semibold text-gray-900">
+                {t(isStaff ? "profile.dailyReport.logoutStaffTitle" : "profile.dailyReport.logoutOwnerTitle")}
+              </p>
+              <p className="text-sm text-gray-500">
+                {t(isStaff ? "profile.dailyReport.logoutStaffBody" : "profile.dailyReport.logoutOwnerBody")}
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 gap-2">
+              <button
+                type="button"
+                onClick={handleSendReportAndLogout}
+                disabled={sendingReport || loggingOut}
+                className="w-full h-12 rounded-xl bg-indigo-600 text-white text-sm font-semibold disabled:opacity-60 flex items-center justify-center gap-2"
+              >
+                {sendingReport && <Spinner className="w-4 h-4" />}
+                {sendingReport
+                  ? t("profile.dailyReport.sendingTitle")
+                  : t(isStaff ? "profile.dailyReport.sendToOwner" : "profile.dailyReport.sendToSelf")}
+              </button>
+              {sendingReport && (
+                <p className="rounded-xl border border-indigo-100 bg-indigo-50 px-3 py-2 text-xs text-indigo-700">
+                  {t("profile.dailyReport.logoutSendingNotice")}
+                </p>
+              )}
+              <button
+                type="button"
+                onClick={logoutNow}
+                disabled={sendingReport || loggingOut}
+                className="w-full h-12 rounded-xl border border-red-100 bg-red-50 text-red-600 text-sm font-semibold disabled:opacity-60"
+              >
+                {t("profile.dailyReport.logoutWithoutReport")}
+              </button>
+              <button
+                type="button"
+                onClick={() => setLogoutSheetOpen(false)}
+                disabled={sendingReport || loggingOut}
+                className="w-full h-11 rounded-xl text-gray-500 text-sm font-medium disabled:opacity-60"
+              >
+                {t("profile.dailyReport.stayInApp")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

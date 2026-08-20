@@ -8,6 +8,7 @@ public class PurchaseReceiveItem : BaseEntity
     public Guid PurchaseItemId { get; set; }
     public decimal QtyUsable { get; set; }
     public decimal QtyDamaged { get; set; }
+    public decimal QtyMissing { get; set; }
     public string PerLotValuesJson { get; set; } = "{}";
 
     public PurchaseReceiveSession Session { get; set; } = null!;

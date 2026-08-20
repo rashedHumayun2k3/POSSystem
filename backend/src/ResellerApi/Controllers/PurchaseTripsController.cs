@@ -52,6 +52,11 @@ public class PurchaseTripsController : ControllerBase
     public async Task<IActionResult> UpdateHeader(Guid id, [FromBody] UpdateTripHeaderRequest request)
         => Ok(await _svc.UpdateHeaderAsync(id, request, _user.UserId));
 
+    [HttpPatch("{id:guid}/attachments")]
+    [Authorize(Roles = Roles.Owner)]
+    public async Task<IActionResult> UpdateAttachments(Guid id, [FromBody] UpdateTripAttachmentsRequest request)
+        => Ok(await _svc.UpdateAttachmentsAsync(id, request, _user.UserId));
+
     // ── Items ────────────────────────────────────────────────────────────────
 
     [HttpPost("{id:guid}/items")]

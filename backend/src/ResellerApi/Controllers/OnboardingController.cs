@@ -85,12 +85,15 @@ public class OnboardingController : ControllerBase
 
         var selectedChannels = request.SalesChannels.Distinct().ToArray();
         var previousChannels = SalesChannels.ParseJson(business.SalesChannelsJson);
+        var previousShopType = business.ShopType;
         business.SalesChannelsJson = SalesChannels.ToJson(selectedChannels);
+        business.ShopType = request.ShopType ?? business.ShopType ?? ShopTypes.FromChannels(selectedChannels);
         await _db.SaveChangesAsync();
 
         await _activityLog.LogAsync(business.Id, _currentUser.UserId, "UPDATE", "Business", business.Id,
-            new { SalesChannels = previousChannels }, new { SalesChannels = selectedChannels });
+            new { SalesChannels = previousChannels, ShopType = previousShopType },
+            new { SalesChannels = selectedChannels, business.ShopType });
 
-        return Ok(new { salesChannels = selectedChannels });
+        return Ok(new { salesChannels = selectedChannels, business.ShopType });
     }
 }

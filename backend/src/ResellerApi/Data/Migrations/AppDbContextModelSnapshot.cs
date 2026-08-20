@@ -265,6 +265,10 @@ namespace ResellerApi.Data.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
 
+                    b.Property<string>("ShopType")
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
                     b.Property<bool>("ShowOnMarketplace")
                         .HasColumnType("bit");
 
@@ -3328,6 +3332,9 @@ namespace ResellerApi.Data.Migrations
                     b.Property<decimal>("QtyDamaged")
                         .HasColumnType("DECIMAL(12,3)");
 
+                    b.Property<decimal>("QtyMissing")
+                        .HasColumnType("DECIMAL(12,3)");
+
                     b.Property<decimal>("QtyUsable")
                         .HasColumnType("DECIMAL(12,3)");
 
@@ -3349,6 +3356,9 @@ namespace ResellerApi.Data.Migrations
 
                     b.Property<Guid>("TripId")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("UnitWeightGrams")
+                        .HasColumnType("DECIMAL(14,3)");
 
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("datetime2");
@@ -3391,6 +3401,9 @@ namespace ResellerApi.Data.Migrations
                     b.Property<decimal>("QtyDamaged")
                         .HasColumnType("DECIMAL(12,3)");
 
+                    b.Property<decimal>("QtyMissing")
+                        .HasColumnType("DECIMAL(12,3)");
+
                     b.Property<decimal>("QtyUsable")
                         .HasColumnType("DECIMAL(12,3)");
 
@@ -3427,6 +3440,10 @@ namespace ResellerApi.Data.Migrations
 
                     b.Property<Guid?>("ApprovedBy")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("AttachmentsJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<Guid>("BranchId")
                         .HasColumnType("uniqueidentifier");
@@ -3509,6 +3526,10 @@ namespace ResellerApi.Data.Migrations
 
                     b.Property<Guid?>("ApprovedBy")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("AttachmentsJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<Guid>("BranchId")
                         .HasColumnType("uniqueidentifier");

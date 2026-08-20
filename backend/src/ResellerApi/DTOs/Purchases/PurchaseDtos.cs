@@ -16,7 +16,8 @@ public record AddPurchaseItemRequest(
     string? MemoPhotoUrl,
     decimal PaidNow,
     decimal DueAmount,
-    DateTime? PromisedDate
+    DateTime? PromisedDate,
+    decimal UnitWeightGrams = 0
 );
 
 public record UpdatePurchaseItemRequest(
@@ -26,7 +27,8 @@ public record UpdatePurchaseItemRequest(
     string? MemoPhotoUrl,
     decimal PaidNow,
     decimal DueAmount,
-    DateTime? PromisedDate
+    DateTime? PromisedDate,
+    decimal UnitWeightGrams = 0
 );
 
 public record AddPurchaseTripCostRequest(
@@ -43,7 +45,15 @@ public record SessionItemInput(
     Guid PurchaseItemId,
     decimal QtyUsable,
     decimal QtyDamaged,
-    string PerLotValuesJson
+    string PerLotValuesJson,
+    decimal QtyMissing = 0
+);
+
+public record PurchaseReceiveAttachmentDto(
+    string Name,
+    string Url,
+    string ContentType,
+    long SizeBytes
 );
 
 public record CreateReceiveSessionRequest(
@@ -51,7 +61,8 @@ public record CreateReceiveSessionRequest(
     string TransportMode,
     string? VehicleOrTrackingNo,
     string? Note,
-    List<SessionItemInput> Items
+    List<SessionItemInput> Items,
+    List<PurchaseReceiveAttachmentDto>? Attachments = null
 );
 
 public record RejectSessionRequest(string? Reason);
@@ -95,6 +106,7 @@ public record PurchaseItemDto(
     decimal QtyUsable,
     decimal QtyDamaged,
     decimal TotalCost,
+    decimal UnitWeightGrams,
     Guid? SupplierId,
     string? SupplierName,
     string? SupplierAddress,
@@ -110,7 +122,8 @@ public record PurchaseItemDto(
     Guid? SupplierReturnId,
     string? SupplierReturnNo,
     string? SupplierReturnStatus,
-    decimal? SupplierReturnQty
+    decimal? SupplierReturnQty,
+    decimal QtyMissing = 0
 );
 
 public record PurchaseTripCostDto(
@@ -128,7 +141,12 @@ public record PurchaseReceiveItemDto(
     Guid PurchaseItemId,
     decimal QtyUsable,
     decimal QtyDamaged,
-    string? PerLotValuesJson
+    string? PerLotValuesJson,
+    decimal QtyMissing = 0
+);
+
+public record UpdateTripAttachmentsRequest(
+    List<PurchaseReceiveAttachmentDto> Attachments
 );
 
 public record PurchaseReceiveSessionDto(
@@ -145,7 +163,8 @@ public record PurchaseReceiveSessionDto(
     string? ApprovedByName,
     DateTime? ApprovedAt,
     string? RejectionReason,
-    List<PurchaseReceiveItemDto> Items
+    List<PurchaseReceiveItemDto> Items,
+    List<PurchaseReceiveAttachmentDto> Attachments
 );
 
 public record PurchaseTripDetailDto(
@@ -161,7 +180,8 @@ public record PurchaseTripDetailDto(
     string? ForceCloseReason,
     List<PurchaseItemDto> Items,
     List<PurchaseTripCostDto> Costs,
-    List<PurchaseReceiveSessionDto> Sessions
+    List<PurchaseReceiveSessionDto> Sessions,
+    List<PurchaseReceiveAttachmentDto> Attachments
 );
 
 public record LandedCostPreviewDto(

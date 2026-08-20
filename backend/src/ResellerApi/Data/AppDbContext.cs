@@ -199,6 +199,7 @@ public class AppDbContext : DbContext
             e.Property(x => x.Country).HasMaxLength(100);
             e.Property(x => x.BusinessTypesJson).HasMaxLength(500);
             e.Property(x => x.SalesChannelsJson).HasMaxLength(200);
+            e.Property(x => x.ShopType).HasMaxLength(30);
             e.Property(x => x.Subdomain).HasMaxLength(63);
             e.Property(x => x.LogoUrl).HasMaxLength(500);
             e.Property(x => x.BannerUrl).HasMaxLength(500);
@@ -497,6 +498,7 @@ public class AppDbContext : DbContext
             e.Property(x => x.SourceType).HasMaxLength(30).IsRequired();
             e.Property(x => x.Status).HasMaxLength(20).IsRequired();
             e.Property(x => x.Note).HasMaxLength(500);
+            e.Property(x => x.AttachmentsJson).HasColumnType("nvarchar(max)");
             e.Property(x => x.ForceCompleteReason).HasMaxLength(500);
             e.Property(x => x.BranchId).IsRequired();
             e.HasOne(x => x.CreatedByUser).WithMany()
@@ -514,7 +516,9 @@ public class AppDbContext : DbContext
             e.Property(x => x.QtyBought).HasColumnType("DECIMAL(12,3)");
             e.Property(x => x.QtyUsable).HasColumnType("DECIMAL(12,3)");
             e.Property(x => x.QtyDamaged).HasColumnType("DECIMAL(12,3)");
+            e.Property(x => x.QtyMissing).HasColumnType("DECIMAL(12,3)");
             e.Property(x => x.TotalCost).HasColumnType("DECIMAL(14,2)");
+            e.Property(x => x.UnitWeightGrams).HasColumnType("DECIMAL(14,3)");
             e.Property(x => x.PaidNow).HasColumnType("DECIMAL(14,2)");
             e.Property(x => x.DueAmount).HasColumnType("DECIMAL(14,2)");
             e.Property(x => x.AllocatedSharedCost).HasColumnType("DECIMAL(14,2)");
@@ -539,6 +543,7 @@ public class AppDbContext : DbContext
             e.Property(x => x.TransportMode).HasMaxLength(30).IsRequired();
             e.Property(x => x.VehicleOrTrackingNo).HasMaxLength(100);
             e.Property(x => x.Note).HasMaxLength(500);
+            e.Property(x => x.AttachmentsJson).HasColumnType("nvarchar(max)");
             e.Property(x => x.Status).HasMaxLength(20).IsRequired();
             e.Property(x => x.RejectionReason).HasMaxLength(500);
             e.Property(x => x.BranchId).IsRequired();
@@ -560,6 +565,7 @@ public class AppDbContext : DbContext
             e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
             e.Property(x => x.QtyUsable).HasColumnType("DECIMAL(12,3)");
             e.Property(x => x.QtyDamaged).HasColumnType("DECIMAL(12,3)");
+            e.Property(x => x.QtyMissing).HasColumnType("DECIMAL(12,3)");
             e.Property(x => x.PerLotValuesJson).HasMaxLength(2000);
             e.HasOne(x => x.Session).WithMany(s => s.Items)
                 .HasForeignKey(x => x.SessionId).OnDelete(DeleteBehavior.Cascade);

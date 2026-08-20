@@ -10,6 +10,7 @@ public class Business : BaseEntity
     public string? Country { get; set; }
     public string? BusinessTypesJson { get; set; }
     public string? SalesChannelsJson { get; set; }
+    public string? ShopType { get; set; }
     public DateTime? OnboardingCompletedAt { get; set; }
 
     // ── ClientPage storefront ───────────────────────────────────────────────

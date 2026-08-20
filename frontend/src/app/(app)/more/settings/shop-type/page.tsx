@@ -18,19 +18,20 @@ export default function ShopTypeSettingsPage() {
   const updateCurrentBusinessSalesChannels = useAuthStore((s) => s.updateCurrentBusinessSalesChannels);
   const currentBusiness = businesses.find((b) => b.id === currentBusinessId);
 
-  const [selected, setSelected] = useState<ShopType | null>(() =>
-    shopTypeFromChannels(currentBusiness?.salesChannels)
-  );
+  const [draft, setDraft] = useState<{ businessId: string; value: ShopType } | null>(null);
+  const savedSelection = currentBusiness?.shopType ?? shopTypeFromChannels(currentBusiness?.salesChannels);
+  const selected = draft?.businessId === currentBusinessId ? draft.value : savedSelection;
   const setSalesChannels = useSetSalesChannels();
 
   function handleSave() {
     if (!selected) return;
     const channels = SHOP_TYPES.find((o) => o.value === selected)!.channels;
     setSalesChannels.mutate(
-      { salesChannels: channels },
+      { salesChannels: channels, shopType: selected },
       {
         onSuccess: () => {
-          updateCurrentBusinessSalesChannels(channels);
+          updateCurrentBusinessSalesChannels(channels, selected);
+          setDraft(null);
           useToastStore.getState().show(t("settings.shopTypeSaved"));
         },
         onError: (err) => toastError(err, t("onboarding.setSalesChannelsFailed")),
@@ -52,7 +53,11 @@ export default function ShopTypeSettingsPage() {
       <div className="px-4 pt-4 space-y-4">
         <p className="text-sm text-gray-500">{t("onboarding.shopTypeSubtitle")}</p>
 
-        <ShopTypeSelector selected={selected} onSelect={setSelected} disabled={setSalesChannels.isPending} />
+        <ShopTypeSelector
+          selected={selected}
+          onSelect={(value) => currentBusinessId && setDraft({ businessId: currentBusinessId, value })}
+          disabled={setSalesChannels.isPending}
+        />
 
         <button
           onClick={handleSave}

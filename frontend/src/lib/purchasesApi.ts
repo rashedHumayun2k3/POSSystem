@@ -4,7 +4,6 @@ import type {
   PurchaseTripDetail,
   PurchaseItemDto,
   PurchaseTripCostDto,
-  PurchaseReceiveSessionDto,
   AddItemPayload,
   UpdateItemPayload,
   AddCostPayload,
@@ -12,6 +11,7 @@ import type {
   SessionPreview,
   ForceCloseRequired,
   SourceType,
+  PurchaseReceiveAttachment,
 } from '@/types/purchases';
 
 const BASE = '/purchase-trips';
@@ -36,6 +36,14 @@ export const updateTripHeader = async (
   payload: { expectedDeliveryDate?: string | null; supplierPoRef?: string | null },
 ): Promise<PurchaseTripDetail> => {
   const { data } = await api.patch(`${BASE}/${tripId}/header`, payload);
+  return data;
+};
+
+export const updateTripAttachments = async (
+  tripId: string,
+  attachments: PurchaseReceiveAttachment[],
+): Promise<PurchaseTripDetail> => {
+  const { data } = await api.patch(`${BASE}/${tripId}/attachments`, { attachments });
   return data;
 };
 

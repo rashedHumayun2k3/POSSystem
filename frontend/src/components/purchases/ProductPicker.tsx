@@ -25,11 +25,10 @@ interface Props {
   onClose: () => void;
   onSelect: (result: ProductSearchResult) => void;
   cartVariantIds?: Set<string>;
-  // POS/sale contexts only see the selling price (never cost) and only want sellable stock —
-  // purchase-trip callers need the opposite (avg cost visible, out-of-stock items included since
-  // they're the ones being restocked). Both default to the original purchase-trip behavior so
-  // existing callers are unaffected.
+  // Callers choose whether product rows expose selling price or historical average cost. Both
+  // options default to the original picker behavior so existing callers remain unaffected.
   showSellingPrice?: boolean;
+  showAverageCost?: boolean;
   onlyInStock?: boolean;
   initialQuery?: string;
   // "Recently purchased" means recently bought FROM a supplier — relevant when restocking
@@ -63,6 +62,7 @@ export default function ProductPicker({
   onSelect,
   cartVariantIds,
   showSellingPrice = false,
+  showAverageCost = true,
   onlyInStock = false,
   initialQuery = '',
   showRecentlyPurchased = true,
@@ -250,7 +250,7 @@ export default function ProductPicker({
             <div key={letter}>
               <SectionHeader label={letter} />
               {searchGroups[letter].map((r) => (
-                <ProductRow key={r.variantId} product={r} onSelect={handleSelect} t={t} inCart={cartVariantIds?.has(r.variantId) ?? false} showSellingPrice={showSellingPrice} />
+                <ProductRow key={r.variantId} product={r} onSelect={handleSelect} t={t} inCart={cartVariantIds?.has(r.variantId) ?? false} showSellingPrice={showSellingPrice} showAverageCost={showAverageCost} />
               ))}
             </div>
           ))}
@@ -277,7 +277,7 @@ export default function ProductPicker({
             <div>
               <SectionHeader label={t('pickers.recentlyPurchased')} accent />
               {effectiveRecentlyPurchased.map((r) => (
-                <ProductRow key={r.variantId} product={r} onSelect={handleSelect} t={t} inCart={cartVariantIds?.has(r.variantId) ?? false} showSellingPrice={showSellingPrice} />
+                <ProductRow key={r.variantId} product={r} onSelect={handleSelect} t={t} inCart={cartVariantIds?.has(r.variantId) ?? false} showSellingPrice={showSellingPrice} showAverageCost={showAverageCost} />
               ))}
             </div>
           )}
@@ -303,7 +303,7 @@ export default function ProductPicker({
               <div key={letter}>
                 <SectionHeader label={letter} />
                 {items.map((r) => (
-                  <ProductRow key={r.variantId} product={r} onSelect={handleSelect} t={t} inCart={cartVariantIds?.has(r.variantId) ?? false} showSellingPrice={showSellingPrice} />
+                  <ProductRow key={r.variantId} product={r} onSelect={handleSelect} t={t} inCart={cartVariantIds?.has(r.variantId) ?? false} showSellingPrice={showSellingPrice} showAverageCost={showAverageCost} />
                 ))}
               </div>
             );
@@ -341,12 +341,14 @@ function ProductRow({
   t,
   inCart,
   showSellingPrice = false,
+  showAverageCost = true,
 }: {
   product: ProductSearchResult;
   onSelect: (r: ProductSearchResult) => void;
   t: (key: string, params?: Record<string, string | number>) => string;
   inCart: boolean;
   showSellingPrice?: boolean;
+  showAverageCost?: boolean;
 }) {
   let variantLabel = '';
   try {
@@ -403,7 +405,9 @@ function ProductRow({
           </div>
         </div>
         <div className="text-right shrink-0">
-          <p className="text-[9px] text-gray-300 uppercase tracking-wide leading-none mb-1">{t('pickers.stockPrice')}</p>
+          {(showSellingPrice || showAverageCost) && (
+            <p className="text-[9px] text-gray-300 uppercase tracking-wide leading-none mb-1">{t('pickers.stockPrice')}</p>
+          )}
           <p className="text-xs text-gray-500">
             {t('pickers.have')}: <span className={product.stock > 0 ? 'text-green-600 font-medium' : 'text-gray-400'}>{product.stock}</span>
           </p>
@@ -421,15 +425,15 @@ function ProductRow({
                 </span>
               )}
             </div>
-          ) : product.avgLandedCost > 0 ? (
+          ) : showAverageCost && product.avgLandedCost > 0 ? (
             <p className="text-xs text-gray-500 mt-0.5">
               {t('pickers.avg')}: <span className="text-indigo-600 font-medium">৳{product.avgLandedCost.toLocaleString()}</span>
             </p>
-          ) : (
+          ) : showAverageCost ? (
             <span className="inline-block mt-0.5 text-[10px] font-semibold px-1.5 py-0.5 bg-emerald-50 text-emerald-600 rounded-full">
               {t('pickers.newBadge')}
             </span>
-          )}
+          ) : null}
           {product.stock <= 5 && (
             <p className="text-[10px] text-red-600 font-medium mt-0.5 max-w-26 leading-tight">
               {t('pickers.lowStockWarning')}

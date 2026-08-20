@@ -119,7 +119,7 @@ public class AuthService : IAuthService
 
     // ── Sign up ───────────────────────────────────────────────────────────
 
-    public async Task RequestSignupCodeAsync(RequestSignupCodeRequest request)
+    public async Task RequestSignupCodeAsync(RequestSignupCodeRequest request, string? lang = null)
     {
         var email = request.Email.Trim().ToLowerInvariant();
 
@@ -137,7 +137,7 @@ public class AuthService : IAuthService
         });
         await _db.SaveChangesAsync();
 
-        await _emailSender.SendVerificationCodeAsync(email, code);
+        await _emailSender.SendVerificationCodeAsync(email, code, lang);
     }
 
     public async Task VerifySignupCodeAsync(VerifySignupCodeRequest request)
@@ -334,7 +334,7 @@ public class AuthService : IAuthService
     // silent no-op signup's RequestSignupCodeAsync above uses. The "Can't remember your email?"
     // flow (FindMyEmailAsync) is the safer, more controlled path for account discovery; this one
     // trades that safety for a clearer user experience by explicit request.
-    public async Task RequestPasswordResetCodeAsync(RequestPasswordResetRequest request)
+    public async Task RequestPasswordResetCodeAsync(RequestPasswordResetRequest request, string? lang = null)
     {
         var email = request.Email.Trim().ToLowerInvariant();
 
@@ -354,7 +354,7 @@ public class AuthService : IAuthService
         });
         await _db.SaveChangesAsync();
 
-        await _emailSender.SendPasswordResetCodeAsync(email, code);
+        await _emailSender.SendPasswordResetCodeAsync(email, code, lang);
     }
 
     public async Task VerifyPasswordResetCodeAsync(VerifyPasswordResetRequest request)
@@ -460,7 +460,9 @@ public class AuthService : IAuthService
     private static BusinessDto MapBusinessDto(Business business) => new(
         business.Id, business.Name, business.Currency, business.Country,
         BusinessTypes.ParseJson(business.BusinessTypesJson),
-        SalesChannels.ParseJson(business.SalesChannelsJson), business.OnboardingCompletedAt != null);
+        SalesChannels.ParseJson(business.SalesChannelsJson),
+        business.ShopType ?? ShopTypes.FromChannels(SalesChannels.ParseJson(business.SalesChannelsJson)),
+        business.OnboardingCompletedAt != null);
 
     private async Task<(string AccessToken, string RefreshToken)> GenerateTokensAsync(User user)
     {

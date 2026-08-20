@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { ChevronDownIcon } from "@heroicons/react/24/outline";
 import { listOrders } from "@/lib/ordersApi";
 import { useLanguage } from "@/i18n/LanguageContext";
@@ -30,11 +31,13 @@ type ChannelFilter = "" | "SHOP" | "ONLINE";
 
 export default function SalesRecordPage() {
   const { t, lang } = useLanguage();
+  const searchParams = useSearchParams();
+  const initialChannel = searchParams.get("channel");
   const [search, setSearch] = useState("");
-  const [channelFilter, setChannelFilter] = useState<ChannelFilter>("");
+  const [channelFilter, setChannelFilter] = useState<ChannelFilter>(initialChannel === "SHOP" || initialChannel === "ONLINE" ? initialChannel : "");
   const [collapsedDates, setCollapsedDates] = useState<Set<string>>(new Set());
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
+  const [fromDate, setFromDate] = useState(searchParams.get("from") ?? "");
+  const [toDate, setToDate] = useState(searchParams.get("to") ?? "");
   const currentBranchId = useAuthStore((s) => s.currentBranchId);
 
   // A completed sale = money actually recorded as received (PaymentStatus PAID), not just

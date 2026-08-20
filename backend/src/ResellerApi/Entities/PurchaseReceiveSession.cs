@@ -13,6 +13,7 @@ public class PurchaseReceiveSession : BusinessScopedEntity, IBranchScoped
     public string TransportMode { get; set; } = null!;     // TRUCK|BUS|AIR|COURIER|BOAT|WALK_IN|OTHER
     public string? VehicleOrTrackingNo { get; set; }
     public string? Note { get; set; }
+    public string AttachmentsJson { get; set; } = "[]";
     public string Status { get; set; } = "PENDING_APPROVAL"; // PENDING_APPROVAL|APPROVED|REJECTED
     public Guid? ApprovedBy { get; set; }
     public DateTime? ApprovedAt { get; set; }

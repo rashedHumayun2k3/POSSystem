@@ -1,6 +1,10 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using ResellerApi.Data;
+using ResellerApi.DTOs.Reports;
 using ResellerApi.Infrastructure;
+using ResellerApi.Services;
 using ResellerApi.Services.Interfaces;
 
 namespace ResellerApi.Controllers;
@@ -12,11 +16,15 @@ public class ReportsController : ControllerBase
 {
     private readonly IReportService _svc;
     private readonly ICurrentUserService _user;
+    private readonly IEmailSender _emailSender;
+    private readonly AppDbContext _db;
 
-    public ReportsController(IReportService svc, ICurrentUserService user)
+    public ReportsController(IReportService svc, ICurrentUserService user, IEmailSender emailSender, AppDbContext db)
     {
         _svc = svc;
         _user = user;
+        _emailSender = emailSender;
+        _db = db;
     }
 
     [HttpGet("dashboard")]
@@ -25,7 +33,7 @@ public class ReportsController : ControllerBase
 
     [HttpGet("home-summary")]
     public async Task<IActionResult> HomeSummary()
-        => Ok(await _svc.GetHomeSummaryAsync());
+        => Ok(await _svc.GetHomeSummaryAsync(_user.CanSeeCosts));
 
     [HttpGet("sales")]
     public async Task<IActionResult> Sales(
@@ -72,6 +80,82 @@ public class ReportsController : ControllerBase
         return Ok(await _svc.GetOrdersReportAsync(f, t, groupBy));
     }
 
+    [HttpGet("daily-closing")]
+    [Authorize(Roles = Roles.OwnerOrManager)]
+    public async Task<IActionResult> DailyClosing([FromQuery] DateTime? date)
+    {
+        var d = date?.Date ?? DhakaTime.UtcToLocal(DateTime.UtcNow).Date;
+        return Ok(await _svc.GetDailyClosingReportAsync(d, _user.CanSeeCosts));
+    }
+
+    [HttpGet("daily-closing/pdf")]
+    [Authorize(Roles = Roles.OwnerOrManager)]
+    public async Task<IActionResult> DailyClosingPdf([FromQuery] DateTime? date, [FromQuery] string? lang)
+    {
+        var d = date?.Date ?? DhakaTime.UtcToLocal(DateTime.UtcNow).Date;
+        var reportLang = ResolveLang(lang);
+        var report = await _svc.GetDailyClosingReportAsync(d, _user.CanSeeCosts);
+        var pdf = DailyClosingReportPdfGenerator.Generate(report, reportLang);
+        return File(pdf, "application/pdf", $"daily-closing-{d:yyyy-MM-dd}.pdf");
+    }
+
+    [HttpPost("daily-closing/send")]
+    [Authorize]
+    public async Task<IActionResult> SendDailyClosing([FromBody] SendDailyClosingReportRequest request)
+    {
+        var d = request.Date?.Date ?? DhakaTime.UtcToLocal(DateTime.UtcNow).Date;
+        var recipient = _user.CanSeeCosts
+            ? await _db.Users.AsNoTracking()
+                .Where(u => u.Id == _user.UserId)
+                .Select(u => u.Email)
+                .FirstOrDefaultAsync()
+            : await _db.BusinessUsers.AsNoTracking()
+                .Where(bu => bu.BusinessId == _db.CurrentBusinessId && bu.User.Role == Roles.Owner && bu.User.IsActive)
+                .Select(bu => bu.User.Email)
+                .FirstOrDefaultAsync();
+
+        if (string.IsNullOrWhiteSpace(recipient))
+            return BadRequest(new { message = _user.CanSeeCosts ? "Your account does not have an email address." : "The owner account does not have an email address." });
+
+        var reportLang = ResolveLang(request.Lang);
+        var report = await _svc.GetDailyClosingReportAsync(d, true);
+        var pdf = DailyClosingReportPdfGenerator.Generate(report, reportLang);
+        var isBn = string.Equals(reportLang, "bn", StringComparison.OrdinalIgnoreCase);
+        var subject = isBn
+            ? $"আজকের ক্লোজিং রিপোর্ট - {report.Date:dd MMM yyyy}"
+            : $"Daily closing summary - {report.Date:dd MMM yyyy}";
+        try
+        {
+            await _emailSender.SendEmailWithAttachmentAsync(
+                recipient,
+                subject,
+                DailyClosingEmailTemplateRenderer.Render(report, reportLang),
+                pdf,
+                $"daily-closing-{report.Date:yyyy-MM-dd}.pdf",
+                "application/pdf");
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { message = $"Could not send the daily closing report: {ex.Message}" });
+        }
+
+        return Ok(new { message = _user.CanSeeCosts ? $"Daily closing report sent to {recipient}." : "Daily closing report sent to the owner account." });
+    }
+
+    private string ResolveLang(string? lang)
+    {
+        var headerLang = Request.Headers["X-App-Lang"].FirstOrDefault();
+        var acceptLang = Request.Headers.AcceptLanguage.FirstOrDefault();
+
+        if (string.Equals(lang, "bn", StringComparison.OrdinalIgnoreCase)) return "bn";
+        if (string.Equals(headerLang, "bn", StringComparison.OrdinalIgnoreCase)) return "bn";
+        if (acceptLang?.StartsWith("bn", StringComparison.OrdinalIgnoreCase) == true) return "bn";
+
+        if (string.Equals(lang, "en", StringComparison.OrdinalIgnoreCase)) return "en";
+        if (string.Equals(headerLang, "en", StringComparison.OrdinalIgnoreCase)) return "en";
+        return "en";
+    }
+
     // Entirely cost/profit data end to end (buy price, stock value, potential/realized profit) —
     // restricted the same way /financial already is, rather than masking individual fields.
     [HttpGet("stock-valuation")]
@@ -87,4 +171,5 @@ public class ReportsController : ControllerBase
             range.FromUtc, range.ToExclusiveUtc, range.FromLocalDate, range.ToLocalDate, range.Label,
             categoryId));
     }
+
 }

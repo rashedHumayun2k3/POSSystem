@@ -136,11 +136,25 @@ public class PurchaseTripService : IPurchaseTripService
         return await GetAsync(trip.Id);
     }
 
+    public async Task<PurchaseTripDetailDto> UpdateAttachmentsAsync(
+        Guid tripId, UpdateTripAttachmentsRequest request, Guid userId)
+    {
+        var trip = await _db.PurchaseTrips.FirstOrDefaultAsync(t => t.Id == tripId)
+            ?? throw new KeyNotFoundException("Purchase trip not found.");
+        ValidateAttachments(request.Attachments);
+        trip.AttachmentsJson = System.Text.Json.JsonSerializer.Serialize(request.Attachments);
+        await _db.SaveChangesAsync();
+        await _log.LogAsync(_business.CurrentBusinessId, userId, "UPDATE", "PurchaseTripAttachments", trip.Id);
+        return await GetAsync(trip.Id);
+    }
+
     // ── Items ─────────────────────────────────────────────────────────────────
 
     public async Task<PurchaseItemDto> AddItemAsync(Guid tripId, AddPurchaseItemRequest request, Guid userId)
     {
         var trip = await RequireDraftTripAsync(tripId);
+        if (request.UnitWeightGrams < 0)
+            throw new InvalidOperationException("Unit weight cannot be negative.");
 
         var variant = await _db.ProductVariants.FirstOrDefaultAsync(v => v.Id == request.VariantId)
             ?? throw new KeyNotFoundException("Variant not found.");
@@ -160,6 +174,7 @@ public class PurchaseTripService : IPurchaseTripService
             VariantId = request.VariantId,
             QtyBought = request.QtyBought,
             TotalCost = request.TotalCost,
+            UnitWeightGrams = request.UnitWeightGrams,
             SupplierId = request.SupplierId,
             ShopName = supplier?.Name,
             MemoPhotoUrl = request.MemoPhotoUrl,
@@ -180,6 +195,8 @@ public class PurchaseTripService : IPurchaseTripService
     public async Task<PurchaseItemDto> UpdateItemAsync(Guid tripId, Guid itemId, UpdatePurchaseItemRequest request, Guid userId)
     {
         await RequireDraftTripAsync(tripId);
+        if (request.UnitWeightGrams < 0)
+            throw new InvalidOperationException("Unit weight cannot be negative.");
         var item = await _db.PurchaseItems
             .Include(i => i.Variant).ThenInclude(v => v.Product)
             .FirstOrDefaultAsync(i => i.Id == itemId && i.TripId == tripId)
@@ -204,6 +221,7 @@ public class PurchaseTripService : IPurchaseTripService
 
         item.QtyBought = request.QtyBought;
         item.TotalCost = request.TotalCost;
+        item.UnitWeightGrams = request.UnitWeightGrams;
         item.MemoPhotoUrl = request.MemoPhotoUrl;
         item.PaidNow = request.PaidNow;
         item.DueAmount = request.DueAmount;
@@ -329,12 +347,15 @@ public class PurchaseTripService : IPurchaseTripService
         if (!request.Items.Any())
             throw new InvalidOperationException("Session must include at least one item.");
 
+        var attachments = request.Attachments ?? [];
+        ValidateAttachments(attachments);
+
         // Validate quantities — cannot exceed remaining (QtyBought - already committed totals)
         foreach (var input in request.Items)
         {
             var item = trip.Items.FirstOrDefault(i => i.Id == input.PurchaseItemId)
                 ?? throw new KeyNotFoundException($"Item {input.PurchaseItemId} not found in trip.");
-            ValidateSessionItemQty(item, input.QtyUsable, input.QtyDamaged);
+            ValidateSessionItemQty(item, input.QtyUsable, input.QtyDamaged, input.QtyMissing);
         }
 
         var session = new PurchaseReceiveSession
@@ -348,6 +369,7 @@ public class PurchaseTripService : IPurchaseTripService
             TransportMode = mode,
             VehicleOrTrackingNo = request.VehicleOrTrackingNo,
             Note = request.Note,
+            AttachmentsJson = System.Text.Json.JsonSerializer.Serialize(attachments),
             Status = "PENDING_APPROVAL"
         };
         _db.PurchaseReceiveSessions.Add(session);
@@ -361,6 +383,7 @@ public class PurchaseTripService : IPurchaseTripService
                 PurchaseItemId = input.PurchaseItemId,
                 QtyUsable = input.QtyUsable,
                 QtyDamaged = input.QtyDamaged,
+                QtyMissing = input.QtyMissing,
                 PerLotValuesJson = input.PerLotValuesJson
             });
         }
@@ -540,6 +563,7 @@ public class PurchaseTripService : IPurchaseTripService
                 // Update purchase item cumulative totals
                 item.QtyUsable += si.QtyUsable;
                 item.QtyDamaged += si.QtyDamaged;
+                item.QtyMissing += si.QtyMissing;
             }
 
             session.Status = "APPROVED";
@@ -548,7 +572,7 @@ public class PurchaseTripService : IPurchaseTripService
 
             // Auto-complete if all items fully received
             var allItemsFullyReceived = trip.Items.All(i =>
-                i.DeletedAt == null && i.QtyUsable + i.QtyDamaged >= i.QtyBought);
+                i.DeletedAt == null && i.QtyUsable + i.QtyDamaged + i.QtyMissing >= i.QtyBought);
             if (allItemsFullyReceived)
             {
                 trip.Status = "COMPLETED";
@@ -601,20 +625,20 @@ public class PurchaseTripService : IPurchaseTripService
             throw new InvalidOperationException("Approve or reject all pending sessions before closing the trip.");
 
         var hasRemaining = trip.Items.Any(i =>
-            i.DeletedAt == null && i.QtyUsable + i.QtyDamaged < i.QtyBought);
+            i.DeletedAt == null && i.QtyUsable + i.QtyDamaged + i.QtyMissing < i.QtyBought);
 
         if (hasRemaining)
         {
             if (string.IsNullOrWhiteSpace(forceCloseReason))
                 throw new UnaccountedUnitsException(
                     trip.Items
-                        .Where(i => i.DeletedAt == null && i.QtyUsable + i.QtyDamaged < i.QtyBought)
+                        .Where(i => i.DeletedAt == null && i.QtyUsable + i.QtyDamaged + i.QtyMissing < i.QtyBought)
                         .Select(i => new UnaccountedItem(
                             i.Variant?.Sku ?? i.VariantId.ToString(),
                             i.Variant?.Product?.Name ?? "",
                             i.QtyBought,
-                            i.QtyUsable + i.QtyDamaged,
-                            i.QtyBought - i.QtyUsable - i.QtyDamaged))
+                            i.QtyUsable + i.QtyDamaged + i.QtyMissing,
+                            i.QtyBought - i.QtyUsable - i.QtyDamaged - i.QtyMissing))
                         .ToList());
 
             trip.ForceCompleteReason = forceCloseReason;
@@ -695,17 +719,19 @@ public class PurchaseTripService : IPurchaseTripService
         return $"RS-{count:D3}";
     }
 
-    private static void ValidateSessionItemQty(PurchaseItem item, decimal qtyUsable, decimal qtyDamaged)
+    private static void ValidateSessionItemQty(PurchaseItem item, decimal qtyUsable, decimal qtyDamaged, decimal qtyMissing)
     {
         if (qtyUsable < 0)
             throw new ArgumentException($"Usable quantity cannot be negative for item {item.Id}.");
         if (qtyDamaged < 0)
             throw new ArgumentException($"Damaged quantity cannot be negative for item {item.Id}.");
-        var remaining = item.QtyBought - item.QtyUsable - item.QtyDamaged;
-        if (qtyUsable + qtyDamaged > remaining)
+        if (qtyMissing < 0)
+            throw new ArgumentException($"Missing quantity cannot be negative for item {item.Id}.");
+        var remaining = item.QtyBought - item.QtyUsable - item.QtyDamaged - item.QtyMissing;
+        if (qtyUsable + qtyDamaged + qtyMissing > remaining)
             throw new ArgumentException(
-                $"Total entered ({qtyUsable + qtyDamaged}) exceeds remaining ({remaining}) for item {item.Id}.");
-        if (qtyUsable + qtyDamaged == 0)
+                $"Total entered ({qtyUsable + qtyDamaged + qtyMissing}) exceeds remaining ({remaining}) for item {item.Id}.");
+        if (qtyUsable + qtyDamaged + qtyMissing == 0)
             throw new ArgumentException($"Must specify at least some quantity for item {item.Id}.");
     }
 
@@ -733,7 +759,8 @@ public class PurchaseTripService : IPurchaseTripService
         t.CreatedAt, t.CompletedAt, t.ForceCompleteReason,
         t.Items.Where(i => i.DeletedAt == null).Select(i => MapItem(i, returnsByVariant)).ToList(),
         t.Costs.Where(c => c.DeletedAt == null).Select(MapCost).ToList(),
-        t.Sessions.Where(s => s.DeletedAt == null).OrderBy(s => s.ReceivedAt).Select(MapSession).ToList()
+        t.Sessions.Where(s => s.DeletedAt == null).OrderBy(s => s.ReceivedAt).Select(MapSession).ToList(),
+        DeserializeAttachments(t.AttachmentsJson)
     );
 
     private static PurchaseItemDto MapItem(PurchaseItem i, Dictionary<Guid, VariantReturnInfo>? returnsByVariant = null)
@@ -745,12 +772,13 @@ public class PurchaseTripService : IPurchaseTripService
             i.Variant?.Sku ?? "",
             i.Variant?.Product?.Name ?? "",
             i.Variant?.Product?.UnitCode ?? "pcs",
-            i.QtyBought, i.QtyUsable, i.QtyDamaged, i.TotalCost,
+            i.QtyBought, i.QtyUsable, i.QtyDamaged, i.TotalCost, i.UnitWeightGrams,
             i.SupplierId, i.Supplier?.Name ?? i.ShopName, i.Supplier?.Address,
             i.MemoPhotoUrl,
             i.PaidNow, i.DueAmount, i.PromisedDate,
             i.AllocatedSharedCost, i.LandedUnitCost,
-            ret?.ReturnId, ret?.SupplierReturnNo, ret?.Status, ret?.QtyReturned
+            ret?.ReturnId, ret?.SupplierReturnNo, ret?.Status, ret?.QtyReturned,
+            i.QtyMissing
         );
     }
 
@@ -766,7 +794,42 @@ public class PurchaseTripService : IPurchaseTripService
         s.ApprovedBy, s.ApprovedByUser?.Name,
         s.ApprovedAt, s.RejectionReason,
         s.Items.Where(i => i.DeletedAt == null).Select(i =>
-            new PurchaseReceiveItemDto(i.Id, i.PurchaseItemId, i.QtyUsable, i.QtyDamaged, i.PerLotValuesJson)
-        ).ToList()
+            new PurchaseReceiveItemDto(i.Id, i.PurchaseItemId, i.QtyUsable, i.QtyDamaged, i.PerLotValuesJson, i.QtyMissing)
+        ).ToList(),
+        DeserializeAttachments(s.AttachmentsJson)
     );
+
+    private static List<PurchaseReceiveAttachmentDto> DeserializeAttachments(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return [];
+        try
+        {
+            return System.Text.Json.JsonSerializer.Deserialize<List<PurchaseReceiveAttachmentDto>>(json) ?? [];
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return [];
+        }
+    }
+
+    private static void ValidateAttachments(List<PurchaseReceiveAttachmentDto> attachments)
+    {
+        var allowedTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "image/jpeg", "image/png", "image/webp", "application/pdf"
+        };
+        if (attachments.Count > 10)
+            throw new ArgumentException("A receive session can contain at most 10 attachments.");
+        foreach (var attachment in attachments)
+        {
+            if (string.IsNullOrWhiteSpace(attachment.Name) || attachment.Name.Length > 200)
+                throw new ArgumentException("Attachment name is invalid.");
+            if (!attachment.Url.StartsWith("/uploads/", StringComparison.OrdinalIgnoreCase))
+                throw new ArgumentException("Attachment URL is invalid.");
+            if (!allowedTypes.Contains(attachment.ContentType))
+                throw new ArgumentException("Attachment type is not allowed.");
+            if (attachment.SizeBytes <= 0 || attachment.SizeBytes > 5 * 1024 * 1024)
+                throw new ArgumentException("Attachment must be 5MB or smaller.");
+        }
+    }
 }

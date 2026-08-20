@@ -157,15 +157,6 @@ function StoreChipIcon({ className, off }: { className?: string; off?: boolean }
     </svg>
   );
 }
-function CartStatIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
-        d="M2.25 3h1.386c.51 0 .955.343 1.087.836l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 1.94-4.694 2.436-7.152.083-.415-.238-.798-.662-.798H5.106M7.5 14.25L5.106 5.272M7.5 14.25L5.741 21M6 21h12" />
-    </svg>
-  );
-}
-
 function InfoChip({ children, tone }: { children: React.ReactNode; tone?: 'marketplace-on' | 'marketplace-off' }) {
   const toneClasses =
     tone === 'marketplace-on'
@@ -177,17 +168,6 @@ function InfoChip({ children, tone }: { children: React.ReactNode; tone?: 'marke
     <span className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-lg ${toneClasses}`}>
       {children}
     </span>
-  );
-}
-
-function StatCol({ value, label, valueClassName, divider }: { value: React.ReactNode; label: string; valueClassName?: string; divider?: boolean }) {
-  return (
-    <div className={`flex-1 min-w-0 px-1.5 py-1.5 ${divider ? 'border-l border-gray-500' : ''}`}>
-      <div className="flex min-w-0 items-center justify-center gap-1.5 text-center">
-        <span className={`shrink-0 text-[12px] font-semibold leading-none ${valueClassName ?? 'text-white'}`}>{value}</span>
-        <span className="min-w-0 truncate text-[10px] font-medium leading-none text-gray-300">{label}</span>
-      </div>
-    </div>
   );
 }
 
@@ -250,8 +230,11 @@ function ProductCard({
             <p className="text-xs text-gray-400 mt-0.5">
               {product.sku} · {product.categoryName}
             </p>
-            <div className="flex items-baseline gap-1.5 mt-1 flex-wrap">
-              <span className="text-lg font-bold text-gray-900">৳{product.sellingPrice.toLocaleString()}</span>
+            <div className="mt-1 flex flex-wrap items-baseline gap-1.5">
+              <span className="inline-flex items-baseline gap-1.5 whitespace-nowrap">
+                <span className="text-[10px] font-medium text-gray-500">{t('products.sellPriceLabel')}</span>
+                <span className="text-lg font-bold text-gray-900">৳{product.sellingPrice.toLocaleString()}</span>
+              </span>
               {hasDiscount && (
                 <>
                   <span className="text-xs text-gray-400 line-through">৳{product.marketPrice!.toLocaleString()}</span>
@@ -284,38 +267,6 @@ function ProductCard({
           </InfoChip>
         </div>
 
-        {/* Layer 3 — stat strip */}
-        <div className="border-t border-gray-500 bg-gray-600 flex">
-          <StatCol
-            value={product.reviewCount > 0 ? `★ ${(product.averageRating ?? 0).toFixed(1)}` : '—'}
-            valueClassName={product.reviewCount > 0 ? 'text-amber-400' : 'text-gray-400'}
-            label={product.reviewCount > 0 ? `${product.reviewCount} ${t('products.reviewsWord')}` : t('products.noReviewsShort')}
-          />
-          <StatCol
-            value={
-              <span className="inline-flex items-center gap-1 justify-center">
-                <CartStatIcon className="w-3.5 h-3.5" />
-                {product.orderCount}
-              </span>
-            }
-            label={t('products.ordersWord')}
-            divider
-          />
-          {canSeeCosts && product.totalProfit != null ? (
-            <StatCol
-              value={`৳${Math.round(product.totalProfit).toLocaleString()}`}
-              valueClassName="text-green-400"
-              label={t('products.totalProfitWord')}
-              divider
-            />
-          ) : (
-            <StatCol
-              value={`${product.variantCount} / ${product.totalStock}`}
-              label={`${t('products.variantsLabel')} / ${product.unitCode}`}
-              divider
-            />
-          )}
-        </div>
       </div>
     </Link>
   );

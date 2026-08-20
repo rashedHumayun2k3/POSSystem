@@ -12,6 +12,7 @@ public class PurchaseTrip : BusinessScopedEntity, IBranchScoped
     public string? Note { get; set; }
     public DateTime? ExpectedDeliveryDate { get; set; }
     public string? SupplierPoRef { get; set; }
+    public string AttachmentsJson { get; set; } = "[]";
     public Guid CreatedBy { get; set; }
     public Guid? ApprovedBy { get; set; }
     public DateTime? CompletedAt { get; set; }

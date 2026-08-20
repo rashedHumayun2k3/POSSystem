@@ -2,7 +2,7 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { User, Business, SalesChannel } from "@/types/auth";
+import type { User, Business, SalesChannel, ShopType } from "@/types/auth";
 import type { Branch } from "@/types/branch";
 
 function authStoreDebug(message: string, details?: Record<string, unknown>) {
@@ -23,7 +23,7 @@ interface AuthState {
   setHasHydrated: (hasHydrated: boolean) => void;
   setAuth: (user: User, businesses: Business[], access: string, refresh: string) => void;
   updateUserPhoto: (photoUrl: string | null) => void;
-  updateCurrentBusinessSalesChannels: (salesChannels: SalesChannel[]) => void;
+  updateCurrentBusinessSalesChannels: (salesChannels: SalesChannel[], shopType?: ShopType) => void;
   switchBusiness: (id: string) => void;
   setBranches: (branches: Branch[]) => void;
   switchBranch: (id: string) => void;
@@ -74,11 +74,11 @@ export const useAuthStore = create<AuthState>()(
         set({ user: { ...current, photoUrl } });
       },
 
-      updateCurrentBusinessSalesChannels: (salesChannels) => {
+      updateCurrentBusinessSalesChannels: (salesChannels, shopType) => {
         const { businesses, currentBusinessId } = get();
         set({
           businesses: businesses.map((b) =>
-            b.id === currentBusinessId ? { ...b, salesChannels } : b
+            b.id === currentBusinessId ? { ...b, salesChannels, shopType: shopType ?? b.shopType } : b
           ),
         });
       },
@@ -89,7 +89,22 @@ export const useAuthStore = create<AuthState>()(
         set({ currentBusinessId: id, branches: [], currentBranchId: null });
       },
 
-      setBranches: (branches) => set({ branches }),
+      setBranches: (branches) => {
+        if (branches.length === 1) {
+          localStorage.setItem("branchId", branches[0].id);
+          set({ branches, currentBranchId: branches[0].id });
+          return;
+        }
+
+        const currentBranchId = get().currentBranchId;
+        if (currentBranchId && !branches.some((branch) => branch.id === currentBranchId)) {
+          localStorage.removeItem("branchId");
+          set({ branches, currentBranchId: null });
+          return;
+        }
+
+        set({ branches });
+      },
 
       switchBranch: (id) => {
         localStorage.setItem("branchId", id);
@@ -135,6 +150,9 @@ export const useAuthStore = create<AuthState>()(
           businessId: state?.currentBusinessId,
           hasAccessToken: Boolean(state?.accessToken),
         });
+        if (state?.branches.length === 1 && state.currentBranchId !== state.branches[0].id) {
+          state.switchBranch(state.branches[0].id);
+        }
         state?.setHasHydrated(true);
       },
     }

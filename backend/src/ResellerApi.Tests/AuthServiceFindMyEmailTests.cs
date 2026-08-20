@@ -179,8 +179,10 @@ public class AuthServiceFindMyEmailTests
 
     private class FakeEmailSender : IEmailSender
     {
-        public Task SendVerificationCodeAsync(string email, string code) => Task.CompletedTask;
-        public Task SendPasswordResetCodeAsync(string email, string code) => Task.CompletedTask;
+        public Task SendVerificationCodeAsync(string email, string code, string? lang = null) => Task.CompletedTask;
+        public Task SendPasswordResetCodeAsync(string email, string code, string? lang = null) => Task.CompletedTask;
+        public Task SendEmailWithAttachmentAsync(string email, string subject, string htmlBody,
+            byte[] attachmentBytes, string attachmentFileName, string attachmentContentType) => Task.CompletedTask;
     }
 
     private class FakeActivityLogService : IActivityLogService

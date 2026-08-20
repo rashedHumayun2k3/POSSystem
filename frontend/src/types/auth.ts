@@ -13,6 +13,7 @@ export type BusinessType =
 
 // How the business sells — distinct from BusinessType (which is industry/product category).
 export type SalesChannel = "POS" | "HAWKER" | "ONLINE";
+export type ShopType = "BIG_SUPERSHOP" | "SMALL_SHOWROOM" | "HAWKER_SHOP";
 
 export interface User {
   id: string;
@@ -31,6 +32,7 @@ export interface Business {
   country?: string | null;
   businessTypes?: BusinessType[];
   salesChannels?: SalesChannel[];
+  shopType?: ShopType | null;
   onboardingCompleted?: boolean;
 }
 
@@ -106,4 +108,5 @@ export interface SetBusinessTypesRequest {
 
 export interface SetSalesChannelsRequest {
   salesChannels: SalesChannel[];
+  shopType?: ShopType;
 }

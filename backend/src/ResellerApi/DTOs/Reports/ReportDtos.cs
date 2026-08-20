@@ -28,13 +28,32 @@ public record DashboardKpiDto(
 
 // ── Home summary (mobile home page tiles) ────────────────────────────────────
 
+public record HomeTopProductDto(
+    string Name,
+    decimal Quantity,
+    decimal Revenue
+);
+
 public record HomeSummaryDto(
+    decimal TodaySales,
+    decimal YesterdaySales,
+    decimal? SalesChangePercent,
+    decimal? TodayProfit,
+    decimal? TodayMarginPercent,
     int TodayOrders,
+    int PendingOrders,
     int PendingDeliveries,
-    int StockAlerts,
+    int TodayReturns,
+    int LowStockCount,
+    int OutOfStockCount,
     decimal CustomerReceivable, // customer baki — excludes COD cash currently held at courier
+    int CustomersWithDue,
     decimal MoneyAtCourier,     // COD collected by courier, pending remittance to us
-    decimal TodayCash           // cash payments received today — not net of cash spent from the drawer
+    decimal TodayCash,          // cash payments received today — not net of cash spent from the drawer
+    decimal? SupplierPayable,
+    int? SuppliersWithDue,
+    List<DatePoint> SevenDaySales,
+    List<HomeTopProductDto> TopProductsToday
 );
 
 // ── Sales ─────────────────────────────────────────────────────────────────────
@@ -58,6 +77,8 @@ public record StockStatusItem(
     string VariantSku,
     string ProductName,
     string? VariantLabel,
+    string? Barcode,
+    string? ImageUrl,
     decimal OnHand,
     decimal Allocated,
     decimal Available,
@@ -109,3 +130,95 @@ public record OrdersReportDto(
     List<NameValue> ReturnReasons,
     List<NameValue> OrdersByChannel
 );
+
+// ── Daily Closing Summary ────────────────────────────────────────────────────
+
+public record DailyClosingStatusCountDto(string Status, int Count);
+
+public record DailyClosingSoldProductDto(
+    string ProductName,
+    string? VariantLabel,
+    string Sku,
+    decimal Qty,
+    decimal Revenue,
+    decimal Profit
+);
+
+public record DailyClosingLowStockDto(
+    string ProductName,
+    string? VariantLabel,
+    string Sku,
+    decimal Quantity,
+    decimal ReorderLevel
+);
+
+public record DailyClosingPurchaseItemDto(
+    string ProductName,
+    string? VariantLabel,
+    string Sku,
+    decimal Qty,
+    decimal TotalCost
+);
+
+public record DailyClosingOrderItemDto(
+    string OrderNo,
+    string CustomerName,
+    decimal Amount,
+    string Status,
+    string? Note
+);
+
+public record DailyClosingExpenseDto(string Type, decimal Amount);
+
+public record DailyClosingCustomerInsightDto(
+    int NewCustomersToday,
+    int ReturningCustomers,
+    string? HighestSpendingCustomerName,
+    decimal HighestSpendingCustomerAmount,
+    int CustomerComplaints
+);
+
+public record DailyClosingHealthDto(string Label, string Status, string Tone);
+
+public record DailyClosingReportDto(
+    DateTime Date,
+    string DayName,
+    string BusinessName,
+    string BranchName,
+    bool IsAllBranches,
+    decimal TotalSales,
+    decimal NetSales,
+    decimal TotalProfit,
+    decimal NetProfit,
+    decimal TotalDue,
+    decimal TotalPaid,
+    decimal TotalDiscount,
+    decimal TotalExpenses,
+    decimal AverageOrderValue,
+    decimal DueCollection,
+    decimal NewDueCreated,
+    decimal TotalOutstandingDue,
+    int OrdersReceived,
+    int OrdersDelivered,
+    int OrdersPending,
+    int OrdersReturned,
+    int OrdersCancelled,
+    decimal PurchaseTotal,
+    decimal PurchaseQty,
+    string? TopSellingProduct,
+    List<DailyClosingStatusCountDto> OrderStatuses,
+    List<NameValue> PaymentMethods,
+    List<DailyClosingSoldProductDto> SoldProducts,
+    List<DailyClosingLowStockDto> LowStockProducts,
+    List<DailyClosingPurchaseItemDto> PurchaseItems,
+    List<DailyClosingOrderItemDto> NewOrders,
+    List<DailyClosingOrderItemDto> DeliveredOrders,
+    List<DailyClosingOrderItemDto> ReturnedOrders,
+    List<DailyClosingOrderItemDto> PendingOrders,
+    List<DailyClosingExpenseDto> Expenses,
+    DailyClosingCustomerInsightDto CustomerInsights,
+    List<string> TomorrowActionItems,
+    List<DailyClosingHealthDto> OwnerDashboard
+);
+
+public record SendDailyClosingReportRequest(DateTime? Date, string? Lang);

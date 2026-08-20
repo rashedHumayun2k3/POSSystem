@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense } from "react";
+import { Suspense, useEffect } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useAuthStore } from "@/store/authStore";
 import { useLogout } from "@/hooks/useAuth";
@@ -19,6 +19,13 @@ function SelectBranchPageInner() {
   const logout = useLogout();
   const searchParams = useSearchParams();
   const noBranchesAssigned = searchParams.get("error") === "none";
+
+  useEffect(() => {
+    if (!noBranchesAssigned && branches.length === 1) {
+      switchBranch(branches[0].id);
+      router.replace("/dashboard");
+    }
+  }, [branches, noBranchesAssigned, router, switchBranch]);
 
   const handleSelect = (branchId: string) => {
     switchBranch(branchId);
@@ -44,6 +51,8 @@ function SelectBranchPageInner() {
       </div>
     );
   }
+
+  if (branches.length === 1) return null;
 
   return (
     <div className="w-full max-w-sm">

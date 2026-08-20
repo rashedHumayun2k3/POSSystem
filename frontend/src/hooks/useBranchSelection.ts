@@ -8,7 +8,7 @@ import { listMyBranches } from "@/lib/branchesApi";
 // or routes to the branch picker (or a blocking error if none are assigned). Used right
 // after login and whenever the active business is switched.
 export function useBranchSelection() {
-  const { setBranches, switchBranch } = useAuthStore();
+  const { setBranches } = useAuthStore();
   const router = useRouter();
 
   return async function resolveBranch() {
@@ -16,7 +16,6 @@ export function useBranchSelection() {
     setBranches(branches);
 
     if (branches.length === 1) {
-      switchBranch(branches[0].id);
       router.replace("/dashboard");
     } else if (branches.length === 0) {
       router.replace("/select-branch?error=none");
