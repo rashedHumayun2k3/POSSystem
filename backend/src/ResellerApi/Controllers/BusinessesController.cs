@@ -1,8 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using System.Text.Json;
-using ResellerApi.DTOs.ClientPage;
 using ResellerApi.Data;
 using ResellerApi.DTOs.ExternalOrders;
 using ResellerApi.Entities;
@@ -38,8 +36,7 @@ public class BusinessesController : ControllerBase
         if (business is null) return NotFound();
         return Ok(new {
             business.ShowOnMarketplace, business.Subdomain, business.StorefrontEnabled, business.LogoUrl,
-            business.BannerUrl, business.ExternalWebsiteUrl, business.StorefrontThemeId,
-            WebsiteSettings = DeserializeWebsiteSettings(business.WebsiteSettingsJson)
+            business.ExternalWebsiteUrl
         });
     }
 
@@ -73,37 +70,6 @@ public class BusinessesController : ControllerBase
             "UPDATE", "Business", business.Id, before, new { business.LogoUrl });
 
         return Ok(new { business.LogoUrl });
-    }
-
-    [HttpPatch("banner")]
-    public async Task<IActionResult> UpdateBanner([FromBody] UpdateBannerRequest request)
-    {
-        var business = await _db.Businesses.FindAsync(_businessContext.CurrentBusinessId);
-        if (business is null) return NotFound();
-
-        var before = new { business.BannerUrl };
-        business.BannerUrl = string.IsNullOrWhiteSpace(request.BannerUrl) ? null : request.BannerUrl;
-        await _db.SaveChangesAsync();
-        await _activityLog.LogAsync(_businessContext.CurrentBusinessId, _currentUser.UserId,
-            "UPDATE", "Business", business.Id, before, new { business.BannerUrl });
-
-        return Ok(new { business.BannerUrl });
-    }
-
-    [HttpPatch("website-settings")]
-    public async Task<IActionResult> UpdateWebsiteSettings([FromBody] StorefrontWebsiteSettingsDto request)
-    {
-        var business = await _db.Businesses.FindAsync(_businessContext.CurrentBusinessId);
-        if (business is null) return NotFound();
-
-        var sanitized = SanitizeWebsiteSettings(request);
-        var before = new { business.WebsiteSettingsJson };
-        business.WebsiteSettingsJson = JsonSerializer.Serialize(sanitized, JsonOptions);
-        await _db.SaveChangesAsync();
-        await _activityLog.LogAsync(_businessContext.CurrentBusinessId, _currentUser.UserId,
-            "UPDATE", "Business", business.Id, before, new { business.WebsiteSettingsJson });
-
-        return Ok(new { WebsiteSettings = sanitized });
     }
 
     // Claiming a subdomain also turns the shop page on immediately (StorefrontEnabled = true) —
@@ -153,25 +119,6 @@ public class BusinessesController : ControllerBase
             "UPDATE", "Business", business.Id, before, new { business.ExternalWebsiteUrl });
 
         return Ok(new { business.ExternalWebsiteUrl });
-    }
-
-    [HttpPatch("storefront-theme")]
-    public async Task<IActionResult> UpdateStorefrontTheme([FromBody] UpdateStorefrontThemeRequest request)
-    {
-        var themeId = NormalizeStorefrontThemeId(request.ThemeId);
-        if (themeId is null)
-            return BadRequest(new { message = "Choose a valid storefront theme." });
-
-        var business = await _db.Businesses.FindAsync(_businessContext.CurrentBusinessId);
-        if (business is null) return NotFound();
-
-        var before = new { business.StorefrontThemeId };
-        business.StorefrontThemeId = themeId;
-        await _db.SaveChangesAsync();
-        await _activityLog.LogAsync(_businessContext.CurrentBusinessId, _currentUser.UserId,
-            "UPDATE", "Business", business.Id, before, new { business.StorefrontThemeId });
-
-        return Ok(new { business.StorefrontThemeId });
     }
 
     [HttpPatch("storefront-enabled")]
@@ -273,60 +220,11 @@ public class BusinessesController : ControllerBase
             ? url
             : $"https://{url}";
     }
-
-    private static string? NormalizeStorefrontThemeId(string? value)
-    {
-        var themeId = value?.Trim().ToLowerInvariant();
-        return themeId is "clean-light" or "luxury-dark" or "soft-pastel" or "fresh-green" or "modern-blue" or "warm-sunset"
-            ? themeId
-            : null;
-    }
-
-    private static StorefrontWebsiteSettingsDto? DeserializeWebsiteSettings(string? json)
-    {
-        if (string.IsNullOrWhiteSpace(json)) return null;
-        try
-        {
-            return JsonSerializer.Deserialize<StorefrontWebsiteSettingsDto>(json, JsonOptions);
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
-    }
-
-    private static StorefrontWebsiteSettingsDto SanitizeWebsiteSettings(StorefrontWebsiteSettingsDto value) => new(
-        TrimToNull(value.FaviconUrl),
-        value.SliderImageUrls?.Select(TrimToNull).Where(x => x != null).Cast<string>().Take(5).ToList(),
-        TrimToNull(value.AboutText),
-        TrimToNull(value.ContactPhone),
-        TrimToNull(value.WhatsappNumber),
-        TrimToNull(value.ContactEmail),
-        TrimToNull(value.Address),
-        TrimToNull(value.DeliveryPolicy),
-        TrimToNull(value.ReturnPolicy),
-        TrimToNull(value.PrivacyPolicy),
-        TrimToNull(value.TermsPolicy)
-    );
-
-    private static string? TrimToNull(string? value)
-    {
-        var trimmed = value?.Trim();
-        return string.IsNullOrEmpty(trimmed) ? null : trimmed;
-    }
-
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNameCaseInsensitive = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-    };
 }
 
 public record StorefrontSettingsRequest(bool ShowOnMarketplace);
 public record SetSubdomainRequest(string Subdomain);
 public record SetStorefrontEnabledRequest(bool Enabled);
 public record UpdateLogoRequest(string? LogoUrl);
-public record UpdateBannerRequest(string? BannerUrl);
 public record UpdateWebsiteRequest(string? WebsiteUrl);
-public record UpdateStorefrontThemeRequest(string? ThemeId);
 public record SetExternalOrderIntegrationActiveRequest(bool IsActive);

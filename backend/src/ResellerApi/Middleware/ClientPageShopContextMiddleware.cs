@@ -56,7 +56,6 @@ public class ClientPageShopContextMiddleware
                 shopContext.LogoUrl = business.LogoUrl;
                 shopContext.BannerUrl = business.BannerUrl;
                 shopContext.WebsiteUrl = business.ExternalWebsiteUrl;
-                shopContext.WebsiteSettingsJson = business.WebsiteSettingsJson;
             }
         }
 

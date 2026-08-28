@@ -1,7 +1,0 @@
-1:"$Sreact.fragment"
-2:I[47721,["/_next/static/chunks/3zi27dtmteq06.js","/_next/static/chunks/2x2rtdvfhs1fn.js","/_next/static/chunks/14mrh2-p_w84d.js","/_next/static/chunks/0l1wp8ujly70t.js"],"default"]
-4:I[97367,["/_next/static/chunks/3zi27dtmteq06.js","/_next/static/chunks/2x2rtdvfhs1fn.js","/_next/static/chunks/14mrh2-p_w84d.js"],"OutletBoundary"]
-5:"$Sreact.suspense"
-0:{"rsc":["$","$1","c",{"children":[["$","$L2",null,{"params":"$@3"}],[["$","script","script-0",{"src":"/_next/static/chunks/0l1wp8ujly70t.js","async":true}]],["$","$L4",null,{"children":["$","$5",null,{"name":"Next.MetadataOutlet","children":"$@6"}]}]]}],"isPartial":false,"staleTime":300,"varyParams":null,"buildId":"ITQ-5b4WGvOBA1klWdXB8"}
-3:{"slug":"template-product"}
-6:null

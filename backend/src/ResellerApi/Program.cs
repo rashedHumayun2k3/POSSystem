@@ -113,7 +113,6 @@ builder.Services.AddScoped<ISuggestedCatalogService, SuggestedCatalogService>();
 
 builder.Services.AddScoped<IClientPageCatalogService, ClientPageCatalogService>();
 builder.Services.AddScoped<IClientPageCheckoutService, ClientPageCheckoutService>();
-builder.Services.AddScoped<IStorefrontExportService, StorefrontExportService>();
 
 // ── FluentValidation ──────────────────────────────────────────────────────
 builder.Services.AddValidatorsFromAssemblyContaining<LoginRequestValidator>();
@@ -122,30 +121,26 @@ builder.Services.AddValidatorsFromAssemblyContaining<LoginRequestValidator>();
 builder.Services.AddSignalR();
 
 // ── Hangfire ──────────────────────────────────────────────────────────────
-var hangfireEnabled = config.GetValue("Hangfire:Enabled", true);
-if (hangfireEnabled)
-{
-    builder.Services.AddHangfire(hf => hf
-        .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
-        .UseSimpleAssemblyNameTypeSerializer()
-        .UseRecommendedSerializerSettings()
-        .UseSqlServerStorage(config.GetConnectionString("Default"),
-            new SqlServerStorageOptions
-            {
-                CommandBatchMaxTimeout = TimeSpan.FromMinutes(5),
-                SlidingInvisibilityTimeout = TimeSpan.FromMinutes(5),
-                QueuePollInterval = TimeSpan.Zero,
-                UseRecommendedIsolationLevel = true,
-                DisableGlobalLocks = true
-            }));
-    builder.Services.AddHangfireServer();
-}
+builder.Services.AddHangfire(hf => hf
+    .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
+    .UseSimpleAssemblyNameTypeSerializer()
+    .UseRecommendedSerializerSettings()
+    .UseSqlServerStorage(config.GetConnectionString("Default"),
+        new SqlServerStorageOptions
+        {
+            CommandBatchMaxTimeout = TimeSpan.FromMinutes(5),
+            SlidingInvisibilityTimeout = TimeSpan.FromMinutes(5),
+            QueuePollInterval = TimeSpan.Zero,
+            UseRecommendedIsolationLevel = true,
+            DisableGlobalLocks = true
+        }));
+builder.Services.AddHangfireServer();
 
 // ── CORS ──────────────────────────────────────────────────────────────────
 var allowedOrigins = config.GetSection("AllowedOrigins").Get<string[]>() ?? [];
 builder.Services.AddCors(options =>
     options.AddPolicy("FrontendPolicy", policy =>
-        policy.SetIsOriginAllowed(origin => StorefrontCorsOrigins.IsAllowed(origin, allowedOrigins, config))
+        policy.WithOrigins(allowedOrigins)
               .AllowAnyHeader()
               .AllowAnyMethod()
               .AllowCredentials()));
@@ -245,7 +240,6 @@ app.MapScalarApiReference(options =>
     options.DefaultHttpClient = new(ScalarTarget.JavaScript, ScalarClient.Fetch);
 });
 
-app.UseMiddleware<RegisteredStorefrontCorsMiddleware>();
 app.UseCors("FrontendPolicy");
 app.UseAuthentication();
 app.UseAuthorization();
@@ -254,29 +248,26 @@ app.UseMiddleware<BusinessContextMiddleware>();
 app.UseMiddleware<SubscriptionGateMiddleware>();
 app.UseMiddleware<ClientPageShopContextMiddleware>();
 
-if (hangfireEnabled)
+app.UseHangfireDashboard("/hangfire", new DashboardOptions
 {
-    app.UseHangfireDashboard("/hangfire", new DashboardOptions
-    {
-        Authorization = [] // restrict in production
-    });
+    Authorization = [] // restrict in production
+});
 
-    // ── Hangfire recurring jobs ───────────────────────────────────────────
-    RecurringJob.AddOrUpdate<IPriceHistoryService>(
-        "apply-scheduled-prices",
-        svc => svc.ApplyScheduledPriceChangesAsync(),
-        "*/5 * * * *"); // every 5 minutes
+// ── Hangfire recurring jobs ───────────────────────────────────────────────
+RecurringJob.AddOrUpdate<IPriceHistoryService>(
+    "apply-scheduled-prices",
+    svc => svc.ApplyScheduledPriceChangesAsync(),
+    "*/5 * * * *"); // every 5 minutes
 
-    RecurringJob.AddOrUpdate<ISubscriptionService>(
-        "expire-subscriptions",
-        svc => svc.ExpireDueSubscriptionsAsync(),
-        "0 * * * *"); // hourly
+RecurringJob.AddOrUpdate<ISubscriptionService>(
+    "expire-subscriptions",
+    svc => svc.ExpireDueSubscriptionsAsync(),
+    "0 * * * *"); // hourly
 
-    RecurringJob.AddOrUpdate<IPopularityService>(
-        "recompute-popularity-and-ratings",
-        svc => svc.RecomputeAsync(),
-        "0 21 * * *"); // once daily, off-peak
-}
+RecurringJob.AddOrUpdate<IPopularityService>(
+    "recompute-popularity-and-ratings",
+    svc => svc.RecomputeAsync(),
+    "0 21 * * *"); // once daily, off-peak
 
 app.MapControllers();
 app.MapHub<LiveHub>("/hubs/live");
@@ -292,8 +283,6 @@ using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     await db.Database.MigrateAsync();
-    await EnsureStorefrontThemeColumnAsync(db);
-    await EnsureWebsiteSettingsColumnAsync(db);
     await SeedAsync(db);
 }
 
@@ -1256,29 +1245,6 @@ static async Task SeedAsync(AppDbContext db)
         );
         await db.SaveChangesAsync();
     }
-}
-
-static async Task EnsureStorefrontThemeColumnAsync(AppDbContext db)
-{
-    await db.Database.ExecuteSqlRawAsync("""
-        IF COL_LENGTH('businesses', 'StorefrontThemeId') IS NULL
-        BEGIN
-            ALTER TABLE [businesses]
-            ADD [StorefrontThemeId] nvarchar(40) NOT NULL
-                CONSTRAINT [DF_businesses_StorefrontThemeId] DEFAULT N'clean-light'
-        END
-        """);
-}
-
-static async Task EnsureWebsiteSettingsColumnAsync(AppDbContext db)
-{
-    await db.Database.ExecuteSqlRawAsync("""
-        IF COL_LENGTH('businesses', 'WebsiteSettingsJson') IS NULL
-        BEGIN
-            ALTER TABLE [businesses]
-            ADD [WebsiteSettingsJson] nvarchar(max) NULL
-        END
-        """);
 }
 
 static async Task AddCategoryAsync(

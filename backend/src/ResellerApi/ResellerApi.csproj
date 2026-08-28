@@ -36,7 +36,6 @@
 
   <ItemGroup>
     <Content Include="Templates\Emails\*.html" CopyToOutputDirectory="PreserveNewest" />
-    <Content Include="StorefrontTemplate\**\*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

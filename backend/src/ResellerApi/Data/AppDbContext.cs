@@ -204,8 +204,6 @@ public class AppDbContext : DbContext
             e.Property(x => x.LogoUrl).HasMaxLength(500);
             e.Property(x => x.BannerUrl).HasMaxLength(500);
             e.Property(x => x.ExternalWebsiteUrl).HasMaxLength(500);
-            e.Property(x => x.StorefrontThemeId).HasMaxLength(40).IsRequired().HasDefaultValue("clean-light");
-            e.Property(x => x.WebsiteSettingsJson);
             e.HasIndex(x => x.Subdomain).IsUnique().HasFilter("[Subdomain] IS NOT NULL");
             e.HasOne(x => x.Company).WithMany(c => c.Businesses)
                 .HasForeignKey(x => x.CompanyId).OnDelete(DeleteBehavior.Restrict);

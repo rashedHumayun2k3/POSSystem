@@ -6,20 +6,5 @@ public record ClientPageShopContextDto(
     string? ShopName,
     string? LogoUrl,
     string? BannerUrl,
-    string? WebsiteUrl,
-    StorefrontWebsiteSettingsDto? WebsiteSettings
-);
-
-public record StorefrontWebsiteSettingsDto(
-    string? FaviconUrl,
-    List<string>? SliderImageUrls,
-    string? AboutText,
-    string? ContactPhone,
-    string? WhatsappNumber,
-    string? ContactEmail,
-    string? Address,
-    string? DeliveryPolicy,
-    string? ReturnPolicy,
-    string? PrivacyPolicy,
-    string? TermsPolicy
+    string? WebsiteUrl
 );
