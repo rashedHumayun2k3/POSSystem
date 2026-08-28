@@ -38,7 +38,12 @@ builder.Services.AddScoped<MediaStorageService>();
 var allowedOrigins = config.GetSection("AllowedOrigins").Get<string[]>() ?? [];
 builder.Services.AddCors(options =>
     options.AddPolicy("FrontendPolicy", policy =>
-        policy.WithOrigins(allowedOrigins)
+        policy.SetIsOriginAllowedToAllowWildcardSubdomains()
+              .SetIsOriginAllowed(origin =>
+              {
+                  if (string.IsNullOrWhiteSpace(origin)) return false;
+                  return allowedOrigins.Any(o => string.Equals(o, origin, StringComparison.OrdinalIgnoreCase));
+              })
               .AllowAnyHeader()
               .AllowAnyMethod()
               .AllowCredentials()));
@@ -84,6 +89,42 @@ app.UseStaticFiles(new StaticFileOptions
     RequestPath = "/uploads"
 });
 
+app.Use(async (context, next) =>
+{
+    var origin = context.Request.Headers.Origin.FirstOrDefault();
+    if (string.IsNullOrWhiteSpace(origin))
+    {
+        await next(context);
+        return;
+    }
+
+    await using var scope = app.Services.CreateAsyncScope();
+    var db = scope.ServiceProvider.GetRequiredService<MediaDbContext>();
+    if (!await IsRegisteredStorefrontOriginAsync(db, origin, context.RequestAborted))
+    {
+        await next(context);
+        return;
+    }
+
+    context.Response.OnStarting(() =>
+    {
+        context.Response.Headers.AccessControlAllowOrigin = origin;
+        context.Response.Headers.AccessControlAllowHeaders = "Authorization,Content-Type";
+        context.Response.Headers.AccessControlAllowMethods = "GET,POST,OPTIONS";
+        context.Response.Headers.AccessControlAllowCredentials = "true";
+        context.Response.Headers.Vary = "Origin";
+        return Task.CompletedTask;
+    });
+
+    if (HttpMethods.IsOptions(context.Request.Method))
+    {
+        context.Response.StatusCode = StatusCodes.Status204NoContent;
+        return;
+    }
+
+    await next(context);
+});
+
 app.UseCors("FrontendPolicy");
 app.UseAuthentication();
 app.UseAuthorization();
@@ -95,3 +136,30 @@ app.MapGet("/api/v1/health", async (MediaDbContext db) =>
     await db.Database.CanConnectAsync() ? Results.Ok(new { status = "ok" }) : Results.StatusCode(503));
 
 app.Run();
+
+static async Task<bool> IsRegisteredStorefrontOriginAsync(MediaDbContext db, string origin, CancellationToken cancellationToken)
+{
+    var urls = await db.Businesses
+        .AsNoTracking()
+        .Where(b => b.DeletedAt == null && b.StorefrontEnabled && b.ExternalWebsiteUrl != null)
+        .Select(b => b.ExternalWebsiteUrl!)
+        .ToListAsync(cancellationToken);
+
+    return urls.SelectMany(ToOrigins).Contains(origin, StringComparer.OrdinalIgnoreCase);
+}
+
+static IEnumerable<string> ToOrigins(string websiteUrl)
+{
+    if (!Uri.TryCreate(websiteUrl, UriKind.Absolute, out var uri)) yield break;
+
+    yield return $"{uri.Scheme}://{uri.Host}";
+
+    if (uri.Host.StartsWith("www.", StringComparison.OrdinalIgnoreCase))
+    {
+        yield return $"{uri.Scheme}://{uri.Host[4..]}";
+    }
+    else
+    {
+        yield return $"{uri.Scheme}://www.{uri.Host}";
+    }
+}

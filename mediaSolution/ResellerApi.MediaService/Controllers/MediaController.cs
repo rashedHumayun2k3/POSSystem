@@ -43,7 +43,7 @@ public class MediaController : ControllerBase
 
         try
         {
-            var url = await _storage.SaveImageAsync(file, businessId);
+            var url = await _storage.SaveFileAsync(file, businessId);
             return Ok(new { url });
         }
         catch (ArgumentException ex)
