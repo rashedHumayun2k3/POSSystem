@@ -16,6 +16,13 @@ node_modules/
 .next/
 out/
 *.tsbuildinfo
+frontend/.next.zip
+
+# Environment files
+.env
+.env.*
+**/.env
+**/.env.*
 
 *.db-shm
 *.db-wal
@@ -25,6 +32,11 @@ out/
 
 # Misc logs
 *.log
+*.err.log
+
+# Local tooling / temp folders
+.claude/
+.tmp-*/
 
 ################################################################################
 # OS junk
