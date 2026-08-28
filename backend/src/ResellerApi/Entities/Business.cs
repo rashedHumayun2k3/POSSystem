@@ -20,6 +20,8 @@ public class Business : BaseEntity
     public bool ShowOnMarketplace { get; set; }
     public bool StorefrontEnabled { get; set; }
     public string? ExternalWebsiteUrl { get; set; } // the business's own website, if it has one — shown on its ClientPage shop page
+    public string StorefrontThemeId { get; set; } = "clean-light";
+    public string? WebsiteSettingsJson { get; set; }
 
     public Company Company { get; set; } = null!;
     public ICollection<BusinessUser> BusinessUsers { get; set; } = new List<BusinessUser>();

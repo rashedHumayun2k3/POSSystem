@@ -1,0 +1,108 @@
+@import "tailwindcss";
+
+:root {
+  --font-inter: "Inter", system-ui, sans-serif;
+  --storefront-bg: #f9fafb;
+  --storefront-surface: #ffffff;
+  --storefront-header: #4f46e5;
+  --storefront-header-muted: #3730a3;
+  --storefront-text: #111827;
+  --storefront-muted-text: #6b7280;
+  --storefront-accent: #4f46e5;
+  --storefront-accent-text: #ffffff;
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+@layer base {
+  button, [role="button"] {
+    cursor: pointer;
+  }
+}
+
+body {
+  font-family: var(--font-inter), system-ui, sans-serif;
+  background: var(--storefront-bg);
+  color: var(--storefront-text);
+}
+
+body[data-storefront-theme] .storefront-shell {
+  background: var(--storefront-surface);
+  color: var(--storefront-text);
+}
+
+body[data-storefront-theme] .storefront-themed-header {
+  background: var(--storefront-header);
+  color: #ffffff;
+}
+
+body[data-storefront-theme] .storefront-themed-header-muted {
+  background: var(--storefront-header-muted);
+}
+
+body[data-storefront-theme] .storefront-themed-accent {
+  background: var(--storefront-accent);
+  color: var(--storefront-accent-text);
+}
+
+body[data-storefront-theme] .bg-white {
+  background-color: var(--storefront-surface) !important;
+}
+
+body[data-storefront-theme] .bg-gray-50 {
+  background-color: color-mix(in srgb, var(--storefront-bg) 82%, var(--storefront-surface)) !important;
+}
+
+body[data-storefront-theme] .bg-indigo-600,
+body[data-storefront-theme] .hover\:bg-indigo-700:hover {
+  background-color: var(--storefront-accent) !important;
+  color: var(--storefront-accent-text) !important;
+}
+
+body[data-storefront-theme] .text-gray-900,
+body[data-storefront-theme] .text-gray-800,
+body[data-storefront-theme] .text-gray-700 {
+  color: var(--storefront-text) !important;
+}
+
+body[data-storefront-theme] .text-gray-600,
+body[data-storefront-theme] .text-gray-500,
+body[data-storefront-theme] .text-gray-400 {
+  color: var(--storefront-muted-text) !important;
+}
+
+body[data-storefront-theme] .text-indigo-600,
+body[data-storefront-theme] .text-indigo-700,
+body[data-storefront-theme] .text-orange-600 {
+  color: var(--storefront-accent) !important;
+}
+
+body[data-storefront-theme] .border-indigo-200,
+body[data-storefront-theme] .border-indigo-600 {
+  border-color: color-mix(in srgb, var(--storefront-accent) 55%, transparent) !important;
+}
+
+@keyframes hero-kenburns {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.07); }
+}
+@keyframes hero-float {
+  0%, 100% { transform: translate(0, 0); }
+  50% { transform: translate(10px, -16px); }
+}
+@keyframes hero-float-reverse {
+  0%, 100% { transform: translate(0, 0); }
+  50% { transform: translate(-12px, 14px); }
+}
+
+.animate-hero-kenburns {
+  animation: hero-kenburns 9s ease-in-out infinite;
+}
+.animate-hero-float {
+  animation: hero-float 7s ease-in-out infinite;
+}
+.animate-hero-float-reverse {
+  animation: hero-float-reverse 8.5s ease-in-out infinite;
+}

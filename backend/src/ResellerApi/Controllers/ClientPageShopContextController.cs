@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Text.Json;
 using ResellerApi.DTOs.ClientPage;
 using ResellerApi.Infrastructure;
 
@@ -26,7 +27,27 @@ public class ClientPageShopContextController : ControllerBase
             _shopContext.ShopName,
             _shopContext.LogoUrl,
             _shopContext.BannerUrl,
-            _shopContext.WebsiteUrl
+            _shopContext.WebsiteUrl,
+            DeserializeWebsiteSettings(_shopContext.WebsiteSettingsJson)
         ));
     }
+
+    private static StorefrontWebsiteSettingsDto? DeserializeWebsiteSettings(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return null;
+        try
+        {
+            return JsonSerializer.Deserialize<StorefrontWebsiteSettingsDto>(json, JsonOptions);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+    };
 }
