@@ -16,12 +16,15 @@ export interface CategoryWithSuggestions {
 export interface SuggestedProduct {
   id: string;
   name: string;
+  imageUrl: string | null;
+  imageSource: "COMMON" | "INDIVIDUAL";
   alreadyAdded: boolean;
   existingSellingPrice?: number | null;
   existingQuantity?: number | null;
 }
 
 export interface QuickAddProductItem {
+  suggestedProductId?: string | null;
   name: string;
   sellingPrice?: number;
   quantity: number;

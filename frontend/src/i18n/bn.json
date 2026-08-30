@@ -749,6 +749,8 @@
     "viewAllReviewsButton": "সব রিভিউ দেখুন",
     "missingPhotoMarketplaceWarning": "এই পণ্যের কোনো ছবি নেই — মার্কেটপ্লেসে ভালো দেখানোর জন্য একটি ছবি যোগ করুন।",
     "variantImageLabel": "এই ভ্যারিয়েন্টের ছবি",
+    "chooseExistingImage": "বিদ্যমান ছবি বাছাই করুন",
+    "useExistingImage": "এই ছবি ব্যবহার করুন",
     "variantImageHint": "ঐচ্ছিক — না দিলে প্রোডাক্টের ছবি দেখাবে",
     "addVariantBtn": "নতুন ভ্যারিয়েন্ট যোগ করুন",
     "addVariantTitle": "নতুন ভ্যারিয়েন্ট যোগ করুন",

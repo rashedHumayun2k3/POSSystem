@@ -8,8 +8,11 @@ public class SuggestedProduct : BaseEntity
 {
     public Guid SuggestedCategoryId { get; set; }
     public string Name { get; set; } = null!;
+    public string? ImageUrl { get; set; }
+    public string ImageSource { get; set; } = "COMMON";
     public int SortOrder { get; set; }
     public bool IsActive { get; set; } = true;
 
     public SuggestedCategory SuggestedCategory { get; set; } = null!;
+    public ICollection<Product> BusinessProducts { get; set; } = new List<Product>();
 }

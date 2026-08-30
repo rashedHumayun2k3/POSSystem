@@ -20,6 +20,8 @@ public record CategoryWithSuggestionsDto(
 public record SuggestedProductDto(
     Guid Id,
     string Name,
+    string? ImageUrl,
+    string ImageSource,
     bool AlreadyAdded,
     decimal? ExistingSellingPrice,
     decimal? ExistingQuantity
@@ -28,6 +30,7 @@ public record SuggestedProductDto(
 // Quantity + UnitCost are always required — every product added through Quick Add gets a real
 // cost basis, same rule as New Product and Add Variant. SellingPrice stays optional.
 public record QuickAddProductItem(
+    Guid? SuggestedProductId,
     string Name,
     decimal? SellingPrice,
     decimal Quantity,

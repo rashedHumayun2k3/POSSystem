@@ -179,7 +179,14 @@ public class SuggestedCatalogService : ISuggestedCatalogService
             decimal? qty = existing?.DefaultVariantId != null && onHandByVariant.TryGetValue(existing.DefaultVariantId.Value, out var onHand)
                 ? onHand
                 : null;
-            return new SuggestedProductDto(sp.Id, sp.Name, existing != null, existing?.SellingPrice, qty);
+            return new SuggestedProductDto(
+                sp.Id,
+                sp.Name,
+                sp.ImageUrl,
+                sp.ImageSource,
+                existing != null,
+                existing?.SellingPrice,
+                qty);
         }).ToList();
     }
 
@@ -198,15 +205,35 @@ public class SuggestedCatalogService : ISuggestedCatalogService
         var results = new List<AddSuggestedProductsResultItem>();
         var openingStockItems = new List<(Guid VariantId, decimal Qty, decimal UnitCost)>();
 
+        var requestedSuggestionIds = request.Items
+            .Where(item => item.SuggestedProductId.HasValue)
+            .Select(item => item.SuggestedProductId!.Value)
+            .Distinct()
+            .ToList();
+        var suggestionsById = category.SuggestedCategoryId is null
+            ? new Dictionary<Guid, SuggestedProduct>()
+            : await _db.SuggestedProducts
+                .Where(sp => requestedSuggestionIds.Contains(sp.Id)
+                    && sp.SuggestedCategoryId == category.SuggestedCategoryId
+                    && sp.IsActive)
+                .ToDictionaryAsync(sp => sp.Id);
+
+        if (suggestionsById.Count != requestedSuggestionIds.Count)
+            throw new ArgumentException("One or more selected products are not active suggestions for this category.");
+
         foreach (var item in request.Items)
         {
-            var name = item.Name.Trim();
+            SuggestedProduct? suggestion = null;
+            if (item.SuggestedProductId.HasValue)
+                suggestion = suggestionsById[item.SuggestedProductId.Value];
+
+            var name = (suggestion?.Name ?? item.Name).Trim();
             if (name.Length == 0) continue;
 
             var createReq = new CreateProductRequest(
                 CategoryId: category.Id,
                 Name: name,
-                ImageUrl: null,
+                ImageUrl: suggestion?.ImageUrl,
                 Description: null,
                 DefectNotes: null,
                 UnitCode: category.DefaultUnit,
@@ -225,6 +252,14 @@ public class SuggestedCatalogService : ISuggestedCatalogService
                 WholesaleNote: null
             );
             var created = await _products.CreateAsync(createReq, userId);
+
+            if (suggestion != null)
+            {
+                var businessProduct = await _db.Products.FirstAsync(p => p.Id == created.Id);
+                businessProduct.SuggestedProductId = suggestion.Id;
+                businessProduct.ImageSource = "COMMON";
+                await _db.SaveChangesAsync();
+            }
 
             var defaultVariant = created.Variants.First(v => v.IsDefault);
             openingStockItems.Add((defaultVariant.Id, item.Quantity, item.UnitCost));

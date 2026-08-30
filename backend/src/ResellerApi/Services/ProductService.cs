@@ -120,7 +120,7 @@ public class ProductService : IProductService
         {
             var inv = await LoadInventoryAsync(p.Variants.Select(v => v.Id));
             return new ProductDetailDto(
-                p.Id, p.CategoryId, p.Name, p.Sku, p.ImageUrl, p.Description, p.DefectNotes,
+                p.Id, p.CategoryId, p.Name, p.Sku, p.ImageUrl, p.ImageSource, p.SuggestedProductId, p.Description, p.DefectNotes,
                 p.UnitCode, p.SellingPrice, p.MarketPrice, p.MarketplacePrice, p.PackagingCostPerUnit, p.LowStockThreshold,
                 p.AttributesJson, p.Note, p.Status, p.Category.Name,
                 p.Variants.Where(v => v.DeletedAt == null).Select(v => MapVariantDto(v, inv)).ToList(),
@@ -132,7 +132,7 @@ public class ProductService : IProductService
         }
 
         return new ProductDetailStaffDto(
-            p.Id, p.CategoryId, p.Name, p.Sku, p.ImageUrl, p.Description, p.DefectNotes,
+            p.Id, p.CategoryId, p.Name, p.Sku, p.ImageUrl, p.ImageSource, p.SuggestedProductId, p.Description, p.DefectNotes,
             p.UnitCode, p.SellingPrice, p.MarketPrice, p.MarketplacePrice, p.LowStockThreshold,
             p.AttributesJson, p.Note, p.Status, p.Category.Name,
             p.Variants.Where(v => v.DeletedAt == null).Select(MapVariantStaffDto).ToList(),
@@ -615,7 +615,11 @@ public class ProductService : IProductService
 
         product.CategoryId = request.CategoryId;
         product.Name = request.Name.Trim();
-        product.ImageUrl = request.ImageUrl;
+        if (!string.Equals(product.ImageUrl, request.ImageUrl, StringComparison.Ordinal))
+        {
+            product.ImageUrl = request.ImageUrl;
+            product.ImageSource = "INDIVIDUAL";
+        }
         product.Description = request.Description;
         product.DefectNotes = request.DefectNotes;
         product.UnitCode = request.UnitCode;

@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import Image from "next/image";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import SlidePanel from "@/components/ui/SlidePanel";
 import CustomSelect from "@/components/ui/CustomSelect";
@@ -11,6 +12,7 @@ import { useLanguage } from "@/i18n/LanguageContext";
 import { getCategoryEmoji } from "@/lib/categoryEmoji";
 import { suggestedCategoryDisplayName } from "@/lib/suggestedCategoryBn";
 import { toastError } from "@/lib/toastError";
+import { resolveMediaUrl } from "@/lib/media";
 
 interface Props {
   categories: CategoryWithSuggestions[];
@@ -20,10 +22,16 @@ export default function ProductSuggestionsPicker({ categories }: Props) {
   const { t, lang } = useLanguage();
   const qc = useQueryClient();
   const [activeCategory, setActiveCategory] = useState<CategoryWithSuggestions | null>(null);
-  const [selected, setSelected] = useState<Record<string, { qty: string; unitCost: string; price: string }>>({});
+  const [selected, setSelected] = useState<Record<string, {
+    suggestedProductId: string | null;
+    qty: string;
+    unitCost: string;
+    price: string;
+  }>>({});
   const [customName, setCustomName] = useState("");
   const [customNames, setCustomNames] = useState<string[]>([]);
   const [branchId, setBranchId] = useState<string>("");
+  const [searchTerm, setSearchTerm] = useState("");
 
   const { data: branches = [] } = useQuery({ queryKey: ["branches"], queryFn: listBranches });
 
@@ -33,25 +41,21 @@ export default function ProductSuggestionsPicker({ categories }: Props) {
     enabled: !!activeCategory,
   });
 
-  useEffect(() => {
-    if (activeCategory) {
-      setSelected({});
-      setCustomName("");
-      setCustomNames([]);
-      // Pre-select a branch by default (the business's default branch, or just the first one)
-      // so the picker never opens with a blank required dropdown — still changeable below.
-      if (branches.length > 0) {
-        const defaultBranch = branches.find((b) => b.isDefault) ?? branches[0];
-        setBranchId(defaultBranch.id);
-      }
-    }
-  }, [activeCategory, branches]);
+  const openCategory = (category: CategoryWithSuggestions) => {
+    setActiveCategory(category);
+    setSelected({});
+    setCustomName("");
+    setCustomNames([]);
+    setSearchTerm("");
+    const defaultBranch = branches.find((b) => b.isDefault) ?? branches[0];
+    setBranchId(defaultBranch?.id ?? "");
+  };
 
-  const toggle = (name: string) => {
+  const toggle = (name: string, suggestedProductId: string | null = null) => {
     setSelected((prev) => {
       const next = { ...prev };
       if (next[name]) delete next[name];
-      else next[name] = { qty: "", unitCost: "", price: "" };
+      else next[name] = { suggestedProductId, qty: "", unitCost: "", price: "" };
       return next;
     });
   };
@@ -64,13 +68,14 @@ export default function ProductSuggestionsPicker({ categories }: Props) {
     const trimmed = customName.trim();
     if (!trimmed) return;
     setCustomNames((prev) => [...prev, trimmed]);
-    setSelected((prev) => ({ ...prev, [trimmed]: { qty: "", unitCost: "", price: "" } }));
+    setSelected((prev) => ({ ...prev, [trimmed]: { suggestedProductId: null, qty: "", unitCost: "", price: "" } }));
     setCustomName("");
   };
 
   const saveMutation = useMutation({
     mutationFn: async () => {
       const items = Object.entries(selected).map(([name, v]) => ({
+        suggestedProductId: v.suggestedProductId,
         name,
         sellingPrice: v.price ? Number(v.price) : undefined,
         quantity: Number(v.qty),
@@ -91,6 +96,13 @@ export default function ProductSuggestionsPicker({ categories }: Props) {
 
   const selectedCount = Object.keys(selected).length;
   const needsBranchPick = branches.length > 1 && !branchId;
+  const normalizedSearch = searchTerm.trim().toLowerCase();
+  const visibleSuggestions = suggestions.filter((s) =>
+    s.name.toLowerCase().includes(normalizedSearch)
+  );
+  const visibleCustomNames = customNames.filter((name) =>
+    name.toLowerCase().includes(normalizedSearch)
+  );
   // Every item needs a real quantity + buy price — same rule as New Product and Add Variant, so
   // a product can never exist here without a cost basis either.
   const missingRequiredFields = Object.values(selected).some(
@@ -104,7 +116,7 @@ export default function ProductSuggestionsPicker({ categories }: Props) {
         {categories.map((cat) => (
           <button
             key={cat.categoryId}
-            onClick={() => setActiveCategory(cat)}
+            onClick={() => openCategory(cat)}
             disabled={cat.availableSuggestionCount === 0}
             className="w-full flex items-center justify-between bg-green-50 border border-green-200 rounded-xl px-4 py-3 disabled:opacity-40"
           >
@@ -153,6 +165,14 @@ export default function ProductSuggestionsPicker({ categories }: Props) {
             <span>{t("catalogTemplates.pickProductsTip")}</span>
           </p>
 
+          <input
+            type="search"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Search products"
+            className="w-full h-11 px-3 rounded-xl border border-gray-200 text-sm bg-white"
+          />
+
           {branches.length > 1 && (
             <CustomSelect
               triggerClassName="w-full h-11 flex items-center justify-between gap-2 px-3 rounded-xl border border-gray-200 text-sm bg-white text-left"
@@ -174,14 +194,16 @@ export default function ProductSuggestionsPicker({ categories }: Props) {
           ) : (
             <div className="space-y-2">
               {[
-                ...suggestions.map((s) => ({
+                ...visibleSuggestions.map((s) => ({
+                  id: s.id,
                   name: s.name,
+                  imageUrl: s.imageUrl,
                   alreadyAdded: s.alreadyAdded,
                   existingSellingPrice: s.existingSellingPrice,
                   existingQuantity: s.existingQuantity,
                 })),
-                ...customNames.map((name) => ({ name, alreadyAdded: false, existingSellingPrice: null, existingQuantity: null })),
-              ].map(({ name, alreadyAdded, existingSellingPrice, existingQuantity }) => {
+                ...visibleCustomNames.map((name) => ({ id: null, name, imageUrl: null, alreadyAdded: false, existingSellingPrice: null, existingQuantity: null })),
+              ].map(({ id, name, imageUrl, alreadyAdded, existingSellingPrice, existingQuantity }) => {
                 const isChecked = !!selected[name];
                 if (alreadyAdded) {
                   return (
@@ -190,6 +212,7 @@ export default function ProductSuggestionsPicker({ categories }: Props) {
                       className="flex items-center gap-2.5 border border-gray-100 bg-gray-50 rounded-xl p-2.5"
                     >
                       <input type="checkbox" checked disabled className="w-4 h-4 rounded accent-gray-300" />
+                      <ProductSuggestionImage imageUrl={imageUrl} name={name} />
                       <div className="flex-1 min-w-0">
                         <span className="text-sm text-gray-400 line-through block truncate">{name}</span>
                         {(existingQuantity != null || existingSellingPrice != null) && (
@@ -217,9 +240,10 @@ export default function ProductSuggestionsPicker({ categories }: Props) {
                       <input
                         type="checkbox"
                         checked={isChecked}
-                        onChange={() => toggle(name)}
+                        onChange={() => toggle(name, id)}
                         className="w-4 h-4 rounded accent-indigo-600"
                       />
+                      <ProductSuggestionImage imageUrl={imageUrl} name={name} />
                       <span className={`text-sm flex-1 ${isChecked ? "text-indigo-700 font-medium" : "text-gray-900"}`}>
                         {name}
                       </span>
@@ -268,7 +292,7 @@ export default function ProductSuggestionsPicker({ categories }: Props) {
                 );
               })}
 
-              {suggestions.filter((s) => !s.alreadyAdded).length === 0 && customNames.length === 0 && (
+              {visibleSuggestions.filter((s) => !s.alreadyAdded).length === 0 && visibleCustomNames.length === 0 && (
                 <p className="text-xs text-gray-400 text-center py-4">{t("catalogTemplates.noMoreSuggestions")}</p>
               )}
             </div>
@@ -294,5 +318,18 @@ export default function ProductSuggestionsPicker({ categories }: Props) {
         </div>
       </SlidePanel>
     </>
+  );
+}
+
+function ProductSuggestionImage({ imageUrl, name }: { imageUrl: string | null; name: string }) {
+  const resolvedUrl = resolveMediaUrl(imageUrl);
+  return (
+    <div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg border border-gray-100 bg-gray-50">
+      {resolvedUrl ? (
+        <Image src={resolvedUrl} alt={name} width={48} height={48} unoptimized className="h-full w-full object-cover" />
+      ) : (
+        <div className="h-full w-full bg-gray-100" aria-hidden="true" />
+      )}
+    </div>
   );
 }

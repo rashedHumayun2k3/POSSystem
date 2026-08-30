@@ -141,6 +141,8 @@ export interface ProductDetail {
   name: string;
   sku: string;
   imageUrl: string | null;
+  imageSource: 'COMMON' | 'INDIVIDUAL';
+  suggestedProductId: string | null;
   description: string | null;
   defectNotes: string | null;
   unitCode: string;

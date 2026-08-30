@@ -28,7 +28,7 @@ export default function CatalogTemplatesPage() {
   const owner = useAuthStore((s) => s.isOwner());
   const [addingId, setAddingId] = useState<string | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<TabKey>("selectCategory");
+  const [activeTab, setActiveTab] = useState<TabKey>("selectedCategories");
   const [search, setSearch] = useState("");
   const tabsScrollRef = useRef<HTMLDivElement>(null);
 
@@ -114,9 +114,9 @@ export default function CatalogTemplatesPage() {
   }, {});
 
   const TABS: { key: TabKey; label: string }[] = [
-    { key: "selectCategory", label: t("catalogTemplates.tabChooseCategories") },
     { key: "selectedCategories", label: `${t("catalogTemplates.tabMySelectedCategories")} (${categoriesWithSuggestions.length})` },
     { key: "myAddedProducts", label: `${t("catalogTemplates.tabMyAddedProducts")} (${addedProducts.length})` },
+    { key: "selectCategory", label: t("catalogTemplates.tabChooseCategories") },
   ];
 
   return (

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
+import Image from 'next/image';
 import { getProduct, archiveProduct, setProductMarketplaceVisibility, getPriceSlots, createPriceSlot, activatePriceSlot, deletePriceSlot, downloadBarcodeLabels, updateProduct, updateVariant, addVariant, splitStockIntoVariants, getCategory, getStockAdjustments, adjustStock, recordExistingStockCost, getProductReviews, replyToReview, deleteReviewReply, setReviewHidden, updateMarketplaceDetails, addProductImage, removeProductImage, reorderProductImages, getMarketplaceDetailTemplates, getProductSalesTimeseries } from '@/lib/catalogApi';
 import { listOrdersByProduct } from '@/lib/ordersApi';
 import { getAppSettings } from '@/lib/settingsApi';
@@ -23,7 +24,7 @@ import SlidePanel from '@/components/ui/SlidePanel';
 import CustomSelect from '@/components/ui/CustomSelect';
 import { usePressAndHold } from '@/hooks/usePressAndHold';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
-import { PlusIcon } from '@heroicons/react/24/outline';
+import { PhotoIcon, PlusIcon } from '@heroicons/react/24/outline';
 
 type TabKey = 'info' | 'variants' | 'prices' | 'stock' | 'orders' | 'sales' | 'reviews' | 'marketplace';
 
@@ -184,6 +185,8 @@ export default function ProductDetailPage() {
         {activeTab === 'variants' && (
           <VariantsTab
             variants={product.variants}
+            productImageUrl={product.imageUrl}
+            productImages={product.images}
             isOwner={isOwner}
             productId={id}
             categoryId={product.categoryId}
@@ -625,10 +628,10 @@ function InfoTab({
   return (
     <div className="space-y-4 pb-4">
       {/* Section 1 — Product picture */}
-      <div className="relative w-full h-[180px] rounded-2xl bg-gray-100 overflow-hidden border border-gray-100">
+      <div className="relative mx-auto flex h-[260px] w-full max-w-2xl items-center justify-center overflow-hidden rounded-2xl border border-gray-100 bg-white sm:h-[360px]">
         {product.imageUrl ? (
-          <button type="button" onClick={() => setViewerOpen(true)} className="w-full h-full block">
-            <img src={resolveMediaUrl(product.imageUrl) ?? ''} alt={product.name} className="w-full h-full object-cover" />
+          <button type="button" onClick={() => setViewerOpen(true)} className="flex h-full w-full items-center justify-center p-4 sm:p-6">
+            <img src={resolveMediaUrl(product.imageUrl) ?? ''} alt={product.name} className="max-h-full max-w-full object-contain" />
           </button>
         ) : (
           <div className="w-full h-full flex flex-col items-center justify-center gap-1.5">
@@ -679,6 +682,7 @@ function InfoTab({
       {product.imageUrl && (
         <ImageLightbox open={viewerOpen} onClose={() => setViewerOpen(false)} url={product.imageUrl} title={product.name} />
       )}
+      {isOwner && <ProductGalleryEditor product={product} t={t} />}
 
       {/* Section 2 — Product details (only editable-in-place section) */}
       <SectionCard>
@@ -1105,6 +1109,8 @@ function ToggleSwitch({ checked, disabled, onChange }: { checked: boolean; disab
 
 function VariantsTab({
   variants,
+  productImageUrl,
+  productImages,
   isOwner,
   canAdjustStock,
   productId,
@@ -1114,6 +1120,8 @@ function VariantsTab({
   t,
 }: {
   variants: Variant[];
+  productImageUrl: string | null;
+  productImages: { imageUrl: string }[];
   isOwner: boolean;
   canAdjustStock: boolean;
   productId: string;
@@ -1139,6 +1147,10 @@ function VariantsTab({
     { name: '', values: {}, qty: '' },
   ]);
   const qc = useQueryClient();
+  const availableImageUrls = Array.from(new Set([
+    productImageUrl,
+    ...productImages.map((image) => image.imageUrl),
+  ].filter((url): url is string => !!url)));
 
   // A single, still-undifferentiated variant with real stock on it is the only case this applies
   // to — splitting an already-multi-variant product's stock would mean deciding which existing
@@ -1287,6 +1299,12 @@ function VariantsTab({
                   errorLabel={t('products.imageUploadFailed')}
                   removeLabel={t('products.imageRemove')}
                   variant="overlay"
+                />
+                <ExistingImagePicker
+                  imageUrls={availableImageUrls}
+                  value={v.imageUrl}
+                  onSelect={(imageUrl) => imageMutation.mutate({ variant: v, imageUrl })}
+                  t={t}
                 />
                 <p className="text-[11px] text-gray-400 mt-1">{t('products.variantImageHint')}</p>
               </div>
@@ -1499,6 +1517,12 @@ function VariantsTab({
             removeLabel={t('products.imageRemove')}
             variant="overlay"
           />
+          <ExistingImagePicker
+            imageUrls={availableImageUrls}
+            value={newImageUrl}
+            onSelect={setNewImageUrl}
+            t={t}
+          />
 
 
           <div className="flex gap-2">
@@ -1518,6 +1542,73 @@ function VariantsTab({
               {addMutation.isPending ? t('common.saving') : t('products.addVariantSave')}
             </button>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ExistingImagePicker({
+  imageUrls,
+  value,
+  onSelect,
+  t,
+}: {
+  imageUrls: string[];
+  value: string | null;
+  onSelect: (imageUrl: string) => void;
+  t: (key: string) => string;
+}) {
+  const [open, setOpen] = useState(false);
+
+  if (imageUrls.length === 0) return null;
+
+  return (
+    <div className="mt-2">
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        aria-expanded={open}
+        className="inline-flex h-10 items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 text-sm font-medium text-gray-700 active:bg-gray-50"
+      >
+        <PhotoIcon className="h-5 w-5" />
+        {t('products.chooseExistingImage')}
+      </button>
+
+      {open && (
+        <div className="mt-2 grid grid-cols-4 gap-2 rounded-xl border border-gray-200 bg-white p-2 sm:grid-cols-6">
+          {imageUrls.map((imageUrl) => {
+            const selected = imageUrl === value;
+            return (
+              <button
+                key={imageUrl}
+                type="button"
+                onClick={() => {
+                  onSelect(imageUrl);
+                  setOpen(false);
+                }}
+                aria-label={t('products.useExistingImage')}
+                aria-pressed={selected}
+                className={`relative aspect-square overflow-hidden rounded-lg border-2 bg-gray-50 ${
+                  selected ? 'border-indigo-600' : 'border-transparent'
+                }`}
+              >
+                <Image
+                  src={resolveMediaUrl(imageUrl) ?? ''}
+                  alt=""
+                  width={96}
+                  height={96}
+                  unoptimized
+                  className="h-full w-full object-contain"
+                />
+                {selected && (
+                  <span className="absolute bottom-1 right-1 flex h-5 w-5 items-center justify-center rounded-full bg-indigo-600 text-xs text-white">
+                    ✓
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
       )}
     </div>
@@ -3632,8 +3723,6 @@ function MarketplaceTab({ product, t }: { product: ProductDetail; t: (key: strin
         </p>
       </div>
 
-      <ProductGalleryEditor product={product} t={t} />
-
       <div>
         <label className="block text-xs font-medium text-gray-500 mb-1">{t('products.youtubeUrlLabel')}</label>
         <input
@@ -3759,12 +3848,16 @@ function ProductGalleryEditor({ product, t }: { product: ProductDetail; t: (key:
     onSuccess: invalidate,
   });
 
-  async function handleFile(file: File | undefined) {
-    if (!file) return;
+  async function handleFiles(files: FileList | null) {
+    if (!files?.length) return;
+    const remainingSlots = MAX_GALLERY_IMAGES - images.length;
+    const selectedFiles = Array.from(files).slice(0, remainingSlots);
     setUploading(true);
     try {
-      const url = await uploadImage(file);
-      await addMutation.mutateAsync(url);
+      for (const file of selectedFiles) {
+        const url = await uploadImage(file);
+        await addMutation.mutateAsync(url);
+      }
     } catch (err) {
       toastError(err, t('products.galleryUploadFailed'));
     } finally {
@@ -3787,7 +3880,7 @@ function ProductGalleryEditor({ product, t }: { product: ProductDetail; t: (key:
       <div className="flex flex-wrap gap-2 mb-2">
         {images.map((img, i) => (
           <div key={img.id} className="relative w-20 h-20 rounded-lg overflow-hidden bg-gray-100 border border-gray-200">
-            <img src={resolveMediaUrl(img.imageUrl) ?? ''} alt="" className="w-full h-full object-cover" />
+            <img src={resolveMediaUrl(img.imageUrl) ?? ''} alt="" className="w-full h-full object-contain" />
             <button
               type="button"
               onClick={() => removeMutation.mutate(img.id)}
@@ -3823,6 +3916,7 @@ function ProductGalleryEditor({ product, t }: { product: ProductDetail; t: (key:
             type="button"
             onClick={() => inputRef.current?.click()}
             disabled={uploading}
+            aria-label={t('products.galleryLabel')}
             className="w-20 h-20 rounded-lg border border-dashed border-gray-300 flex items-center justify-center text-gray-400 text-xl disabled:opacity-50"
           >
             {uploading ? '…' : '+'}
@@ -3833,8 +3927,9 @@ function ProductGalleryEditor({ product, t }: { product: ProductDetail; t: (key:
         ref={inputRef}
         type="file"
         accept="image/jpeg,image/png,image/webp"
+        multiple
         className="hidden"
-        onChange={(e) => handleFile(e.target.files?.[0])}
+        onChange={(e) => handleFiles(e.target.files)}
       />
       <p className="text-xs text-gray-400">{t('products.galleryHint')}</p>
     </div>

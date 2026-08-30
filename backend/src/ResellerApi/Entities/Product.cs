@@ -5,9 +5,11 @@ namespace ResellerApi.Entities;
 public class Product : BusinessScopedEntity
 {
     public Guid CategoryId { get; set; }
+    public Guid? SuggestedProductId { get; set; }
     public string Name { get; set; } = null!;
     public string Sku { get; set; } = null!;
     public string? ImageUrl { get; set; }
+    public string ImageSource { get; set; } = "INDIVIDUAL";
     public string? Description { get; set; }
     public string? DefectNotes { get; set; }
     public string UnitCode { get; set; } = "pcs";
@@ -60,6 +62,7 @@ public class Product : BusinessScopedEntity
     public int ReviewCount { get; set; } = 0;
 
     public Category Category { get; set; } = null!;
+    public SuggestedProduct? SuggestedProduct { get; set; }
     public ICollection<ProductVariant> Variants { get; set; } = new List<ProductVariant>();
     public ICollection<ProductMarketplaceDetail> MarketplaceDetails { get; set; } = new List<ProductMarketplaceDetail>();
     // Extra marketplace gallery photos beyond the single ImageUrl above — Amazon-style thumbnail

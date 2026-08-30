@@ -342,6 +342,8 @@ public class AppDbContext : DbContext
             e.Property(x => x.Sku).HasMaxLength(50).IsRequired();
             e.HasIndex(x => new { x.BusinessId, x.Sku }).IsUnique();
             e.Property(x => x.ImageUrl).HasMaxLength(500);
+            e.Property(x => x.ImageSource).HasMaxLength(20).HasDefaultValue("INDIVIDUAL").IsRequired();
+            e.ToTable(t => t.HasCheckConstraint("CK_products_ImageSource", "[ImageSource] IN ('COMMON', 'INDIVIDUAL')"));
             e.Property(x => x.UnitCode).HasMaxLength(20);
             e.Property(x => x.Status).HasMaxLength(20);
             e.Property(x => x.SellingPrice).HasColumnType("DECIMAL(14,2)");
@@ -369,6 +371,9 @@ public class AppDbContext : DbContext
             e.HasIndex(x => new { x.ShowOnMarketplace, x.Status, x.AverageRating });
             e.HasOne(x => x.Category).WithMany(c => c.Products)
                 .HasForeignKey(x => x.CategoryId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.SuggestedProduct).WithMany(sp => sp.BusinessProducts)
+                .HasForeignKey(x => x.SuggestedProductId).OnDelete(DeleteBehavior.SetNull);
+            e.HasIndex(x => x.SuggestedProductId);
         });
 
         // ── ProductMarketplaceDetail ──────────────────────────────────────────
@@ -1265,6 +1270,9 @@ public class AppDbContext : DbContext
             e.HasKey(x => x.Id);
             e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
             e.Property(x => x.Name).HasMaxLength(150).IsRequired();
+            e.Property(x => x.ImageUrl).HasMaxLength(500);
+            e.Property(x => x.ImageSource).HasMaxLength(20).HasDefaultValue("COMMON").IsRequired();
+            e.ToTable(t => t.HasCheckConstraint("CK_suggested_products_ImageSource", "[ImageSource] IN ('COMMON', 'INDIVIDUAL')"));
             e.HasOne(x => x.SuggestedCategory).WithMany(c => c.Products)
                 .HasForeignKey(x => x.SuggestedCategoryId).OnDelete(DeleteBehavior.Cascade);
             e.HasIndex(x => x.SuggestedCategoryId);

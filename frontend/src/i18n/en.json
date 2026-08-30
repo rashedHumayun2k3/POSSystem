@@ -749,6 +749,8 @@
     "viewAllReviewsButton": "View all reviews",
     "missingPhotoMarketplaceWarning": "This product has no photo yet — add one so it looks good on the marketplace.",
     "variantImageLabel": "Photo for this variant",
+    "chooseExistingImage": "Choose existing image",
+    "useExistingImage": "Use this image",
     "variantImageHint": "Optional — falls back to the product photo if not set",
     "addVariantBtn": "Add Variant",
     "addVariantTitle": "Add New Variant",
