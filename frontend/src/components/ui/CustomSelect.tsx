@@ -13,8 +13,11 @@ interface CustomSelectProps {
   onChange: (value: string) => void;
   options: CustomSelectOption[];
   placeholder?: string;
+  searchPlaceholder?: string;
+  noResultsLabel?: string;
   triggerClassName?: string;
   disabled?: boolean;
+  searchable?: boolean;
 }
 
 interface PanelPosition {
@@ -35,19 +38,37 @@ interface PanelPosition {
 // still inflates an `overflow: auto` ancestor's scrollHeight even though it's out of normal flow,
 // which was visibly expanding the sheet's height instead of the dropdown floating over it. A
 // portal escapes that scrollable ancestor's containing block entirely.
-export default function CustomSelect({ value, onChange, options, placeholder, triggerClassName, disabled }: CustomSelectProps) {
+export default function CustomSelect({
+  value,
+  onChange,
+  options,
+  placeholder,
+  searchPlaceholder,
+  noResultsLabel,
+  triggerClassName,
+  disabled,
+  searchable = false,
+}: CustomSelectProps) {
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState<PanelPosition | null>(null);
   const [mounted, setMounted] = useState(false);
+  const [search, setSearch] = useState('');
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
   const selected = options.find((o) => o.value === value);
+  const normalizedSearch = search.trim().toLowerCase();
+  const visibleOptions = searchable && normalizedSearch
+    ? options.filter((opt) => opt.label.toLowerCase().includes(normalizedSearch))
+    : options;
 
   useEffect(() => setMounted(true), []);
 
   const openDropdown = () => {
     const rect = triggerRef.current?.getBoundingClientRect();
     if (rect) setPosition({ top: rect.bottom + 4, left: rect.left, width: rect.width });
+    setSearch('');
     setOpen(true);
+    if (searchable) window.setTimeout(() => searchRef.current?.focus(), 0);
   };
 
   // Closes on scroll anywhere (capture phase catches scroll on nested scrollable ancestors too,
@@ -94,14 +115,29 @@ export default function CustomSelect({ value, onChange, options, placeholder, tr
               nested inside, however deep that nesting gets. */}
           <button type="button" onClick={() => setOpen(false)} className="fixed inset-0 z-[9998]" aria-label="Close" />
           <div
-            className="fixed z-[9999] max-h-64 overflow-y-auto bg-white border border-gray-200 rounded-xl shadow-lg py-1"
+            className="fixed z-[9999] max-h-72 overflow-y-auto bg-white border border-gray-200 rounded-xl shadow-lg py-1"
             style={{ top: position.top, left: position.left, width: position.width }}
           >
-            {options.map((opt) => (
+            {searchable && (
+              <div className="sticky top-0 z-10 bg-white px-2 pb-1 pt-1">
+                <input
+                  ref={searchRef}
+                  type="search"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') setOpen(false);
+                  }}
+                  placeholder={searchPlaceholder ?? placeholder ?? ''}
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-indigo-400"
+                />
+              </div>
+            )}
+            {visibleOptions.map((opt) => (
               <button
                 key={opt.value}
                 type="button"
-                onClick={() => { onChange(opt.value); setOpen(false); }}
+                onClick={() => { onChange(opt.value); setSearch(''); setOpen(false); }}
                 className={`w-full text-left px-3 py-2.5 text-sm truncate ${
                   opt.value === value ? 'bg-indigo-50 text-indigo-700 font-medium' : 'text-gray-700 active:bg-gray-50'
                 }`}
@@ -109,6 +145,11 @@ export default function CustomSelect({ value, onChange, options, placeholder, tr
                 {opt.label}
               </button>
             ))}
+            {visibleOptions.length === 0 && (
+              <div className="px-3 py-3 text-center text-xs text-gray-400">
+                {noResultsLabel ?? 'No matches'}
+              </div>
+            )}
           </div>
         </>,
         document.body

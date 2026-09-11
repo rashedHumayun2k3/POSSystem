@@ -1,17 +1,20 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getCategories, getUnits, createProduct } from '@/lib/catalogApi';
+import { listSuggestedProducts } from '@/lib/catalogTemplatesApi';
 import { getAppSettings } from '@/lib/settingsApi';
 import type { Category, CategoryField } from '@/types/catalog';
+import type { SuggestedProduct } from '@/types/catalogTemplates';
 import { useLanguage } from '@/i18n/LanguageContext';
-import ImageUploadField from '@/components/ui/ImageUploadField';
 import CustomSelect from '@/components/ui/CustomSelect';
 import { categoryDisplayName } from '@/lib/categoryDisplay';
 import { toastError } from '@/lib/toastError';
 import { useToastStore } from '@/store/toastStore';
+import { resolveMediaUrl } from '@/lib/media';
 import { PlusIcon } from '@heroicons/react/24/outline';
 
 type VariantRow = { values: Record<string, string>; qty: string; costPrice: string };
@@ -41,7 +44,6 @@ export default function NewProductPage() {
     unitCode: 'pcs',
     sellingPrice: '',
     marketPrice: '',
-    packagingCostPerUnit: '0',
     lowStockThreshold: '5',
     description: '',
     note: '',
@@ -52,31 +54,17 @@ export default function NewProductPage() {
 
   const [variantCombinations, setVariantCombinations] = useState<VariantRow[]>([{ values: {}, qty: '', costPrice: '' }]);
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
-  const [showMarketPrice, setShowMarketPrice] = useState(false);
-  const [wholesaleOn, setWholesaleOn] = useState(false);
-  const [wholesaleMinQty, setWholesaleMinQty] = useState('');
-  const [wholesaleUnitPrice, setWholesaleUnitPrice] = useState('');
-  const [wholesaleNote, setWholesaleNote] = useState('');
+  const [selectedSuggestedProduct, setSelectedSuggestedProduct] = useState<SuggestedProduct | null>(null);
+  const [nameFocused, setNameFocused] = useState(false);
 
   const { data: categories = [] } = useQuery({ queryKey: ['categories'], queryFn: getCategories });
   const { data: units = UNITS_FALLBACK } = useQuery({ queryKey: ['units'], queryFn: getUnits });
   const { data: appSettings } = useQuery({ queryKey: ['app-settings'], queryFn: getAppSettings });
-
-  // Retail-only shops never see the wholesale option at all — a pure UI-visibility switch, the
-  // per-product schema always has the two columns regardless of this setting.
-  const showWholesaleOption = (appSettings?.selling_mode ?? 'BOTH') !== 'RETAIL';
-
-  const wholesaleMinQtyPreview = parseFloat(wholesaleMinQty);
-  const wholesaleUnitPricePreview = parseFloat(wholesaleUnitPrice);
-  const sellingPricePreview = parseFloat(form.sellingPrice) || 0;
-  const wholesaleComplete = wholesaleOn && !isNaN(wholesaleMinQtyPreview) && wholesaleMinQtyPreview >= 2
-    && !isNaN(wholesaleUnitPricePreview) && wholesaleUnitPricePreview > 0;
-  const wholesalePreviewLines = wholesaleComplete
-    ? [
-        `${t('products.retailWord')}: 1–${wholesaleMinQtyPreview - 1} ${t('products.pieceWord')}: ৳${sellingPricePreview} ${t('products.eachWord')}`,
-        `${t('products.wholesaleWord')}: ${wholesaleMinQtyPreview}+ ${t('products.pieceWord')}: ৳${wholesaleUnitPricePreview} ${t('products.eachWord')}`,
-      ]
-    : [`${t('products.anyQuantityWord')}: ৳${sellingPricePreview} ${t('products.eachWord')}`];
+  const { data: suggestedProducts = [], isFetching: suggestedProductsLoading } = useQuery({
+    queryKey: ['suggested-products', form.categoryId],
+    queryFn: () => listSuggestedProducts(form.categoryId),
+    enabled: !!form.categoryId,
+  });
 
   // Pre-fills the low-stock threshold from the business's global default (Settings > Low Stock
   // Alert) instead of a hardcoded 5 — still fully editable per product before saving. Applied
@@ -89,18 +77,6 @@ export default function NewProductPage() {
       setForm((f) => ({ ...f, lowStockThreshold: def }));
     }
     appliedLowStockDefault.current = true;
-  }, [appSettings]);
-
-  // Wholesale-only shops expect to fill this in on almost every product, so it starts checked —
-  // still just a default, staff can uncheck it for a one-off retail-only item. Applied once, so
-  // it doesn't stomp on the checkbox if staff already toggled it before the setting arrived.
-  const appliedWholesaleDefault = useRef(false);
-  useEffect(() => {
-    if (appliedWholesaleDefault.current || !appSettings) return;
-    if (appSettings.selling_mode === 'WHOLESALE') {
-      setWholesaleOn(true);
-    }
-    appliedWholesaleDefault.current = true;
   }, [appSettings]);
 
   useEffect(() => {
@@ -128,31 +104,40 @@ export default function NewProductPage() {
 
   const variantFields = selectedCategory?.fields.filter((f) => f.isVariant) ?? [];
   const nonVariantFields = selectedCategory?.fields.filter((f) => !f.isVariant) ?? [];
+  const normalizedNameQuery = form.name.trim().toLowerCase();
+  const filteredSuggestedProducts = suggestedProducts
+    .filter((product) => !normalizedNameQuery || product.name.toLowerCase().includes(normalizedNameQuery))
+    .slice(0, 8);
+  const showNameSuggestions = Boolean(
+    form.categoryId
+    && nameFocused
+    && !selectedSuggestedProduct
+    && (suggestedProductsLoading || filteredSuggestedProducts.length > 0)
+  );
+
+  const handleNameChange = (value: string) => {
+    setSelectedSuggestedProduct(null);
+    setForm((f) => ({ ...f, name: value }));
+  };
+
+  const selectSuggestedProduct = (product: SuggestedProduct) => {
+    if (product.alreadyAdded) return;
+    setSelectedSuggestedProduct(product);
+    setForm((f) => ({
+      ...f,
+      name: product.name,
+      imageUrl: f.imageUrl ?? product.imageUrl,
+    }));
+    setNameFocused(false);
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.categoryId) { useToastStore.getState().show(t('products.categoryRequired'), 'error'); return; }
     if (!form.name.trim()) { useToastStore.getState().show(t('products.nameRequired'), 'error'); return; }
-    if (!form.imageUrl) { useToastStore.getState().show(t('products.imageRequired'), 'error'); return; }
     for (const row of variantCombinations) {
       if (!row.qty || parseFloat(row.qty) <= 0) { useToastStore.getState().show(t('products.stockValueRequired'), 'error'); return; }
       if (row.costPrice === '' || parseFloat(row.costPrice) < 0) { useToastStore.getState().show(t('products.costRequired'), 'error'); return; }
-    }
-
-    let wholesaleMinQtyNum: number | null = null;
-    let wholesaleUnitPriceNum: number | null = null;
-    if (showWholesaleOption && wholesaleOn) {
-      wholesaleMinQtyNum = parseFloat(wholesaleMinQty);
-      wholesaleUnitPriceNum = parseFloat(wholesaleUnitPrice);
-      if (!wholesaleMinQty || isNaN(wholesaleMinQtyNum) || wholesaleMinQtyNum < 2) {
-        useToastStore.getState().show(t('products.wholesaleMinQtyInvalid'), 'error'); return;
-      }
-      if (!wholesaleUnitPrice || isNaN(wholesaleUnitPriceNum) || wholesaleUnitPriceNum <= 0) {
-        useToastStore.getState().show(t('products.wholesalePriceRequired'), 'error'); return;
-      }
-      if (wholesaleUnitPriceNum >= parseFloat(form.sellingPrice)) {
-        useToastStore.getState().show(t('products.wholesalePriceMustBeLower'), 'error'); return;
-      }
     }
 
     mutation.mutate({
@@ -162,7 +147,7 @@ export default function NewProductPage() {
       unitCode: form.unitCode,
       sellingPrice: parseFloat(form.sellingPrice),
       marketPrice: form.marketPrice ? parseFloat(form.marketPrice) : null,
-      packagingCostPerUnit: parseFloat(form.packagingCostPerUnit) || 0,
+      packagingCostPerUnit: 0,
       lowStockThreshold: parseInt(form.lowStockThreshold) || 5,
       description: form.description || null,
       note: form.note || null,
@@ -173,9 +158,10 @@ export default function NewProductPage() {
       })),
       warrantyDurationValue: form.warrantyDurationValue ? parseInt(form.warrantyDurationValue) : null,
       warrantyDurationUnit: form.warrantyDurationValue ? form.warrantyDurationUnit : null,
-      wholesaleMinQty: wholesaleMinQtyNum,
-      wholesaleUnitPrice: wholesaleUnitPriceNum,
-      wholesaleNote: showWholesaleOption && wholesaleOn && wholesaleNote.trim() ? wholesaleNote.trim() : null,
+      wholesaleMinQty: null,
+      wholesaleUnitPrice: null,
+      wholesaleNote: null,
+      suggestedProductId: selectedSuggestedProduct?.id ?? null,
     });
   };
 
@@ -223,7 +209,14 @@ export default function NewProductPage() {
           <div className="mt-1">
             <CustomSelect
               value={form.categoryId}
-              onChange={(v) => setForm((f) => ({ ...f, categoryId: v }))}
+              searchable
+              searchPlaceholder={t('products.searchCategoryPlaceholder')}
+              noResultsLabel={t('products.noCategoryMatches')}
+              onChange={(v) => {
+                setSelectedSuggestedProduct(null);
+                setNameFocused(false);
+                setForm((f) => ({ ...f, categoryId: v }));
+              }}
               options={[
                 { value: '', label: t('products.selectCategory') },
                 ...categories.filter((c) => !c.parentCategoryId).flatMap((top) => {
@@ -237,42 +230,104 @@ export default function NewProductPage() {
               ]}
             />
           </div>
+          <div className="mt-2 flex items-center justify-between gap-3">
+            <p className="text-xs text-gray-500">{t('products.categoryMissingHint')}</p>
+            <button
+              type="button"
+              onClick={() => router.push(`/more/categories?new=1&returnTo=${encodeURIComponent('/products/new')}`)}
+              className="shrink-0 text-xs font-semibold text-indigo-600"
+            >
+              {t('products.addCategoryAction')}
+            </button>
+          </div>
         </div>
 
+        {form.categoryId ? (
+          <>
         {/* Name */}
-        <div>
+        <div className="relative">
           <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">{t('products.nameLabel')}</label>
           <input
             className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm"
             placeholder={t('products.namePlaceholder')}
             value={form.name}
-            onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+            onFocus={() => setNameFocused(true)}
+            onBlur={() => window.setTimeout(() => setNameFocused(false), 120)}
+            onChange={(e) => handleNameChange(e.target.value)}
+            autoComplete="off"
             required
           />
+          {showNameSuggestions && (
+            <div className="absolute left-0 right-0 top-full z-30 mt-1 max-h-72 overflow-y-auto rounded-xl border border-gray-200 bg-white shadow-lg">
+              {suggestedProductsLoading ? (
+                <div className="space-y-2 p-2">
+                  {[1, 2, 3].map((i) => (
+                    <div key={i} className="h-12 rounded-lg bg-gray-100 animate-pulse" />
+                  ))}
+                </div>
+              ) : (
+                filteredSuggestedProducts.map((product) => {
+                  const imageUrl = resolveMediaUrl(product.imageUrl);
+                  return (
+                    <button
+                      key={product.id}
+                      type="button"
+                      disabled={product.alreadyAdded}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => selectSuggestedProduct(product)}
+                      className="flex w-full items-center gap-2.5 px-3 py-2 text-left hover:bg-indigo-50 disabled:hover:bg-white disabled:opacity-50"
+                    >
+                      <span className="h-10 w-10 shrink-0 overflow-hidden rounded-lg border border-gray-100 bg-gray-50">
+                        {imageUrl ? (
+                          <Image src={imageUrl} alt="" width={40} height={40} unoptimized className="h-full w-full object-cover" />
+                        ) : (
+                          <span className="block h-full w-full bg-gray-100" aria-hidden="true" />
+                        )}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium text-gray-900">{product.name}</span>
+                        {product.alreadyAdded && (
+                          <span className="text-[11px] text-gray-400">{t('catalogTemplates.alreadyAdded')}</span>
+                        )}
+                      </span>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          )}
+          {selectedSuggestedProduct && (
+            <div className="mt-2 inline-flex max-w-full items-center gap-2 rounded-full bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700">
+              <span className="truncate">{t('products.suggestedProductSelected')}: {selectedSuggestedProduct.name}</span>
+              <button
+                type="button"
+                onClick={() => setSelectedSuggestedProduct(null)}
+                aria-label={t('products.clearSuggestedProduct')}
+                className="shrink-0 text-indigo-400 hover:text-indigo-700"
+              >
+                ×
+              </button>
+            </div>
+          )}
         </div>
 
-        {/* Product photo */}
-        <ImageUploadField
-          value={form.imageUrl}
-          onChange={(url) => setForm((f) => ({ ...f, imageUrl: url }))}
-          label={`${t('products.imageLabel')} *`}
-          uploadingLabel={t('products.imageUploading')}
-          errorLabel={t('products.imageUploadFailed')}
-          removeLabel={t('products.imageRemove')}
-        />
-
-        {/* Unit + Selling Price */}
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">{t('products.unitLabel')}</label>
-            <div className="mt-1">
-              <CustomSelect
-                value={form.unitCode}
-                onChange={(v) => setForm((f) => ({ ...f, unitCode: v }))}
-                options={units.map((u) => ({ value: u.code, label: u.name }))}
+        {/* Purchase price + selling price */}
+        <div className={`grid gap-3 ${variantFields.length === 0 ? 'grid-cols-2' : 'grid-cols-1'}`}>
+          {variantFields.length === 0 && (
+            <div>
+              <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">{t('products.buyPrice')}</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm"
+                placeholder="0.00"
+                value={variantCombinations[0]?.costPrice ?? ''}
+                onChange={(e) => updateVariantCost(0, e.target.value)}
+                required
               />
             </div>
-          </div>
+          )}
           <div>
             <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">{t('products.sellingPriceLabel')}</label>
             <input
@@ -288,113 +343,32 @@ export default function NewProductPage() {
           </div>
         </div>
 
-        {/* Packaging Cost */}
-        <div>
-          <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">{t('products.packagingCostLabel')}</label>
-          <input
-            type="number"
-            min="0"
-            step="0.01"
-            className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm"
-            placeholder="0.00"
-            value={form.packagingCostPerUnit}
-            onChange={(e) => setForm((f) => ({ ...f, packagingCostPerUnit: e.target.value }))}
-          />
-        </div>
-
-        {/* Market Price — hidden by default, only needed when advertising a discount */}
-        {!showMarketPrice ? (
-          <button
-            type="button"
-            onClick={() => setShowMarketPrice(true)}
-            className="inline-flex items-center gap-1 text-xs text-indigo-600 font-medium"
-          >
-            <PlusIcon className="w-3.5 h-3.5" />
-            {t('products.addDiscountPrice')}
-          </button>
-        ) : (
+        <div className={`grid gap-3 ${variantFields.length === 0 ? 'grid-cols-2' : 'grid-cols-1'}`}>
           <div>
-            <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">{t('products.marketPriceLabel')}</label>
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm"
-              placeholder={t('products.optional')}
-              value={form.marketPrice}
-              onChange={(e) => setForm((f) => ({ ...f, marketPrice: e.target.value }))}
-            />
-            <p className="text-xs text-gray-400 mt-1">{t('products.marketPriceHint')}</p>
-          </div>
-        )}
-
-        {/* Wholesale (পাইকারি) pricing — single additive tier, hidden entirely for Retail-only
-            shops (selling_mode setting). Retail price above always still applies below MinQty. */}
-        {showWholesaleOption && (
-          <div className="bg-gray-50 border border-gray-100 rounded-2xl p-4 space-y-3">
-            <label className="flex items-center gap-2.5 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={wholesaleOn}
-                onChange={(e) => setWholesaleOn(e.target.checked)}
-                className="w-5 h-5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+            <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">{t('products.unitLabel')}</label>
+            <div className="mt-1">
+              <CustomSelect
+                value={form.unitCode}
+                onChange={(v) => setForm((f) => ({ ...f, unitCode: v }))}
+                options={units.map((u) => ({ value: u.code, label: u.name }))}
               />
-              <span className="text-sm font-medium text-gray-900">{t('products.wholesaleToggleLabel')}</span>
-            </label>
-
-            <div className={`grid grid-cols-2 gap-3 rounded-xl p-3 ${wholesaleOn ? 'bg-white' : 'bg-white opacity-50 pointer-events-none'}`}>
-              <div>
-                <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">{t('products.wholesaleMinQtyLabel')}</label>
-                <input
-                  type="number"
-                  min={2}
-                  step="1"
-                  disabled={!wholesaleOn}
-                  className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm"
-                  placeholder="10"
-                  value={wholesaleMinQty}
-                  onChange={(e) => setWholesaleMinQty(e.target.value)}
-                />
-              </div>
-              <div>
-                <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">{t('products.wholesaleUnitPriceLabel')}</label>
-                <input
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  disabled={!wholesaleOn}
-                  className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm"
-                  placeholder="85"
-                  value={wholesaleUnitPrice}
-                  onChange={(e) => setWholesaleUnitPrice(e.target.value)}
-                />
-              </div>
             </div>
-
+          </div>
+          {variantFields.length === 0 && (
             <div>
-              <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">{t('products.wholesaleNoteLabel')}</label>
-              <textarea
-                disabled={!wholesaleOn}
-                rows={2}
-                maxLength={200}
-                className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-white resize-none disabled:opacity-50"
-                placeholder={t('products.wholesaleNotePlaceholder')}
-                value={wholesaleNote}
-                onChange={(e) => setWholesaleNote(e.target.value)}
+              <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">{t('products.initialStockLabel')} *</label>
+              <input
+                type="number"
+                min="0"
+                step="any"
+                className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm"
+                value={variantCombinations[0]?.qty ?? ''}
+                onChange={(e) => updateVariantQty(0, e.target.value)}
+                required
               />
             </div>
-
-            <div className="bg-indigo-900 rounded-xl px-3 py-2.5">
-              <p className="text-[10px] font-semibold text-indigo-300 uppercase tracking-wide mb-1">{t('products.wholesalePreviewLabel')}</p>
-              {wholesalePreviewLines.map((line, i) => (
-                <p key={i} className="text-sm text-white">{line}</p>
-              ))}
-              {wholesaleOn && wholesaleNote.trim() && (
-                <p className="text-xs text-indigo-300 mt-1.5 pt-1.5 border-t border-indigo-800">{wholesaleNote.trim()}</p>
-              )}
-            </div>
-          </div>
-        )}
+          )}
+        </div>
 
         {/* Low stock threshold */}
         <div>
@@ -407,39 +381,6 @@ export default function NewProductPage() {
             onChange={(e) => setForm((f) => ({ ...f, lowStockThreshold: e.target.value }))}
           />
         </div>
-
-        {/* Opening stock + buy price — required for every variant, so a product can never exist
-            without a cost basis. For a product with no variant matrix, this is the single
-            implicit variant's qty/cost; for a multi-variant product these move inline into each
-            row below instead. */}
-        {variantFields.length === 0 && (
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">{t('products.initialStockLabel')}</label>
-              <input
-                type="number"
-                min="0"
-                step="any"
-                className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm"
-                value={variantCombinations[0]?.qty ?? ''}
-                onChange={(e) => updateVariantQty(0, e.target.value)}
-                required
-              />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">{t('products.buyPrice')}</label>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm"
-                value={variantCombinations[0]?.costPrice ?? ''}
-                onChange={(e) => updateVariantCost(0, e.target.value)}
-                required
-              />
-            </div>
-          </div>
-        )}
 
         {/* Warranty */}
         <div className="grid grid-cols-2 gap-3">
@@ -529,26 +470,30 @@ export default function NewProductPage() {
                     )}
                   </div>
                   <div className="grid grid-cols-2 gap-2">
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm"
-                      placeholder={t('products.initialStockLabel')}
-                      value={row.qty}
-                      onChange={(e) => updateVariantQty(rowIdx, e.target.value)}
-                      required
-                    />
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm"
-                      placeholder={t('products.buyPrice')}
-                      value={row.costPrice}
-                      onChange={(e) => updateVariantCost(rowIdx, e.target.value)}
-                      required
-                    />
+                    <label className="text-xs font-medium text-gray-500">
+                      {t('products.initialStockLabel')} *
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        className="mt-1 w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm font-normal"
+                        value={row.qty}
+                        onChange={(e) => updateVariantQty(rowIdx, e.target.value)}
+                        required
+                      />
+                    </label>
+                    <label className="text-xs font-medium text-gray-500">
+                      {t('products.buyPrice')}
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        className="mt-1 w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm font-normal"
+                        value={row.costPrice}
+                        onChange={(e) => updateVariantCost(rowIdx, e.target.value)}
+                        required
+                      />
+                    </label>
                   </div>
                 </div>
               ))}
@@ -567,14 +512,20 @@ export default function NewProductPage() {
             onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
           />
         </div>
+          </>
+        ) : (
+          <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 px-4 py-5 text-center text-sm text-gray-500">
+            {t('products.selectCategoryFirst')}
+          </div>
+        )}
 
       </form>
 
-      {/* Submit bar — sits above the fixed bottom tab bar (h-16), not behind it */}
-      <div className="fixed bottom-16 left-1/2 -translate-x-1/2 w-full max-w-[768px] z-50 bg-white border-t border-gray-100 px-4 py-3">
+      {/* Submit bar sits above the raised middle tab, not just the nav base. */}
+      <div className="fixed bottom-[calc(7rem+env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 w-full max-w-[768px] z-50 bg-white border-t border-gray-100 px-4 py-3">
         <button
           onClick={handleSubmit as React.MouseEventHandler}
-          disabled={mutation.isPending}
+          disabled={!form.categoryId || mutation.isPending}
           className="w-full bg-indigo-600 text-white font-semibold py-3 rounded-xl disabled:opacity-60"
         >
           {mutation.isPending ? t('common.creating') : t('products.createBtn')}

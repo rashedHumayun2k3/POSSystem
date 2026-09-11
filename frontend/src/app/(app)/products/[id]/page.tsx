@@ -1290,22 +1290,26 @@ function VariantsTab({
         return (
           <div key={v.id} className="bg-gray-100 border border-gray-200 rounded-xl p-3">
             {isOwner && (
-              <div className="mb-3">
-                <ImageUploadField
-                  value={v.imageUrl}
-                  onChange={(url) => imageMutation.mutate({ variant: v, imageUrl: url })}
-                  label={t('products.variantImageLabel')}
-                  uploadingLabel={t('products.imageUploading')}
-                  errorLabel={t('products.imageUploadFailed')}
-                  removeLabel={t('products.imageRemove')}
-                  variant="overlay"
-                />
-                <ExistingImagePicker
-                  imageUrls={availableImageUrls}
-                  value={v.imageUrl}
-                  onSelect={(imageUrl) => imageMutation.mutate({ variant: v, imageUrl })}
-                  t={t}
-                />
+              <div className="mb-3 flex flex-col items-center gap-2">
+                <div className="w-full max-w-sm">
+                  <ImageUploadField
+                    value={v.imageUrl}
+                    onChange={(url) => imageMutation.mutate({ variant: v, imageUrl: url })}
+                    label={t('products.variantImageLabel')}
+                    uploadingLabel={t('products.imageUploading')}
+                    errorLabel={t('products.imageUploadFailed')}
+                    removeLabel={t('products.imageRemove')}
+                    variant="overlay"
+                  />
+                </div>
+                <div className="w-full max-w-sm">
+                  <ExistingImagePicker
+                    imageUrls={availableImageUrls}
+                    value={v.imageUrl}
+                    onSelect={(imageUrl) => imageMutation.mutate({ variant: v, imageUrl })}
+                    t={t}
+                  />
+                </div>
                 <p className="text-[11px] text-gray-400 mt-1">{t('products.variantImageHint')}</p>
               </div>
             )}

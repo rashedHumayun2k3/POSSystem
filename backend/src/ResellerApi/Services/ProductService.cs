@@ -430,6 +430,32 @@ public class ProductService : IProductService
     {
         ValidateWholesaleTier(request.WholesaleMinQty, request.WholesaleUnitPrice, request.SellingPrice);
 
+        var productName = request.Name.Trim();
+        if (productName.Length == 0) throw new ArgumentException("Product name is required.");
+
+        SuggestedProduct? suggestedProduct = null;
+        if (request.SuggestedProductId.HasValue)
+        {
+            var categorySuggestedId = await _db.Categories
+                .Where(c => c.Id == request.CategoryId)
+                .Select(c => c.SuggestedCategoryId)
+                .FirstOrDefaultAsync();
+
+            if (categorySuggestedId is null)
+                throw new ArgumentException("Selected product suggestion is not available for this category.");
+
+            suggestedProduct = await _db.SuggestedProducts
+                .FirstOrDefaultAsync(sp => sp.Id == request.SuggestedProductId.Value
+                    && sp.SuggestedCategoryId == categorySuggestedId.Value
+                    && sp.IsActive);
+
+            if (suggestedProduct is null)
+                throw new ArgumentException("Selected product suggestion is not available for this category.");
+
+            if (!string.Equals(productName, suggestedProduct.Name, StringComparison.OrdinalIgnoreCase))
+                throw new ArgumentException("Selected product suggestion does not match the product name.");
+        }
+
         var combinations = request.VariantCombinations;
 
         // Fail fast, before anything is persisted, rather than leaving a product created
@@ -447,14 +473,18 @@ public class ProductService : IProductService
         }
 
         var sku = await GenerateSkuAsync();
+        var usesSuggestedImage = suggestedProduct?.ImageUrl is { Length: > 0 } suggestedImageUrl
+            && string.Equals(request.ImageUrl, suggestedImageUrl, StringComparison.OrdinalIgnoreCase);
 
         var product = new Product
         {
             BusinessId = _business.CurrentBusinessId,
             CategoryId = request.CategoryId,
-            Name = request.Name.Trim(),
+            SuggestedProductId = suggestedProduct?.Id,
+            Name = productName,
             Sku = sku,
             ImageUrl = request.ImageUrl,
+            ImageSource = usesSuggestedImage ? "COMMON" : "INDIVIDUAL",
             Description = request.Description,
             DefectNotes = request.DefectNotes,
             UnitCode = request.UnitCode,

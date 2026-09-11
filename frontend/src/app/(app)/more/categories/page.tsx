@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { getCategories, createCategory, deleteCategory } from '@/lib/catalogApi';
 import CustomSelect from '@/components/ui/CustomSelect';
 import { useLanguage } from '@/i18n/LanguageContext';
@@ -13,9 +13,12 @@ import { useToastStore } from '@/store/toastStore';
 
 export default function CategoriesPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const qc = useQueryClient();
   const { t, lang } = useLanguage();
-  const [showNew, setShowNew] = useState(false);
+  const returnTo = searchParams.get('returnTo');
+  const safeReturnTo = returnTo?.startsWith('/') && !returnTo.startsWith('//') ? returnTo : null;
+  const [showNew, setShowNew] = useState(() => searchParams.get('new') === '1');
   const [newName, setNewName] = useState('');
   const [newNameBn, setNewNameBn] = useState('');
   const [newUnit, setNewUnit] = useState('pcs');
@@ -35,6 +38,7 @@ export default function CategoriesPage() {
       setNewNameBn('');
       setNewUnit('pcs');
       setNewParentId('');
+      if (safeReturnTo) router.push(safeReturnTo);
     },
     onError: (err: unknown) => toastError(err, t('categories.failedCreate')),
   });

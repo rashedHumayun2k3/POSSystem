@@ -180,8 +180,25 @@ public class SubscriptionService : ISubscriptionService
 
     private async Task<Subscription> GetOrThrowAsync(Guid companyId)
     {
-        return await _db.Subscriptions.Include(s => s.Plan).FirstOrDefaultAsync(s => s.CompanyId == companyId)
-            ?? throw new InvalidOperationException("No subscription found for this business.");
+        try
+        {
+            var sub = await _db.Subscriptions
+                .Include(s => s.Plan)
+                .FirstOrDefaultAsync(s => s.CompanyId == companyId);
+
+            if (sub is null)
+                throw new InvalidOperationException("No subscription found for this business.");
+
+            return sub;
+        }
+        catch (InvalidOperationException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException("Failed to load subscription for this business.", ex);
+        }
     }
 
     private async Task<(int staffUsed, int branchesUsed)> GetUsageAsync(Guid companyId)

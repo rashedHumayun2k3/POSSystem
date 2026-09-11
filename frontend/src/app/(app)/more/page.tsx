@@ -5,6 +5,7 @@ import { useState } from "react";
 import { useAuthStore } from "@/store/authStore";
 import { getSettingsMenuItems } from "@/lib/settingsMenu";
 import { REPORT_MENU_ITEMS } from "@/lib/reportsMenu";
+import { matchesMenuSearch } from "@/lib/menuSearch";
 import {
   TruckIcon,
   BanknotesIcon,
@@ -20,6 +21,8 @@ import {
   ArrowUturnLeftIcon,
   ChevronDownIcon,
   ChevronRightIcon,
+  MagnifyingGlassIcon,
+  XMarkIcon,
 } from "@heroicons/react/24/outline";
 import { useLanguage } from "@/i18n/LanguageContext";
 
@@ -32,6 +35,7 @@ export default function MorePage() {
   const { t } = useLanguage();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [reportsOpen, setReportsOpen] = useState(false);
+  const [search, setSearch] = useState("");
 
   const ownerLinks = [
     { href: "/more/categories", labelKey: "more.categories", Icon: TagIcon,         descKey: "more.categoriesDesc" },
@@ -87,17 +91,61 @@ export default function MorePage() {
     : isPartner   ? partnerLinks
     : staffLinks;
   const settingsItems = getSettingsMenuItems(isOwner);
+  const query = search.trim().toLocaleLowerCase();
+  const matches = (...keys: string[]) =>
+    matchesMenuSearch(query, ...keys);
+  const visibleReports = matches("more.reports", "more.reportsDesc")
+    ? REPORT_MENU_ITEMS
+    : REPORT_MENU_ITEMS.filter((item) => matches(item.titleKey, item.descKey));
+  const settingsLink = links.find((item) => item.href === "/more/settings");
+  const visibleSettings = settingsLink && matches(settingsLink.labelKey, settingsLink.descKey)
+    ? settingsItems
+    : settingsItems.filter((item) => matches(item.titleKey, item.descKey));
+  const visibleLinks = links.filter((item) =>
+    matches(item.labelKey, item.descKey) ||
+    (item.href === "/more/reports" && visibleReports.length > 0) ||
+    (item.href === "/more/settings" && visibleSettings.length > 0)
+  );
+  const showReports = Boolean(query) || reportsOpen;
+  const showSettings = Boolean(query) || settingsOpen;
 
   return (
     <div className="px-4 py-5 space-y-3">
-      {links.map(({ href, labelKey, Icon, descKey }) => {
+      <div className="relative">
+        <MagnifyingGlassIcon aria-hidden="true" className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400" />
+        <input
+          type="search"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          aria-label={t("more.searchMenu")}
+          placeholder={t("more.searchMenu")}
+          className="w-full rounded-2xl border border-gray-200 bg-white py-3 pl-11 pr-12 text-sm text-gray-900 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 [&::-webkit-search-cancel-button]:appearance-none"
+        />
+        {search && (
+          <button
+            type="button"
+            onClick={() => setSearch("")}
+            aria-label={t("more.clearSearch")}
+            className="absolute right-1 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-xl text-gray-500 hover:bg-gray-100"
+          >
+            <XMarkIcon aria-hidden="true" className="h-5 w-5" />
+          </button>
+        )}
+      </div>
+      {visibleLinks.length === 0 && (
+        <p role="status" className="rounded-2xl border border-gray-100 bg-white px-4 py-8 text-center text-sm text-gray-500">
+          {t("more.noSearchResults")}
+        </p>
+      )}
+      {visibleLinks.map(({ href, labelKey, Icon, descKey }) => {
         if (href === "/more/reports") {
           return (
             <div key={href} className="bg-orange-100 rounded-2xl border border-orange-200 overflow-hidden">
               <button
                 type="button"
                 onClick={() => setReportsOpen((open) => !open)}
-                aria-expanded={reportsOpen}
+                aria-expanded={showReports}
+                disabled={Boolean(query)}
                 className="w-full flex items-center gap-4 px-4 h-16 active:scale-[0.98] transition text-left"
               >
                 <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-orange-200">
@@ -107,16 +155,16 @@ export default function MorePage() {
                   <p className="text-sm font-semibold text-gray-900">{t(labelKey)}</p>
                   <p className="text-xs text-gray-400">{t(descKey)}</p>
                 </div>
-                {reportsOpen ? (
+                {showReports ? (
                   <ChevronDownIcon className="w-4 h-4 text-gray-300 shrink-0" />
                 ) : (
                   <ChevronRightIcon className="w-4 h-4 text-gray-300 shrink-0" />
                 )}
               </button>
 
-              {reportsOpen && (
+              {showReports && (
                 <div className="border-t border-orange-200 bg-orange-500 px-3 py-2 space-y-2">
-                  {REPORT_MENU_ITEMS.map(({ href: childHref, icon: ChildIcon, color, titleKey, descKey }) => (
+                  {visibleReports.map(({ href: childHref, icon: ChildIcon, color, titleKey, descKey }) => (
                     <Link
                       key={childHref}
                       href={childHref}
@@ -144,7 +192,8 @@ export default function MorePage() {
               <button
                 type="button"
                 onClick={() => setSettingsOpen((open) => !open)}
-                aria-expanded={settingsOpen}
+                aria-expanded={showSettings}
+                disabled={Boolean(query)}
                 className="w-full flex items-center gap-4 px-4 h-16 active:scale-[0.98] transition text-left"
               >
                 <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-orange-200">
@@ -154,16 +203,16 @@ export default function MorePage() {
                   <p className="text-sm font-semibold text-gray-900">{t(labelKey)}</p>
                   <p className="text-xs text-gray-400">{t(descKey)}</p>
                 </div>
-                {settingsOpen ? (
+                {showSettings ? (
                   <ChevronDownIcon className="w-4 h-4 text-gray-300 shrink-0" />
                 ) : (
                   <ChevronRightIcon className="w-4 h-4 text-gray-300 shrink-0" />
                 )}
               </button>
 
-              {settingsOpen && (
+              {showSettings && (
                 <div className="border-t border-orange-200 bg-orange-500 px-3 py-2 space-y-2">
-                  {settingsItems.map(({ href: childHref, icon: ChildIcon, color, titleKey, descKey }) => (
+                  {visibleSettings.map(({ href: childHref, icon: ChildIcon, color, titleKey, descKey }) => (
                     <Link
                       key={childHref}
                       href={childHref}

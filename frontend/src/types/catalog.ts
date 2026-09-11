@@ -237,6 +237,7 @@ export interface CreateProductPayload {
   wholesaleMinQty?: number | null;
   wholesaleUnitPrice?: number | null;
   wholesaleNote?: string | null;
+  suggestedProductId?: string | null;
 }
 
 export interface ProductSearchResult {

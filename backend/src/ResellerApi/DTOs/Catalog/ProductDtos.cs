@@ -198,7 +198,8 @@ public record CreateProductRequest(
     // WholesaleUnitPrice < SellingPrice — validated in ProductService.
     decimal? WholesaleMinQty,
     decimal? WholesaleUnitPrice,
-    string? WholesaleNote
+    string? WholesaleNote,
+    Guid? SuggestedProductId = null
 );
 
 // "I already have this stock" — for a variant that has never had any real purchase cost

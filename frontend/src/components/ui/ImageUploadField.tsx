@@ -48,7 +48,7 @@ export default function ImageUploadField({ value, onChange, label, uploadingLabe
             className="w-full h-48 rounded-xl bg-gray-100 border border-gray-200 flex items-center justify-center overflow-hidden active:bg-gray-200"
           >
             {value ? (
-              <img src={resolveMediaUrl(value) ?? ''} alt="" className="w-full h-full object-cover" />
+              <img src={resolveMediaUrl(value) ?? ''} alt="" className="w-full h-full object-contain object-center bg-gray-50" />
             ) : (
               <div className="flex items-center justify-center text-gray-400">
                 <CameraIcon className="w-9 h-9" />
@@ -109,7 +109,7 @@ export default function ImageUploadField({ value, onChange, label, uploadingLabe
           className="w-full h-48 rounded-xl bg-gray-100 border border-gray-200 flex items-center justify-center overflow-hidden active:bg-gray-200"
         >
           {value ? (
-            <img src={resolveMediaUrl(value) ?? ''} alt="" className="w-full h-full object-cover" />
+            <img src={resolveMediaUrl(value) ?? ''} alt="" className="w-full h-full object-contain object-center bg-gray-50" />
           ) : (
             <svg className="w-10 h-10 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path
