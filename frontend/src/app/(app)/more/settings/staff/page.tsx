@@ -6,8 +6,9 @@ import { useRouter } from "next/navigation";
 import { getStaff, createStaff, updateStaff, deactivateStaff, resetStaffPassword } from "@/lib/settingsApi";
 import type { StaffUser } from "@/types/settings";
 import { useLanguage } from "@/i18n/LanguageContext";
-import { PencilIcon } from "@heroicons/react/24/outline";
+import { PencilIcon, PlusIcon } from "@heroicons/react/24/outline";
 import SlidePanel from "@/components/ui/SlidePanel";
+import { toastError } from "@/lib/toastError";
 
 type PanelMode = "view" | "add" | "edit" | null;
 
@@ -22,23 +23,21 @@ export default function StaffPage() {
   const [mode, setMode] = useState<PanelMode>(null);
   const [selected, setSelected] = useState<StaffUser | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
-  const [error, setError] = useState("");
   const [showResetPw, setShowResetPw] = useState(false);
   const [newPassword, setNewPassword] = useState("");
-  const [resetError, setResetError] = useState("");
 
   const { data: staff = [], isLoading } = useQuery({
     queryKey: ["staff"],
     queryFn: getStaff,
   });
 
-  const openView = (u: StaffUser) => { setSelected(u); setError(""); setShowResetPw(false); setNewPassword(""); setResetError(""); setMode("view"); };
-  const openAdd  = () => { setForm(EMPTY_FORM); setSelected(null); setError(""); setMode("add"); };
+  const openView = (u: StaffUser) => { setSelected(u); setShowResetPw(false); setNewPassword(""); setMode("view"); };
+  const openAdd  = () => { setForm(EMPTY_FORM); setSelected(null); setMode("add"); };
   const openEdit = (u: StaffUser) => {
     setForm({ name: u.name, phone: u.phone, password: "", role: u.role, monthlySalary: String(u.monthlySalary) });
-    setSelected(u); setError(""); setMode("edit");
+    setSelected(u); setMode("edit");
   };
-  const close = () => { setMode(null); setSelected(null); setError(""); };
+  const close = () => { setMode(null); setSelected(null); };
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -55,8 +54,7 @@ export default function StaffPage() {
       }
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["staff"] }); close(); },
-    onError: (e: { response?: { data?: { message?: string } } }) =>
-      setError(e?.response?.data?.message ?? t("settings.failedSaveStaff")),
+    onError: (err: unknown) => toastError(err, t("settings.failedSaveStaff")),
   });
 
   const deactivateMutation = useMutation({
@@ -66,9 +64,8 @@ export default function StaffPage() {
 
   const resetPwMutation = useMutation({
     mutationFn: () => resetStaffPassword(selected!.id, newPassword),
-    onSuccess: () => { setShowResetPw(false); setNewPassword(""); setResetError(""); },
-    onError: (e: { response?: { data?: { message?: string } } }) =>
-      setResetError(e?.response?.data?.message ?? t("settings.failedResetPassword")),
+    onSuccess: () => { setShowResetPw(false); setNewPassword(""); },
+    onError: (err: unknown) => toastError(err, t("settings.failedResetPassword")),
   });
 
   const panelTitle =
@@ -97,7 +94,6 @@ export default function StaffPage() {
     </div>
   ) : (mode === "add" || mode === "edit") ? (
     <>
-      {error && <p className="text-xs text-red-600 mb-2">{error}</p>}
       <button
         onClick={() => saveMutation.mutate()}
         disabled={saveMutation.isPending || !form.name}
@@ -117,7 +113,10 @@ export default function StaffPage() {
           </svg>
         </button>
         <h1 className="flex-1 text-base font-semibold text-gray-900">{t("settings.staffTitle")}</h1>
-        <button onClick={openAdd} className="text-sm font-semibold text-indigo-600">{t("settings.addStaff")}</button>
+        <button onClick={openAdd} className="flex items-center gap-1 text-sm font-semibold text-indigo-600">
+          <PlusIcon className="w-4 h-4" />
+          {t("settings.addStaff")}
+        </button>
       </div>
 
       {/* Staff list */}
@@ -198,7 +197,6 @@ export default function StaffPage() {
                     onChange={(e) => setNewPassword(e.target.value)}
                     className="w-full h-10 px-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   />
-                  {resetError && <p className="text-xs text-red-600">{resetError}</p>}
                   <div className="flex gap-2">
                     <button
                       onClick={() => resetPwMutation.mutate()}
@@ -208,7 +206,7 @@ export default function StaffPage() {
                       {resetPwMutation.isPending ? t("common.saving") : t("settings.setPassword")}
                     </button>
                     <button
-                      onClick={() => { setShowResetPw(false); setNewPassword(""); setResetError(""); }}
+                      onClick={() => { setShowResetPw(false); setNewPassword(""); }}
                       className="px-3 h-9 rounded-xl border border-gray-200 text-xs text-gray-500"
                     >
                       {t("common.cancel")}
@@ -252,7 +250,7 @@ export default function StaffPage() {
             </div>
             <input
               placeholder={t("settings.salaryPlaceholder")} value={form.monthlySalary}
-              type="number" inputMode="decimal"
+              type="number" inputMode="decimal" min="0"
               onChange={(e) => setForm((f) => ({ ...f, monthlySalary: e.target.value }))}
               className="w-full h-11 px-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />

@@ -1,45 +1,60 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import Image from "next/image";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useLogin } from "@/hooks/useAuth";
 import { useLanguage } from "@/i18n/LanguageContext";
+import { toastError } from "@/lib/toastError";
+import { useToastStore } from "@/store/toastStore";
 
 export default function LoginPage() {
-  const [phone, setPhone] = useState("");
+  return (
+    <Suspense fallback={null}>
+      <LoginPageInner />
+    </Suspense>
+  );
+}
+
+function LoginPageInner() {
+  const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const login = useLogin();
   const { t, lang, setLang } = useLanguage();
+  const searchParams = useSearchParams();
+  const resetSuccess = searchParams.get("resetSuccess") === "1";
+
+  useEffect(() => {
+    if (resetSuccess) useToastStore.getState().show(t("auth.forgotPassword.success"));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resetSuccess]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    login.mutate({ phone, password });
+    login.mutate({ phone: identifier, password }, { onError: (err) => toastError(err, t("auth.loginFailed")) });
   };
 
   return (
     <div className="w-full max-w-sm">
       {/* Logo / branding */}
       <div className="text-center mb-8">
-        <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-indigo-600 mb-4">
-          <svg className="w-9 h-9 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
-              d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
-          </svg>
-        </div>
-        <h1 className="text-2xl font-bold text-gray-900">{t("auth.appName")}</h1>
-        <p className="text-sm text-gray-500 mt-1">{t("auth.subtitle")}</p>
+        <Image src="/logo.png" alt="LavLokshan" width={240} height={67} className="mx-auto mb-3 object-contain" priority />
+        <p className="text-sm text-gray-500">{t("auth.subtitle")}</p>
       </div>
 
       <form onSubmit={handleSubmit} className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 space-y-4">
-        {/* Phone */}
+        {/* Phone / Email */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">{t("auth.phone")}</label>
+          <label className="block text-sm font-medium text-gray-700 mb-1">{t("auth.loginIdentifier")}</label>
           <input
-            type="tel"
-            inputMode="tel"
-            placeholder="01700000000"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
+            type="text"
+            inputMode="email"
+            autoComplete="username"
+            placeholder={t("auth.loginIdentifierPlaceholder")}
+            value={identifier}
+            onChange={(e) => setIdentifier(e.target.value)}
             required
             className="w-full h-12 px-4 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
           />
@@ -67,23 +82,31 @@ export default function LoginPage() {
           </div>
         </div>
 
-        {/* Error */}
-        {login.isError && (
-          <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">
-            {(login.error as { response?: { data?: { message?: string } } })?.response?.data?.message ?? t("auth.loginFailed")}
-          </p>
-        )}
-
         {/* Submit */}
         <button
           type="submit"
           disabled={login.isPending}
-          className="w-full h-12 rounded-xl bg-indigo-600 text-white font-semibold text-sm hover:bg-indigo-700 active:scale-[0.98] transition disabled:opacity-60"
+          className="w-full h-12 rounded-xl bg-indigo-600 text-white font-semibold text-sm hover:bg-indigo-700 active:scale-[0.98] transition disabled:opacity-60 flex items-center justify-center gap-2"
         >
+          {login.isPending && (
+            <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+          )}
           {login.isPending ? t("auth.signingIn") : t("auth.signIn")}
         </button>
 
-        <p className="text-center text-xs text-gray-400">{t("auth.forgotPasswordHint")}</p>
+        <p className="text-center text-xs text-gray-400">
+          <Link href="/forgot-password" className="text-indigo-600 font-medium">
+            {t("auth.forgotPassword.link")}
+          </Link>
+        </p>
+        <p className="text-center text-[11px] text-gray-400">{t("auth.forgotPassword.noEmailFallback")}</p>
+
+        <p className="text-center text-xs text-gray-500">
+          {t("auth.signup.noAccount")}{" "}
+          <Link href="/signup" className="text-indigo-600 font-medium">
+            {t("auth.signup.createAccount")}
+          </Link>
+        </p>
 
         {/* Language toggle on login page */}
         <button

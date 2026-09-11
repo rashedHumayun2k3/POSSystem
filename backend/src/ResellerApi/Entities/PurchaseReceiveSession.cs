@@ -2,8 +2,10 @@ using ResellerApi.Entities.Base;
 
 namespace ResellerApi.Entities;
 
-public class PurchaseReceiveSession : BusinessScopedEntity
+public class PurchaseReceiveSession : BusinessScopedEntity, IBranchScoped
 {
+    public Guid? BranchId { get; set; }
+    public Branch? Branch { get; set; }
     public Guid TripId { get; set; }
     public string SessionNo { get; set; } = null!;         // RS-001, RS-002 …
     public Guid ReceivedBy { get; set; }
@@ -11,6 +13,7 @@ public class PurchaseReceiveSession : BusinessScopedEntity
     public string TransportMode { get; set; } = null!;     // TRUCK|BUS|AIR|COURIER|BOAT|WALK_IN|OTHER
     public string? VehicleOrTrackingNo { get; set; }
     public string? Note { get; set; }
+    public string AttachmentsJson { get; set; } = "[]";
     public string Status { get; set; } = "PENDING_APPROVAL"; // PENDING_APPROVAL|APPROVED|REJECTED
     public Guid? ApprovedBy { get; set; }
     public DateTime? ApprovedAt { get; set; }

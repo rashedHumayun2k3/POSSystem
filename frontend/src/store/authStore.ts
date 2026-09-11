@@ -2,7 +2,8 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { User, Business } from "@/types/auth";
+import type { User, Business, SalesChannel, ShopType } from "@/types/auth";
+import type { Branch } from "@/types/branch";
 
 function authStoreDebug(message: string, details?: Record<string, unknown>) {
   if (process.env.NODE_ENV !== "production") {
@@ -14,18 +15,26 @@ interface AuthState {
   user: User | null;
   businesses: Business[];
   currentBusinessId: string | null;
+  branches: Branch[];
+  currentBranchId: string | null;
   accessToken: string | null;
   refreshToken: string | null;
   hasHydrated: boolean;
   setHasHydrated: (hasHydrated: boolean) => void;
   setAuth: (user: User, businesses: Business[], access: string, refresh: string) => void;
+  updateUserPhoto: (photoUrl: string | null) => void;
+  updateCurrentBusinessSalesChannels: (salesChannels: SalesChannel[], shopType?: ShopType) => void;
   switchBusiness: (id: string) => void;
+  setBranches: (branches: Branch[]) => void;
+  switchBranch: (id: string) => void;
+  clearBranch: () => void;
   logout: () => void;
   isOwner: () => boolean;
   isManager: () => boolean;
   isWarehouse: () => boolean;
   isStaff: () => boolean;
   canSeeCosts: () => boolean;
+  canAccessAllBranches: () => boolean;
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -34,6 +43,8 @@ export const useAuthStore = create<AuthState>()(
       user: null,
       businesses: [],
       currentBusinessId: null,
+      branches: [],
+      currentBranchId: null,
       accessToken: null,
       refreshToken: null,
       hasHydrated: false,
@@ -53,19 +64,65 @@ export const useAuthStore = create<AuthState>()(
         localStorage.setItem("accessToken", accessToken);
         localStorage.setItem("refreshToken", refreshToken);
         if (businessId) localStorage.setItem("businessId", businessId);
-        set({ user, businesses, currentBusinessId: businessId, accessToken, refreshToken });
+        localStorage.removeItem("branchId");
+        set({ user, businesses, currentBusinessId: businessId, branches: [], currentBranchId: null, accessToken, refreshToken });
+      },
+
+      updateUserPhoto: (photoUrl) => {
+        const current = get().user;
+        if (!current) return;
+        set({ user: { ...current, photoUrl } });
+      },
+
+      updateCurrentBusinessSalesChannels: (salesChannels, shopType) => {
+        const { businesses, currentBusinessId } = get();
+        set({
+          businesses: businesses.map((b) =>
+            b.id === currentBusinessId ? { ...b, salesChannels, shopType: shopType ?? b.shopType } : b
+          ),
+        });
       },
 
       switchBusiness: (id) => {
         localStorage.setItem("businessId", id);
-        set({ currentBusinessId: id });
+        localStorage.removeItem("branchId");
+        set({ currentBusinessId: id, branches: [], currentBranchId: null });
+      },
+
+      setBranches: (branches) => {
+        if (branches.length === 1) {
+          localStorage.setItem("branchId", branches[0].id);
+          set({ branches, currentBranchId: branches[0].id });
+          return;
+        }
+
+        const currentBranchId = get().currentBranchId;
+        if (currentBranchId && !branches.some((branch) => branch.id === currentBranchId)) {
+          localStorage.removeItem("branchId");
+          set({ branches, currentBranchId: null });
+          return;
+        }
+
+        set({ branches });
+      },
+
+      switchBranch: (id) => {
+        localStorage.setItem("branchId", id);
+        set({ currentBranchId: id });
+      },
+
+      // OWNER/MANAGER "All Branches" mode — clears the active branch header entirely.
+      clearBranch: () => {
+        localStorage.removeItem("branchId");
+        set({ currentBranchId: null });
       },
 
       logout: () => {
         localStorage.removeItem("accessToken");
         localStorage.removeItem("refreshToken");
         localStorage.removeItem("businessId");
-        set({ user: null, businesses: [], currentBusinessId: null, accessToken: null, refreshToken: null });
+        localStorage.removeItem("branchId");
+        set({ user: null, businesses: [], currentBusinessId: null, branches: [], currentBranchId: null, accessToken: null, refreshToken: null });
       },
 
       isOwner:     () => get().user?.role === "OWNER",
@@ -73,6 +130,7 @@ export const useAuthStore = create<AuthState>()(
       isWarehouse: () => get().user?.role === "WAREHOUSE",
       isStaff:     () => get().user?.role === "STAFF",
       canSeeCosts: () => get().user?.role === "OWNER" || get().user?.role === "MANAGER",
+      canAccessAllBranches: () => ["OWNER", "MANAGER", "PARTNER"].includes(get().user?.role ?? ""),
     }),
     {
       name: "auth-storage",
@@ -80,6 +138,8 @@ export const useAuthStore = create<AuthState>()(
         user: s.user,
         businesses: s.businesses,
         currentBusinessId: s.currentBusinessId,
+        branches: s.branches,
+        currentBranchId: s.currentBranchId,
         accessToken: s.accessToken,
         refreshToken: s.refreshToken,
       }),
@@ -90,6 +150,9 @@ export const useAuthStore = create<AuthState>()(
           businessId: state?.currentBusinessId,
           hasAccessToken: Boolean(state?.accessToken),
         });
+        if (state?.branches.length === 1 && state.currentBranchId !== state.branches[0].id) {
+          state.switchBranch(state.branches[0].id);
+        }
         state?.setHasHydrated(true);
       },
     }

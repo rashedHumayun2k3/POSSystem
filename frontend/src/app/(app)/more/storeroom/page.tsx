@@ -1,13 +1,14 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { getStoreroomSummary, getTripsWithCartons, getCartons, getDamagedItems } from '@/lib/cartonApi';
-import { getProducts } from '@/lib/catalogApi';
+import { searchProducts } from '@/lib/catalogApi';
 import { locationLookup } from '@/lib/cartonApi';
 import type { CartonSummary, LocationLookupItem, DamagedItem, TripWithCartons } from '@/types/carton';
+import type { ProductSearchResult } from '@/types/catalog';
 import { useLanguage } from '@/i18n/LanguageContext';
 
 type Tab = 'trips' | 'all' | 'damaged';
@@ -25,22 +26,37 @@ export default function StoreroomPage() {
   const [tab, setTab] = useState<Tab>('trips');
   const [searchVariantId, setSearchVariantId] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [productResults, setProductResults] = useState<ProductSearchResult[]>([]);
+  const [productSearchLoading, setProductSearchLoading] = useState(false);
   const [lookupResults, setLookupResults] = useState<LocationLookupItem[] | null>(null);
   const [lookupLoading, setLookupLoading] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { data: summary } = useQuery({ queryKey: ['storeroom-summary'], queryFn: getStoreroomSummary });
   const { data: trips = [] } = useQuery({ queryKey: ['trips-with-cartons'], queryFn: getTripsWithCartons });
   const { data: allCartons = [] } = useQuery({ queryKey: ['cartons-all'], queryFn: () => getCartons(), enabled: tab === 'all' });
   const { data: damaged = [] } = useQuery({ queryKey: ['damaged-items'], queryFn: getDamagedItems, enabled: tab === 'damaged' });
-  const { data: products = [] } = useQuery({ queryKey: ['products'], queryFn: () => getProducts({}) });
 
-  const filteredProducts = searchQuery
-    ? products.filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase()))
-    : [];
+  function handleSearchInput(q: string) {
+    setSearchQuery(q);
+    setSearchVariantId('');
+    setLookupResults(null);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (q.length < 2) { setProductResults([]); return; }
+    debounceRef.current = setTimeout(async () => {
+      setProductSearchLoading(true);
+      try {
+        setProductResults(await searchProducts(q));
+      } finally {
+        setProductSearchLoading(false);
+      }
+    }, 300);
+  }
 
   async function handleLocationSearch(variantId: string, productName: string) {
     setSearchVariantId(variantId);
     setSearchQuery(productName);
+    setProductResults([]);
     setLookupLoading(true);
     setLookupResults(null);
     try {
@@ -90,12 +106,12 @@ export default function StoreroomPage() {
             placeholder={t('storeroom.searchPlaceholder')}
             className="w-full h-10 px-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
           />
-          {searchQuery && !searchVariantId && filteredProducts.length > 0 && (
+          {searchQuery && !searchVariantId && productResults.length > 0 && (
             <div className="absolute z-20 top-11 left-0 right-0 bg-white border border-gray-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
-              {filteredProducts.slice(0, 8).map(p => (
-                <button key={p.id} onClick={() => handleLocationSearch(p.id, p.name)}
+              {productResults.slice(0, 8).map(p => (
+                <button key={p.variantId} onClick={() => handleLocationSearch(p.variantId, p.productName)}
                   className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 border-b border-gray-50 last:border-0">
-                  {p.name}
+                  {p.productName}
                 </button>
               ))}
             </div>

@@ -1,3 +1,7 @@
+"use client";
+
+import { useLanguage } from "@/i18n/LanguageContext";
+
 interface Props {
   status: string;
 }
@@ -25,10 +29,12 @@ const palette: Record<string, string> = {
 };
 
 export default function StatusBadge({ status }: Props) {
+  const { t } = useLanguage();
   const cls = palette[status] ?? "bg-gray-100 text-gray-500";
+  const label = palette[status] ? t(`status.${status}`) : status.replace(/_/g, " ");
   return (
     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${cls}`}>
-      {status.replace(/_/g, " ")}
+      {label}
     </span>
   );
 }

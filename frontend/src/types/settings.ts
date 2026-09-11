@@ -2,7 +2,7 @@ export interface StaffUser {
   id: string;
   name: string;
   phone: string;
-  role: "OWNER" | "STAFF";
+  role: "OWNER" | "MANAGER" | "PARTNER" | "STAFF" | "WAREHOUSE";
   monthlySalary: number;
   isActive: boolean;
 }
@@ -24,6 +24,7 @@ export interface Courier {
 export interface ExpenseCategory {
   id: string;
   name: string;
+  isSystem: boolean;
   isDefault: boolean;
 }
 
@@ -33,4 +34,5 @@ export interface AppSettings {
   refund_threshold?: string;
   low_stock_default?: string;
   return_policy_days?: string;
+  selling_mode?: string; // RETAIL | WHOLESALE | BOTH — controls product form wholesale section
 }

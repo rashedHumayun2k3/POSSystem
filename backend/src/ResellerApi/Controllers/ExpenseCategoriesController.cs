@@ -33,9 +33,9 @@ public class ExpenseCategoriesController : ControllerBase
     {
         var cats = await _db.ExpenseCategories
             .AsNoTracking()
-            .Where(c => c.IsActive)
-            .OrderBy(c => c.IsDefault ? 0 : 1).ThenBy(c => c.Name)
-            .Select(c => new { c.Id, c.Name, c.IsDefault })
+            .Where(c => c.BusinessId == _businessContext.CurrentBusinessId && c.IsActive)
+            .OrderBy(c => c.IsSystem ? 0 : 1).ThenBy(c => c.Name)
+            .Select(c => new { c.Id, c.Code, c.Name, c.IsSystem, c.IsDefault })
             .ToListAsync();
         return Ok(cats);
     }
@@ -43,26 +43,47 @@ public class ExpenseCategoriesController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] ExpenseCategoryRequest req)
     {
+        if (string.IsNullOrWhiteSpace(req.Name))
+            return BadRequest(new { message = "Name is required." });
+
+        if (req.IsDefault)
+            await ClearOtherDefaultsAsync();
+
+        var code = "CUSTOM_" + req.Name.Trim().ToUpperInvariant().Replace(" ", "_");
         var cat = new ExpenseCategory
         {
             BusinessId = _businessContext.CurrentBusinessId,
-            Name = req.Name.Trim(),
-            IsDefault = req.IsDefault,
-            IsActive = true
+            Code       = code,
+            Name       = req.Name.Trim(),
+            IsSystem   = false,
+            IsDefault  = req.IsDefault,
+            IsActive   = true
         };
         _db.ExpenseCategories.Add(cat);
         await _db.SaveChangesAsync();
         await _activityLog.LogAsync(_businessContext.CurrentBusinessId, _currentUser.UserId,
             "CREATE", "ExpenseCategory", cat.Id, null, new { cat.Name });
-        return CreatedAtAction(nameof(GetAll), new { }, new { cat.Id, cat.Name, cat.IsDefault });
+        return CreatedAtAction(nameof(GetAll), new { }, new { cat.Id, cat.Code, cat.Name, cat.IsSystem, cat.IsDefault });
     }
 
     [HttpPatch("{id:guid}")]
     public async Task<IActionResult> Update(Guid id, [FromBody] ExpenseCategoryRequest req)
     {
-        var cat = await _db.ExpenseCategories.FindAsync(id);
+        if (string.IsNullOrWhiteSpace(req.Name))
+            return BadRequest(new { message = "Name is required." });
+
+        var cat = await _db.ExpenseCategories
+            .FirstOrDefaultAsync(c => c.Id == id && c.BusinessId == _businessContext.CurrentBusinessId);
         if (cat is null) return NotFound();
-        cat.Name = req.Name.Trim();
+        var requestedName = req.Name.Trim();
+        if (cat.IsSystem && !string.Equals(cat.Name, requestedName, StringComparison.Ordinal))
+            return Conflict(new { message = "System categories cannot be renamed." });
+
+        if (req.IsDefault && !cat.IsDefault)
+            await ClearOtherDefaultsAsync(id);
+
+        if (!cat.IsSystem)
+            cat.Name = requestedName;
         cat.IsDefault = req.IsDefault;
         await _db.SaveChangesAsync();
         return NoContent();
@@ -71,13 +92,28 @@ public class ExpenseCategoriesController : ControllerBase
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(Guid id)
     {
-        var cat = await _db.ExpenseCategories.FindAsync(id);
+        var cat = await _db.ExpenseCategories
+            .FirstOrDefaultAsync(c => c.Id == id && c.BusinessId == _businessContext.CurrentBusinessId);
         if (cat is null) return NotFound();
+        if (cat.IsSystem)
+            return Conflict(new { message = "System categories cannot be deleted." });
+
         cat.DeletedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
         await _activityLog.LogAsync(_businessContext.CurrentBusinessId, _currentUser.UserId,
             "DELETE", "ExpenseCategory", id, new { cat.Name }, null);
         return NoContent();
+    }
+
+    private Task ClearOtherDefaultsAsync(Guid? exceptId = null)
+    {
+        var query = _db.ExpenseCategories
+            .Where(c => c.BusinessId == _businessContext.CurrentBusinessId && c.IsDefault);
+
+        if (exceptId.HasValue)
+            query = query.Where(c => c.Id != exceptId.Value);
+
+        return query.ExecuteUpdateAsync(s => s.SetProperty(c => c.IsDefault, false));
     }
 }
 

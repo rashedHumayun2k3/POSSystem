@@ -1,4 +1,13 @@
-export type SourceType = 'CHINA_TRIP' | 'ALIBABA' | 'LOCAL_WHOLESALE' | 'AGENT';
+export type SourceType =
+  | 'CHINA_TRIP'
+  | 'ONLINE_WHOLESALE'
+  | 'ALIBABA'
+  | 'LOCAL_WHOLESALE'
+  | 'AGENT'
+  | 'FACTORY_DIRECT'
+  | 'IMPORTER_DISTRIBUTOR'
+  | 'SOCIAL_SUPPLIER'
+  | 'EXISTING_SUPPLIER_REORDER';
 export type TripStatus = 'DRAFT' | 'PENDING_APPROVAL' | 'RECEIVING' | 'COMPLETED' | 'CANCELLED';
 export type CostType = 'TRANSPORT' | 'LABOR' | 'CUSTOMS' | 'SHIPPING_INTL' | 'CURRENCY_LOSS' | 'AGENT_FEE' | 'PAYMENT_FEE' | 'OTHER';
 export type SessionStatus = 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED';
@@ -16,6 +25,7 @@ export interface PurchaseTripSummary {
   totalItemCost: number;
   totalSharedCost: number;
   createdAt: string;
+  supplierReturnStatus: string | null;
 }
 
 export interface PurchaseItemDto {
@@ -23,10 +33,13 @@ export interface PurchaseItemDto {
   variantId: string;
   variantSku: string;
   productName: string;
+  unitCode: string;
   qtyBought: number;
   qtyUsable: number;
   qtyDamaged: number;
+  qtyMissing: number;
   totalCost: number;
+  unitWeightGrams: number;
   supplierId: string | null;
   supplierName: string | null;
   supplierAddress: string | null;
@@ -36,6 +49,10 @@ export interface PurchaseItemDto {
   promisedDate: string | null;
   allocatedSharedCost: number;
   landedUnitCost: number;
+  supplierReturnId: string | null;
+  supplierReturnNo: string | null;
+  supplierReturnStatus: string | null;
+  supplierReturnQty: number | null;
 }
 
 export interface PurchaseTripCostDto {
@@ -53,7 +70,15 @@ export interface PurchaseReceiveItemDto {
   purchaseItemId: string;
   qtyUsable: number;
   qtyDamaged: number;
+  qtyMissing: number;
   perLotValuesJson: string | null;
+}
+
+export interface PurchaseReceiveAttachment {
+  name: string;
+  url: string;
+  contentType: string;
+  sizeBytes: number;
 }
 
 export interface PurchaseReceiveSessionDto {
@@ -71,6 +96,7 @@ export interface PurchaseReceiveSessionDto {
   approvedAt: string | null;
   rejectionReason: string | null;
   items: PurchaseReceiveItemDto[];
+  attachments: PurchaseReceiveAttachment[];
 }
 
 export interface PurchaseTripDetail {
@@ -87,6 +113,7 @@ export interface PurchaseTripDetail {
   items: PurchaseItemDto[];
   costs: PurchaseTripCostDto[];
   sessions: PurchaseReceiveSessionDto[];
+  attachments: PurchaseReceiveAttachment[];
 }
 
 export interface UnaccountedUnitItem {
@@ -107,6 +134,7 @@ export interface AddItemPayload {
   variantId: string;
   qtyBought: number;
   totalCost: number;
+  unitWeightGrams?: number;
   supplierId?: string;
   memoPhotoUrl?: string;
   paidNow: number;
@@ -117,6 +145,7 @@ export interface AddItemPayload {
 export interface UpdateItemPayload {
   qtyBought: number;
   totalCost: number;
+  unitWeightGrams?: number;
   supplierId?: string;
   memoPhotoUrl?: string;
   paidNow: number;
@@ -136,6 +165,7 @@ export interface SessionItemInput {
   purchaseItemId: string;
   qtyUsable: number;
   qtyDamaged: number;
+  qtyMissing: number;
   perLotValuesJson: string;
 }
 
@@ -145,6 +175,7 @@ export interface CreateReceiveSessionPayload {
   vehicleOrTrackingNo?: string;
   note?: string;
   items: SessionItemInput[];
+  attachments?: PurchaseReceiveAttachment[];
 }
 
 export interface LandedCostPreview {

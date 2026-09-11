@@ -7,5 +7,5 @@ public record AuthResponse(
     IEnumerable<BusinessDto> Businesses
 );
 
-public record UserDto(Guid Id, string Name, string Phone, string Role);
-public record BusinessDto(Guid Id, string Name, string Currency);
+public record UserDto(Guid Id, string Name, string Phone, string? Email, string Role, string? PhotoUrl, bool CanAccessPos);
+public record BusinessDto(Guid Id, string Name, string Currency, string? Country, string[] BusinessTypes, string[] SalesChannels, string? ShopType, bool OnboardingCompleted);

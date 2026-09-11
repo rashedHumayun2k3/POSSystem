@@ -6,7 +6,10 @@ public interface ICurrentUserService
     string Role { get; }
     bool IsOwner { get; }
     bool IsManager { get; }
+    bool IsPartner { get; }
     bool IsWarehouse { get; }
     bool IsStaff { get; }
     bool CanSeeCosts { get; }
+    bool CanAccessAllBranches { get; }
+    bool CanAccessPos { get; }
 }

@@ -1,0 +1,140 @@
+# =========================================================
+# ResellerApi / .NET backend
+# =========================================================
+
+# -------------------------
+# Visual Studio / IDE
+# -------------------------
+.vs/
+.vscode/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.rsuser
+
+# -------------------------
+# .NET build output
+# -------------------------
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+publish/
+out/
+
+# -------------------------
+# NuGet
+# -------------------------
+*.nupkg
+*.snupkg
+**/[Pp]ackages/*
+!**/[Pp]ackages/build/
+.nuget/
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# -------------------------
+# Test / coverage output
+# -------------------------
+TestResults/
+[Tt]est[Rr]esult*/
+*.trx
+*.coverage
+*.coveragexml
+coverage/
+coverage.*
+.coverage
+.coverage.*
+
+# -------------------------
+# Temporary build/test folders
+# visible in this repository
+# -------------------------
+.build-attachments/
+.build-attachments-final/
+.build-missing/
+.build-po-attachments/
+.test-attachments/
+.test-missing/
+.test-po-attachments/
+.tmp-build/
+
+# Generic temporary files/folders
+tmp/
+temp/
+*.tmp
+*.temp
+*.bak
+*.swp
+
+# -------------------------
+# Logs / runtime output
+# -------------------------
+*.log
+*.err.log
+*.out.log
+
+# Specific runtime files currently visible
+api.err.log
+api.log
+approval-api.log
+approval-api-error.log
+backend_err.txt
+backend_out.txt
+reseller-api.err.log
+reseller-api.log
+
+# -------------------------
+# OS generated files
+# -------------------------
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# -------------------------
+# Local environment / secrets
+# -------------------------
+.env
+.env.*
+!.env.example
+*.local
+
+# Do NOT commit certificate/private-key files
+*.pfx
+*.p12
+*.key
+*.pem
+
+# -------------------------
+# Rider / ReSharper
+# -------------------------
+_ReSharper*/
+*.[Rr]e[Ss]harper
+*.DotSettings.user
+
+# -------------------------
+# JetBrains / VS profiling
+# -------------------------
+*.dotCover
+*.psess
+*.vsp
+*.vspx
+*.sap
+
+# -------------------------
+# Keep these source/config files tracked
+# -------------------------
+!.github/
+!src/
+!tools/
+!ResellerApi.slnx
+!web.config
+!nuget.config

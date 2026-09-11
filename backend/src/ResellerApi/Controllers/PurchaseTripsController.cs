@@ -32,14 +32,30 @@ public class PurchaseTripsController : ControllerBase
     [Authorize(Roles = Roles.Owner)]
     public async Task<IActionResult> Create([FromBody] CreatePurchaseTripRequest request)
     {
-        var trip = await _svc.CreateAsync(request, _user.UserId);
-        return CreatedAtAction(nameof(Get), new { id = trip.Id }, trip);
+        try
+        {
+            var trip = await _svc.CreateAsync(request, _user.UserId);
+            return CreatedAtAction(nameof(Get), new { id = trip.Id }, trip);
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpPatch("{id:guid}/header")]
     [Authorize(Roles = Roles.Owner)]
     public async Task<IActionResult> UpdateHeader(Guid id, [FromBody] UpdateTripHeaderRequest request)
         => Ok(await _svc.UpdateHeaderAsync(id, request, _user.UserId));
+
+    [HttpPatch("{id:guid}/attachments")]
+    [Authorize(Roles = Roles.Owner)]
+    public async Task<IActionResult> UpdateAttachments(Guid id, [FromBody] UpdateTripAttachmentsRequest request)
+        => Ok(await _svc.UpdateAttachmentsAsync(id, request, _user.UserId));
 
     // ── Items ────────────────────────────────────────────────────────────────
 

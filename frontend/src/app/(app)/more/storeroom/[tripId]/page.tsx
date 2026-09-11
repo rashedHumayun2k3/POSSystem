@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { getCartons, bulkCreateCartons, deleteCarton } from '@/lib/cartonApi';
 import type { CartonSummary } from '@/types/carton';
 import { useLanguage } from '@/i18n/LanguageContext';
+import { PlusIcon } from '@heroicons/react/24/outline';
 
 const STATUS_COLOR: Record<string, string> = {
   SEALED:  'bg-blue-100 text-blue-700',
@@ -80,8 +81,9 @@ export default function TripCartonsPage() {
         </button>
         <h1 className="flex-1 text-base font-semibold text-gray-900">{t('storeroom.cartons')}</h1>
         <button onClick={() => setShowAdd(true)}
-          className="text-sm font-semibold text-indigo-600">
-          + {t('storeroom.addCartons')}
+          className="flex items-center gap-1 text-sm font-semibold text-indigo-600">
+          <PlusIcon className="w-4 h-4" />
+          {t('storeroom.addCartons')}
         </button>
       </div>
 
@@ -106,8 +108,9 @@ export default function TripCartonsPage() {
           <div className="text-center py-16">
             <p className="text-sm text-gray-400">{t('storeroom.noCartonsYet')}</p>
             <button onClick={() => setShowAdd(true)}
-              className="mt-3 text-sm font-semibold text-indigo-600">
-              + {t('storeroom.addCartons')}
+              className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-indigo-600">
+              <PlusIcon className="w-4 h-4" />
+              {t('storeroom.addCartons')}
             </button>
           </div>
         ) : (
@@ -139,7 +142,7 @@ export default function TripCartonsPage() {
 
             {addMode === 'auto' ? (
               <div className="space-y-3">
-                <input type="number" inputMode="numeric" placeholder={t('storeroom.countPlaceholder')}
+                <input type="number" inputMode="numeric" min="0" placeholder={t('storeroom.countPlaceholder')}
                   value={count} onChange={e => setCount(e.target.value)}
                   className="w-full h-11 px-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" />
                 <p className="text-xs text-gray-400">{t('storeroom.autoNoteHint')}</p>

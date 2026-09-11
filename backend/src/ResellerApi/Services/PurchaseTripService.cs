@@ -1,3 +1,4 @@
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using ResellerApi.Data;
 using ResellerApi.DTOs.Purchases;
@@ -21,7 +22,19 @@ public class PurchaseTripService : IPurchaseTripService
     }
 
     private static readonly HashSet<string> ValidSourceTypes =
-        new(["CHINA_TRIP", "ALIBABA", "LOCAL_WHOLESALE", "AGENT"], StringComparer.OrdinalIgnoreCase);
+        new([
+            "CHINA_TRIP",
+            "ONLINE_WHOLESALE",
+            "ALIBABA",
+            "LOCAL_WHOLESALE",
+            "AGENT",
+            "FACTORY_DIRECT",
+            "IMPORTER_DISTRIBUTOR",
+            "SOCIAL_SUPPLIER",
+            "EXISTING_SUPPLIER_REORDER",
+            "OPENING_BALANCE",
+            "HAWKER_MARKET"
+        ], StringComparer.OrdinalIgnoreCase);
 
     private static readonly HashSet<string> ValidCostTypes =
         new(["TRANSPORT", "LABOR", "CUSTOMS", "SHIPPING_INTL", "CURRENCY_LOSS", "AGENT_FEE", "PAYMENT_FEE", "OTHER"],
@@ -38,9 +51,12 @@ public class PurchaseTripService : IPurchaseTripService
         if (!ValidSourceTypes.Contains(sourceType))
             throw new ArgumentException($"Invalid source type: {sourceType}");
 
+        var branchId = await ResolveBranchIdAsync(request.BranchId);
+
         var trip = new PurchaseTrip
         {
             BusinessId = _business.CurrentBusinessId,
+            BranchId = branchId,
             TripNo = await GenerateTripNoAsync(),
             SourceType = sourceType,
             Status = "DRAFT",
@@ -67,7 +83,17 @@ public class PurchaseTripService : IPurchaseTripService
             q = q.Where(t => t.Status == status.ToUpper());
 
         var trips = await q.OrderByDescending(t => t.CreatedAt).ToListAsync();
-        return trips.Select(MapSummary).ToList();
+
+        var tripIds = trips.Select(t => t.Id).ToList();
+        var latestReturnStatusByTrip = (await _db.SupplierReturns.AsNoTracking()
+            .Where(r => r.TripId != null && tripIds.Contains(r.TripId.Value))
+            .OrderByDescending(r => r.CreatedAt)
+            .Select(r => new { TripId = r.TripId!.Value, r.Status })
+            .ToListAsync())
+            .GroupBy(r => r.TripId)
+            .ToDictionary(g => g.Key, g => g.First().Status);
+
+        return trips.Select(t => MapSummary(t, latestReturnStatusByTrip.GetValueOrDefault(t.Id))).ToList();
     }
 
     public async Task<PurchaseTripDetailDto> GetAsync(Guid id)
@@ -83,7 +109,15 @@ public class PurchaseTripService : IPurchaseTripService
             .FirstOrDefaultAsync(t => t.Id == id)
             ?? throw new KeyNotFoundException("Purchase trip not found.");
 
-        return MapDetail(trip);
+        var returnsByVariant = (await _db.SupplierReturnItems.AsNoTracking()
+            .Where(sri => sri.DeletedAt == null && sri.Return.TripId == id)
+            .OrderByDescending(sri => sri.CreatedAt)
+            .Select(sri => new VariantReturnInfo(sri.VariantId, sri.ReturnId, sri.Return.SupplierReturnNo, sri.Return.Status, sri.QtyReturned))
+            .ToListAsync())
+            .GroupBy(x => x.VariantId)
+            .ToDictionary(g => g.Key, g => g.First());
+
+        return MapDetail(trip, returnsByVariant);
     }
 
     public async Task<PurchaseTripDetailDto> UpdateHeaderAsync(Guid tripId, UpdateTripHeaderRequest request, Guid userId)
@@ -102,11 +136,25 @@ public class PurchaseTripService : IPurchaseTripService
         return await GetAsync(trip.Id);
     }
 
+    public async Task<PurchaseTripDetailDto> UpdateAttachmentsAsync(
+        Guid tripId, UpdateTripAttachmentsRequest request, Guid userId)
+    {
+        var trip = await _db.PurchaseTrips.FirstOrDefaultAsync(t => t.Id == tripId)
+            ?? throw new KeyNotFoundException("Purchase trip not found.");
+        ValidateAttachments(request.Attachments);
+        trip.AttachmentsJson = System.Text.Json.JsonSerializer.Serialize(request.Attachments);
+        await _db.SaveChangesAsync();
+        await _log.LogAsync(_business.CurrentBusinessId, userId, "UPDATE", "PurchaseTripAttachments", trip.Id);
+        return await GetAsync(trip.Id);
+    }
+
     // ── Items ─────────────────────────────────────────────────────────────────
 
     public async Task<PurchaseItemDto> AddItemAsync(Guid tripId, AddPurchaseItemRequest request, Guid userId)
     {
         var trip = await RequireDraftTripAsync(tripId);
+        if (request.UnitWeightGrams < 0)
+            throw new InvalidOperationException("Unit weight cannot be negative.");
 
         var variant = await _db.ProductVariants.FirstOrDefaultAsync(v => v.Id == request.VariantId)
             ?? throw new KeyNotFoundException("Variant not found.");
@@ -126,6 +174,7 @@ public class PurchaseTripService : IPurchaseTripService
             VariantId = request.VariantId,
             QtyBought = request.QtyBought,
             TotalCost = request.TotalCost,
+            UnitWeightGrams = request.UnitWeightGrams,
             SupplierId = request.SupplierId,
             ShopName = supplier?.Name,
             MemoPhotoUrl = request.MemoPhotoUrl,
@@ -146,6 +195,8 @@ public class PurchaseTripService : IPurchaseTripService
     public async Task<PurchaseItemDto> UpdateItemAsync(Guid tripId, Guid itemId, UpdatePurchaseItemRequest request, Guid userId)
     {
         await RequireDraftTripAsync(tripId);
+        if (request.UnitWeightGrams < 0)
+            throw new InvalidOperationException("Unit weight cannot be negative.");
         var item = await _db.PurchaseItems
             .Include(i => i.Variant).ThenInclude(v => v.Product)
             .FirstOrDefaultAsync(i => i.Id == itemId && i.TripId == tripId)
@@ -170,6 +221,7 @@ public class PurchaseTripService : IPurchaseTripService
 
         item.QtyBought = request.QtyBought;
         item.TotalCost = request.TotalCost;
+        item.UnitWeightGrams = request.UnitWeightGrams;
         item.MemoPhotoUrl = request.MemoPhotoUrl;
         item.PaidNow = request.PaidNow;
         item.DueAmount = request.DueAmount;
@@ -295,17 +347,21 @@ public class PurchaseTripService : IPurchaseTripService
         if (!request.Items.Any())
             throw new InvalidOperationException("Session must include at least one item.");
 
+        var attachments = request.Attachments ?? [];
+        ValidateAttachments(attachments);
+
         // Validate quantities — cannot exceed remaining (QtyBought - already committed totals)
         foreach (var input in request.Items)
         {
             var item = trip.Items.FirstOrDefault(i => i.Id == input.PurchaseItemId)
                 ?? throw new KeyNotFoundException($"Item {input.PurchaseItemId} not found in trip.");
-            ValidateSessionItemQty(item, input.QtyUsable, input.QtyDamaged);
+            ValidateSessionItemQty(item, input.QtyUsable, input.QtyDamaged, input.QtyMissing);
         }
 
         var session = new PurchaseReceiveSession
         {
             BusinessId = trip.BusinessId,
+            BranchId = trip.BranchId,
             TripId = tripId,
             SessionNo = await GenerateSessionNoAsync(tripId),
             ReceivedBy = userId,
@@ -313,6 +369,7 @@ public class PurchaseTripService : IPurchaseTripService
             TransportMode = mode,
             VehicleOrTrackingNo = request.VehicleOrTrackingNo,
             Note = request.Note,
+            AttachmentsJson = System.Text.Json.JsonSerializer.Serialize(attachments),
             Status = "PENDING_APPROVAL"
         };
         _db.PurchaseReceiveSessions.Add(session);
@@ -326,6 +383,7 @@ public class PurchaseTripService : IPurchaseTripService
                 PurchaseItemId = input.PurchaseItemId,
                 QtyUsable = input.QtyUsable,
                 QtyDamaged = input.QtyDamaged,
+                QtyMissing = input.QtyMissing,
                 PerLotValuesJson = input.PerLotValuesJson
             });
         }
@@ -365,7 +423,8 @@ public class PurchaseTripService : IPurchaseTripService
             if (item == null) continue;
 
             var (allocated, landedUnit) = ComputeLandedCost(item.TotalCost, totalItemCost, sharedTotal, si.QtyUsable);
-            var inv = await _db.VariantInventories.AsNoTracking().FirstOrDefaultAsync(vi => vi.VariantId == item.VariantId);
+            var inv = await _db.BranchVariantInventories.AsNoTracking()
+                .FirstOrDefaultAsync(vi => vi.BranchId == trip.BranchId && vi.VariantId == item.VariantId);
             var oldAvg = item.Variant?.AvgLandedCost ?? 0;
             var oldOnHand = inv?.OnHand ?? 0;
 
@@ -408,15 +467,31 @@ public class PurchaseTripService : IPurchaseTripService
                 var item = trip.Items.FirstOrDefault(i => i.Id == si.PurchaseItemId)
                     ?? throw new KeyNotFoundException($"Purchase item {si.PurchaseItemId} not found.");
 
-                var inv = await _db.VariantInventories
-                    .FromSqlRaw("SELECT * FROM variant_inventories WITH (UPDLOCK) WHERE [VariantId] = {0}", item.VariantId)
+                var inv = await _db.BranchVariantInventories
+                    .FromSqlRaw("SELECT * FROM branch_variant_inventories WITH (UPDLOCK) WHERE [BranchId] = {0} AND [VariantId] = {1}", trip.BranchId, item.VariantId)
                     .FirstOrDefaultAsync();
 
                 if (inv == null)
                 {
-                    inv = new VariantInventory { VariantId = item.VariantId, OnHand = 0, Committed = 0, Damaged = 0 };
-                    _db.VariantInventories.Add(inv);
-                    await _db.SaveChangesAsync();
+                    // Pre-existing race (not introduced by branching): the read above found
+                    // nothing, but a concurrent first-time receive for this exact
+                    // (branch, variant) could insert between our read and our write. Try the
+                    // insert; if another request beat us to it, fall back to the normal
+                    // UPDLOCK-read path instead of crashing on the PK violation.
+                    try
+                    {
+                        inv = new BranchVariantInventory { BranchId = trip.BranchId!.Value, VariantId = item.VariantId, OnHand = 0, Committed = 0, Damaged = 0 };
+                        _db.BranchVariantInventories.Add(inv);
+                        await _db.SaveChangesAsync();
+                    }
+                    catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex))
+                    {
+                        _db.Entry(inv!).State = EntityState.Detached;
+                        inv = await _db.BranchVariantInventories
+                            .FromSqlRaw("SELECT * FROM branch_variant_inventories WITH (UPDLOCK) WHERE [BranchId] = {0} AND [VariantId] = {1}", trip.BranchId, item.VariantId)
+                            .FirstOrDefaultAsync()
+                            ?? throw new InvalidOperationException("Inventory row vanished after unique-constraint retry.");
+                    }
                 }
 
                 if (si.QtyUsable > 0)
@@ -430,14 +505,20 @@ public class PurchaseTripService : IPurchaseTripService
                     item.AllocatedSharedCost += allocated;
                     item.LandedUnitCost = newLandedAvg;
 
-                    var oldOnHand = inv.OnHand;
+                    // AvgLandedCost lives on ProductVariant (business-level, not per-branch), so
+                    // the weighted average needs the variant's true on-hand across ALL branches,
+                    // not just the branch this session is receiving into.
+                    var globalOnHand = await _db.BranchVariantInventories.AsNoTracking()
+                        .Where(x => x.VariantId == item.VariantId)
+                        .SumAsync(x => x.OnHand);
                     var variant = await _db.ProductVariants.FirstOrDefaultAsync(v => v.Id == item.VariantId)!;
                     inv.OnHand += si.QtyUsable;
-                    variant!.AvgLandedCost = ComputeNewAvgCost(oldOnHand, variant.AvgLandedCost, si.QtyUsable, landedUnit);
+                    variant!.AvgLandedCost = ComputeNewAvgCost(globalOnHand, variant.AvgLandedCost, si.QtyUsable, landedUnit);
 
                     var lot = new Lot
                     {
                         BusinessId = trip.BusinessId,
+                        BranchId = trip.BranchId,
                         VariantId = item.VariantId,
                         PurchaseItemId = item.Id,
                         QtyIn = si.QtyUsable,
@@ -451,6 +532,7 @@ public class PurchaseTripService : IPurchaseTripService
                     _db.StockMovements.Add(new StockMovement
                     {
                         BusinessId = trip.BusinessId,
+                        BranchId = trip.BranchId,
                         VariantId = item.VariantId,
                         MovementType = "PURCHASE_IN",
                         Qty = si.QtyUsable,
@@ -467,6 +549,7 @@ public class PurchaseTripService : IPurchaseTripService
                     _db.StockMovements.Add(new StockMovement
                     {
                         BusinessId = trip.BusinessId,
+                        BranchId = trip.BranchId,
                         VariantId = item.VariantId,
                         MovementType = "DAMAGE_IN",
                         Qty = si.QtyDamaged,
@@ -480,6 +563,7 @@ public class PurchaseTripService : IPurchaseTripService
                 // Update purchase item cumulative totals
                 item.QtyUsable += si.QtyUsable;
                 item.QtyDamaged += si.QtyDamaged;
+                item.QtyMissing += si.QtyMissing;
             }
 
             session.Status = "APPROVED";
@@ -488,7 +572,7 @@ public class PurchaseTripService : IPurchaseTripService
 
             // Auto-complete if all items fully received
             var allItemsFullyReceived = trip.Items.All(i =>
-                i.DeletedAt == null && i.QtyUsable + i.QtyDamaged >= i.QtyBought);
+                i.DeletedAt == null && i.QtyUsable + i.QtyDamaged + i.QtyMissing >= i.QtyBought);
             if (allItemsFullyReceived)
             {
                 trip.Status = "COMPLETED";
@@ -541,20 +625,20 @@ public class PurchaseTripService : IPurchaseTripService
             throw new InvalidOperationException("Approve or reject all pending sessions before closing the trip.");
 
         var hasRemaining = trip.Items.Any(i =>
-            i.DeletedAt == null && i.QtyUsable + i.QtyDamaged < i.QtyBought);
+            i.DeletedAt == null && i.QtyUsable + i.QtyDamaged + i.QtyMissing < i.QtyBought);
 
         if (hasRemaining)
         {
             if (string.IsNullOrWhiteSpace(forceCloseReason))
                 throw new UnaccountedUnitsException(
                     trip.Items
-                        .Where(i => i.DeletedAt == null && i.QtyUsable + i.QtyDamaged < i.QtyBought)
+                        .Where(i => i.DeletedAt == null && i.QtyUsable + i.QtyDamaged + i.QtyMissing < i.QtyBought)
                         .Select(i => new UnaccountedItem(
                             i.Variant?.Sku ?? i.VariantId.ToString(),
                             i.Variant?.Product?.Name ?? "",
                             i.QtyBought,
-                            i.QtyUsable + i.QtyDamaged,
-                            i.QtyBought - i.QtyUsable - i.QtyDamaged))
+                            i.QtyUsable + i.QtyDamaged + i.QtyMissing,
+                            i.QtyBought - i.QtyUsable - i.QtyDamaged - i.QtyMissing))
                         .ToList());
 
             trip.ForceCompleteReason = forceCloseReason;
@@ -588,6 +672,30 @@ public class PurchaseTripService : IPurchaseTripService
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
+    private static bool IsUniqueConstraintViolation(DbUpdateException ex) =>
+        ex.InnerException is SqlException sqlEx && (sqlEx.Number == 2627 || sqlEx.Number == 2601);
+
+    private async Task<Guid> ResolveBranchIdAsync(Guid? requestedBranchId)
+    {
+        if (requestedBranchId.HasValue)
+        {
+            var exists = await _db.Branches.AnyAsync(b => b.Id == requestedBranchId.Value && b.IsActive);
+            if (!exists)
+                throw new KeyNotFoundException("Branch not found or inactive.");
+            return requestedBranchId.Value;
+        }
+
+        if (_business.CurrentBranchId.HasValue)
+            return _business.CurrentBranchId.Value;
+
+        var activeBranches = await _db.Branches.Where(b => b.IsActive).Select(b => b.Id).ToListAsync();
+        if (activeBranches.Count == 1)
+            return activeBranches[0];
+        if (activeBranches.Count == 0)
+            throw new InvalidOperationException("No active branch exists for this business.");
+        throw new InvalidOperationException("This business has multiple branches; BranchId must be specified.");
+    }
+
     private async Task<PurchaseTrip> RequireDraftTripAsync(Guid tripId)
     {
         var trip = await _db.PurchaseTrips.FirstOrDefaultAsync(t => t.Id == tripId)
@@ -611,21 +719,23 @@ public class PurchaseTripService : IPurchaseTripService
         return $"RS-{count:D3}";
     }
 
-    private static void ValidateSessionItemQty(PurchaseItem item, decimal qtyUsable, decimal qtyDamaged)
+    private static void ValidateSessionItemQty(PurchaseItem item, decimal qtyUsable, decimal qtyDamaged, decimal qtyMissing)
     {
         if (qtyUsable < 0)
             throw new ArgumentException($"Usable quantity cannot be negative for item {item.Id}.");
         if (qtyDamaged < 0)
             throw new ArgumentException($"Damaged quantity cannot be negative for item {item.Id}.");
-        var remaining = item.QtyBought - item.QtyUsable - item.QtyDamaged;
-        if (qtyUsable + qtyDamaged > remaining)
+        if (qtyMissing < 0)
+            throw new ArgumentException($"Missing quantity cannot be negative for item {item.Id}.");
+        var remaining = item.QtyBought - item.QtyUsable - item.QtyDamaged - item.QtyMissing;
+        if (qtyUsable + qtyDamaged + qtyMissing > remaining)
             throw new ArgumentException(
-                $"Total entered ({qtyUsable + qtyDamaged}) exceeds remaining ({remaining}) for item {item.Id}.");
-        if (qtyUsable + qtyDamaged == 0)
+                $"Total entered ({qtyUsable + qtyDamaged + qtyMissing}) exceeds remaining ({remaining}) for item {item.Id}.");
+        if (qtyUsable + qtyDamaged + qtyMissing == 0)
             throw new ArgumentException($"Must specify at least some quantity for item {item.Id}.");
     }
 
-    private static PurchaseTripSummaryDto MapSummary(PurchaseTrip t)
+    private static PurchaseTripSummaryDto MapSummary(PurchaseTrip t, string? supplierReturnStatus = null)
     {
         var activeItems = t.Items.Where(i => i.DeletedAt == null).ToList();
         return new PurchaseTripSummaryDto(
@@ -636,29 +746,41 @@ public class PurchaseTripService : IPurchaseTripService
             activeItems.Sum(i => i.QtyDamaged),
             activeItems.Sum(i => i.TotalCost),
             t.Costs.Where(c => c.DeletedAt == null && !c.IsPostCompletion).Sum(c => c.Amount),
-            t.CreatedAt
+            t.CreatedAt,
+            supplierReturnStatus
         );
     }
 
-    private static PurchaseTripDetailDto MapDetail(PurchaseTrip t) => new(
+    private sealed record VariantReturnInfo(Guid VariantId, Guid ReturnId, string SupplierReturnNo, string Status, decimal QtyReturned);
+
+    private static PurchaseTripDetailDto MapDetail(PurchaseTrip t, Dictionary<Guid, VariantReturnInfo>? returnsByVariant = null) => new(
         t.Id, t.TripNo, t.SourceType, t.Status, t.Note,
         t.ExpectedDeliveryDate, t.SupplierPoRef,
         t.CreatedAt, t.CompletedAt, t.ForceCompleteReason,
-        t.Items.Where(i => i.DeletedAt == null).Select(MapItem).ToList(),
+        t.Items.Where(i => i.DeletedAt == null).Select(i => MapItem(i, returnsByVariant)).ToList(),
         t.Costs.Where(c => c.DeletedAt == null).Select(MapCost).ToList(),
-        t.Sessions.Where(s => s.DeletedAt == null).OrderBy(s => s.ReceivedAt).Select(MapSession).ToList()
+        t.Sessions.Where(s => s.DeletedAt == null).OrderBy(s => s.ReceivedAt).Select(MapSession).ToList(),
+        DeserializeAttachments(t.AttachmentsJson)
     );
 
-    private static PurchaseItemDto MapItem(PurchaseItem i) => new(
-        i.Id, i.VariantId,
-        i.Variant?.Sku ?? "",
-        i.Variant?.Product?.Name ?? "",
-        i.QtyBought, i.QtyUsable, i.QtyDamaged, i.TotalCost,
-        i.SupplierId, i.Supplier?.Name ?? i.ShopName, i.Supplier?.Address,
-        i.MemoPhotoUrl,
-        i.PaidNow, i.DueAmount, i.PromisedDate,
-        i.AllocatedSharedCost, i.LandedUnitCost
-    );
+    private static PurchaseItemDto MapItem(PurchaseItem i, Dictionary<Guid, VariantReturnInfo>? returnsByVariant = null)
+    {
+        VariantReturnInfo? ret = null;
+        returnsByVariant?.TryGetValue(i.VariantId, out ret);
+        return new(
+            i.Id, i.VariantId,
+            i.Variant?.Sku ?? "",
+            i.Variant?.Product?.Name ?? "",
+            i.Variant?.Product?.UnitCode ?? "pcs",
+            i.QtyBought, i.QtyUsable, i.QtyDamaged, i.TotalCost, i.UnitWeightGrams,
+            i.SupplierId, i.Supplier?.Name ?? i.ShopName, i.Supplier?.Address,
+            i.MemoPhotoUrl,
+            i.PaidNow, i.DueAmount, i.PromisedDate,
+            i.AllocatedSharedCost, i.LandedUnitCost,
+            ret?.ReturnId, ret?.SupplierReturnNo, ret?.Status, ret?.QtyReturned,
+            i.QtyMissing
+        );
+    }
 
     private static PurchaseTripCostDto MapCost(PurchaseTripCost c) => new(
         c.Id, c.CostType, c.Amount, c.Note, c.PhotoUrl, c.PaidBy, c.IsPostCompletion
@@ -672,7 +794,42 @@ public class PurchaseTripService : IPurchaseTripService
         s.ApprovedBy, s.ApprovedByUser?.Name,
         s.ApprovedAt, s.RejectionReason,
         s.Items.Where(i => i.DeletedAt == null).Select(i =>
-            new PurchaseReceiveItemDto(i.Id, i.PurchaseItemId, i.QtyUsable, i.QtyDamaged, i.PerLotValuesJson)
-        ).ToList()
+            new PurchaseReceiveItemDto(i.Id, i.PurchaseItemId, i.QtyUsable, i.QtyDamaged, i.PerLotValuesJson, i.QtyMissing)
+        ).ToList(),
+        DeserializeAttachments(s.AttachmentsJson)
     );
+
+    private static List<PurchaseReceiveAttachmentDto> DeserializeAttachments(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return [];
+        try
+        {
+            return System.Text.Json.JsonSerializer.Deserialize<List<PurchaseReceiveAttachmentDto>>(json) ?? [];
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return [];
+        }
+    }
+
+    private static void ValidateAttachments(List<PurchaseReceiveAttachmentDto> attachments)
+    {
+        var allowedTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "image/jpeg", "image/png", "image/webp", "application/pdf"
+        };
+        if (attachments.Count > 10)
+            throw new ArgumentException("A receive session can contain at most 10 attachments.");
+        foreach (var attachment in attachments)
+        {
+            if (string.IsNullOrWhiteSpace(attachment.Name) || attachment.Name.Length > 200)
+                throw new ArgumentException("Attachment name is invalid.");
+            if (!attachment.Url.StartsWith("/uploads/", StringComparison.OrdinalIgnoreCase))
+                throw new ArgumentException("Attachment URL is invalid.");
+            if (!allowedTypes.Contains(attachment.ContentType))
+                throw new ArgumentException("Attachment type is not allowed.");
+            if (attachment.SizeBytes <= 0 || attachment.SizeBytes > 5 * 1024 * 1024)
+                throw new ArgumentException("Attachment must be 5MB or smaller.");
+        }
+    }
 }

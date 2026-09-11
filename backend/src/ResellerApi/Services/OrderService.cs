@@ -1,0 +1,1293 @@
+using Microsoft.EntityFrameworkCore;
+using ResellerApi.Data;
+using ResellerApi.DTOs.Orders;
+using ResellerApi.Entities;
+using ResellerApi.Services.Interfaces;
+
+namespace ResellerApi.Services;
+
+public class StockUnavailableException : Exception
+{
+    public List<string> UnavailableItems { get; }
+    public StockUnavailableException(List<string> items)
+        : base("Insufficient stock for one or more items.")
+    {
+        UnavailableItems = items;
+    }
+}
+
+// Thrown by ReviseAsync when reducing/removing items would leave TotalPaid > the new
+// TotalAmount and the request didn't specify how to resolve it (ResolutionType). The controller
+// surfaces ExcessAmount so the client can prompt for Refund/Store Credit and resubmit.
+public class OrderOverpaidException : Exception
+{
+    public decimal ExcessAmount { get; }
+    public OrderOverpaidException(decimal excessAmount)
+        : base("Revised total is less than the amount already paid.")
+    {
+        ExcessAmount = excessAmount;
+    }
+}
+
+public class OrderService : IOrderService
+{
+    private readonly AppDbContext _db;
+    private readonly IActivityLogService _log;
+    private readonly IWebHostEnvironment _env;
+
+    public OrderService(AppDbContext db, IActivityLogService log, IWebHostEnvironment env)
+    {
+        _db = db;
+        _env = env;
+        _log = log;
+    }
+
+    // ── Create ────────────────────────────────────────────────────────────────
+
+    public async Task<OrderDetailDto> CreateAsync(CreateOrderRequest request, Guid userId)
+    {
+        // Idempotency check
+        if (!string.IsNullOrWhiteSpace(request.ClientUid))
+        {
+            var existing = await _db.Orders
+                .AsNoTracking()
+                .FirstOrDefaultAsync(o => o.ClientUid == request.ClientUid);
+            if (existing != null)
+                return await GetAsync(existing.Id, true);
+        }
+
+        // Shop/Hawker are walk-in counter sales entered through their own POS flow, not this
+        // endpoint's staff-facing New Order screen — every other channel is an online/courier
+        // order that physically cannot be delivered without a real phone + address, so those are
+        // required here server-side too, not just gated in the New Order UI (which can't stop a
+        // direct API call).
+        if (request.Channel != "SHOP" && request.Channel != "HAWKER")
+        {
+            if (string.IsNullOrWhiteSpace(request.CustomerPhone))
+                throw new InvalidOperationException("Customer phone is required for this channel.");
+            if (string.IsNullOrWhiteSpace(request.CustomerAddress))
+                throw new InvalidOperationException("Customer address is required for this channel.");
+        }
+
+        // Auto-create customer
+        var customer = await FindOrCreateCustomerAsync(request.CustomerPhone, request.CustomerName, request.CustomerAddress);
+
+        // Generate order number
+        var orderNo = await GenerateOrderNoAsync();
+
+        var branchId = await ResolveOrderBranchIdAsync(request.BranchId);
+
+        var order = new Order
+        {
+            BusinessId = _db.CurrentBusinessId,
+            BranchId = branchId,
+            OrderNo = orderNo,
+            Channel = request.Channel,
+            Source = request.Source,
+            ExternalSource = request.ExternalSource,
+            ExternalOrderId = request.ExternalOrderId,
+            BusinessDate = request.BusinessDate ?? DateOnly.FromDateTime(DateTime.UtcNow),
+            CustomerId = customer.Id,
+            CustomerName = request.CustomerName,
+            CustomerPhone = request.CustomerPhone,
+            CustomerAddress = request.CustomerAddress,
+            IsDraft = request.IsDraft,
+            DiscountType = request.DiscountType,
+            DiscountValue = request.DiscountValue,
+            DeliveryChargeCustomer = request.DeliveryChargeCustomer,
+            AdvancePaid = request.AdvancePaid,
+            Note = request.Note,
+            ClientUid = request.ClientUid,
+            CourierId = request.CourierId,
+            CreatedBy = userId,
+            OrderStatus = "OPEN",
+            PaymentStatus = request.AdvancePaid > 0 ? "PARTIALLY_PAID" : "UNPAID",
+            FulfillmentStatus = "UNFULFILLED"
+        };
+
+        foreach (var item in request.Items)
+        {
+            order.Items.Add(new OrderItem
+            {
+                VariantId = item.VariantId,
+                Qty = item.Qty,
+                UnitPrice = item.UnitPrice
+            });
+        }
+
+        _db.Orders.Add(order);
+        await _db.SaveChangesAsync();
+
+        // Add initial advance payment if > 0
+        if (request.AdvancePaid > 0)
+        {
+            _db.OrderPayments.Add(new OrderPayment
+            {
+                OrderId = order.Id,
+                Method = request.AdvancePaymentMethod ?? "CASH",
+                Amount = request.AdvancePaid,
+                ReceivedAt = DateTime.UtcNow,
+                UserId = userId
+            });
+            await _db.SaveChangesAsync();
+        }
+
+        // Auto-confirm if not a draft
+        if (!request.IsDraft)
+        {
+            try
+            {
+                order = await ConfirmInternalAsync(order, userId, request.AllowOversell);
+            }
+            catch (StockUnavailableException)
+            {
+                // The order row above was already persisted — ConfirmInternalAsync needs a
+                // real Id for its StockMovement/OrderStatusHistory references, so it can't run
+                // before the initial save. If confirmation then fails, this order was never a
+                // real, actionable one (no stock ever committed) — soft-delete it (GTR-6) rather
+                // than leave a phantom OPEN/UNFULFILLED order visible to staff with nothing
+                // behind it.
+                order.DeletedAt = DateTime.UtcNow;
+                await _db.SaveChangesAsync();
+                throw;
+            }
+        }
+
+        await _log.LogAsync(_db.CurrentBusinessId, userId, "CREATE", "Order", order.Id);
+        return await GetAsync(order.Id, true);
+    }
+
+    // ── List ──────────────────────────────────────────────────────────────────
+
+    public async Task<List<OrderListDto>> ListAsync(string? orderStatus, string? fulfillmentStatus, string? paymentStatus, string? channel, string? q, string? customerQuery, string? productQuery, DateTime? from, DateTime? to, bool canSeeCosts)
+    {
+        var query = _db.Orders
+            .AsNoTracking()
+            .Include(o => o.Items).ThenInclude(i => i.Variant).ThenInclude(v => v.Product)
+            .Include(o => o.Payments)
+            .Include(o => o.HandlingUser)
+            .Include(o => o.Courier)
+            .Include(o => o.Branch)
+            .AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(orderStatus))
+            query = query.Where(o => o.OrderStatus == orderStatus);
+        if (!string.IsNullOrWhiteSpace(fulfillmentStatus))
+            query = query.Where(o => o.FulfillmentStatus == fulfillmentStatus);
+        if (!string.IsNullOrWhiteSpace(paymentStatus))
+            query = query.Where(o => o.PaymentStatus == paymentStatus);
+        if (!string.IsNullOrWhiteSpace(channel))
+            query = query.Where(o => o.Channel == channel);
+        if (!string.IsNullOrWhiteSpace(q))
+        {
+            var lower = q.ToLower();
+            query = query.Where(o =>
+                o.OrderNo.ToLower().Contains(lower) ||
+                o.CustomerName.ToLower().Contains(lower) ||
+                o.CustomerPhone.Contains(q) ||
+                o.Items.Any(i => i.DeletedAt == null &&
+                    (i.Variant.Sku.ToLower().Contains(lower) ||
+                     i.Variant.Product.Sku.ToLower().Contains(lower) ||
+                     i.Variant.Product.Name.ToLower().Contains(lower))));
+        }
+        // Independent, AND-able filters — distinct from `q` above (which OR-matches everything at
+        // once for the plain quick-search box). These back the Filter sheet's dedicated Customer/
+        // Product fields, so picking both narrows results to orders matching BOTH, not either.
+        if (!string.IsNullOrWhiteSpace(customerQuery))
+        {
+            var lowerCustomer = customerQuery.ToLower();
+            query = query.Where(o =>
+                o.CustomerName.ToLower().Contains(lowerCustomer) ||
+                o.CustomerPhone.Contains(customerQuery));
+        }
+        if (!string.IsNullOrWhiteSpace(productQuery))
+        {
+            var lowerProduct = productQuery.ToLower();
+            query = query.Where(o => o.Items.Any(i => i.DeletedAt == null &&
+                (i.Variant.Sku.ToLower().Contains(lowerProduct) ||
+                 i.Variant.Product.Sku.ToLower().Contains(lowerProduct) ||
+                 i.Variant.Product.Name.ToLower().Contains(lowerProduct))));
+        }
+        if (from.HasValue)
+            query = query.Where(o => o.CreatedAt >= from.Value);
+        if (to.HasValue)
+            query = query.Where(o => o.CreatedAt <= to.Value);
+
+        var orders = await query
+            .OrderByDescending(o => o.BusinessDate).ThenByDescending(o => o.CreatedAt)
+            .Take(200)
+            .ToListAsync();
+
+        var stock = await BuildStockLookupAsync(orders);
+        return orders.Select(o => ToListDto(o, canSeeCosts, stock)).ToList();
+    }
+
+    // ── List by product ───────────────────────────────────────────────────────
+
+    public async Task<List<OrderListDto>> ListByProductAsync(Guid productId, bool canSeeCosts)
+    {
+        var orders = await _db.Orders
+            .AsNoTracking()
+            .Include(o => o.Items).ThenInclude(i => i.Variant).ThenInclude(v => v.Product)
+            .Include(o => o.Payments)
+            .Include(o => o.HandlingUser)
+            .Include(o => o.Courier)
+            .Include(o => o.Branch)
+            .Where(o => o.Items.Any(i => i.Variant != null && i.Variant.ProductId == productId))
+            .OrderByDescending(o => o.BusinessDate).ThenByDescending(o => o.CreatedAt)
+            .Take(200)
+            .ToListAsync();
+
+        var stock = await BuildStockLookupAsync(orders);
+        return orders.Select(o => ToListDto(o, canSeeCosts, stock)).ToList();
+    }
+
+    // Batched per list call rather than N+1 per order/item — same pattern as
+    // ClientPageCatalogService.BuildVariantAvailabilityAsync, but keyed by (BranchId, VariantId)
+    // since stock is per-branch and these orders can span branches when "All Branches" is active.
+    private async Task<Dictionary<(Guid BranchId, Guid VariantId), decimal>> BuildStockLookupAsync(List<Order> orders)
+    {
+        var pairs = orders
+            .Where(o => o.BranchId.HasValue)
+            .SelectMany(o => o.Items.Where(i => i.DeletedAt == null)
+                .Select(i => (BranchId: o.BranchId!.Value, VariantId: i.VariantId)))
+            .Distinct()
+            .ToList();
+        if (pairs.Count == 0) return new();
+
+        var branchIds = pairs.Select(p => p.BranchId).Distinct().ToList();
+        var variantIds = pairs.Select(p => p.VariantId).Distinct().ToList();
+
+        var rows = await _db.BranchVariantInventories
+            .Where(i => branchIds.Contains(i.BranchId) && variantIds.Contains(i.VariantId))
+            .Select(i => new { i.BranchId, i.VariantId, i.Available })
+            .ToListAsync();
+
+        return rows.ToDictionary(r => (r.BranchId, r.VariantId), r => r.Available);
+    }
+
+    // ── Get ───────────────────────────────────────────────────────────────────
+
+    public async Task<OrderDetailDto> GetAsync(Guid id, bool isOwner)
+    {
+        var order = await LoadFullOrderAsync(id)
+            ?? throw new KeyNotFoundException("Order not found.");
+        var stock = await BuildStockLookupAsync(new List<Order> { order });
+        return ToDetailDto(order, isOwner, stock);
+    }
+
+    // ── Update (draft only) ───────────────────────────────────────────────────
+
+    public async Task<OrderDetailDto> UpdateAsync(Guid id, UpdateOrderRequest request, Guid userId)
+    {
+        var order = await _db.Orders.Include(o => o.Items).FirstOrDefaultAsync(o => o.Id == id)
+            ?? throw new KeyNotFoundException("Order not found.");
+
+        if (order.OrderStatus == "CANCELLED")
+            throw new InvalidOperationException("Cannot edit a cancelled order.");
+
+        // Basic fields — always editable (draft or live, any fulfillment stage except terminal)
+        if (request.CustomerName != null) order.CustomerName = request.CustomerName;
+        if (request.CustomerPhone != null) order.CustomerPhone = request.CustomerPhone;
+        if (request.CustomerAddress != null) order.CustomerAddress = request.CustomerAddress;
+        if (request.Channel != null) order.Channel = request.Channel;
+        if (request.Note != null) order.Note = request.Note;
+        if (request.CourierId.HasValue) order.CourierId = request.CourierId;
+
+        // Pricing fields — only for draft orders (frozen at confirm per GTR-8)
+        if (order.IsDraft)
+        {
+            if (request.DiscountType != null) order.DiscountType = request.DiscountType;
+            if (request.DiscountValue.HasValue) order.DiscountValue = request.DiscountValue;
+            if (request.DeliveryChargeCustomer.HasValue) order.DeliveryChargeCustomer = request.DeliveryChargeCustomer.Value;
+
+            // Full item replacement — safe only pre-confirm, since a draft never committed any
+            // stock (no COMMIT movement, nothing to release). Soft-delete the old lines and add
+            // the new set fresh, same convention as Revise's line removal.
+            if (request.Items != null)
+            {
+                if (request.Items.Count == 0)
+                    throw new InvalidOperationException("Order must have at least one item.");
+
+                foreach (var item in order.Items.Where(i => i.DeletedAt == null))
+                    item.DeletedAt = DateTime.UtcNow;
+
+                foreach (var input in request.Items)
+                {
+                    // _db.OrderItems.Add(...), not order.Items.Add(...): BaseEntity assigns Id =
+                    // Guid.NewGuid() in a property initializer, so by the time EF's change tracker
+                    // discovers a new item added only to an already-tracked parent's navigation
+                    // collection, the Id already looks like a "real" (non-default) key — EF infers
+                    // Modified/Unchanged instead of Added and emits a bogus UPDATE ... WHERE RowVer
+                    // IS NULL that matches zero rows (DbUpdateConcurrencyException). An explicit
+                    // Add() on the DbSet always forces Added state for the whole reachable graph
+                    // regardless of the key's value, which CreateAsync gets for free because it
+                    // calls _db.Orders.Add(order) on the brand-new parent itself.
+                    _db.OrderItems.Add(new OrderItem
+                    {
+                        OrderId = order.Id,
+                        VariantId = input.VariantId,
+                        Qty = input.Qty,
+                        UnitPrice = input.UnitPrice
+                    });
+                }
+            }
+        }
+
+        await _db.SaveChangesAsync();
+        await _log.LogAsync(_db.CurrentBusinessId, userId, "UPDATE", "Order", order.Id);
+        return await GetAsync(id, true);
+    }
+
+    // ── Revise (reduce/remove line items, pre-fulfillment) ─────────────────────
+    // Deliberately narrow scope: reduce qty or remove a line only — never increase qty or add a
+    // new product (that would need the same atomic availability check as Confirm, GTR-4, and is
+    // a separate feature). Only allowed while FulfillmentStatus == UNFULFILLED — once something
+    // is packed, a qty change means physically unpacking/repacking a real parcel, which belongs
+    // to the Return/Courier-Return flow, not a data edit here.
+    private static readonly string[] ValidReviseReasons = { "OUT_OF_STOCK", "CUSTOMER_CHANGED_MIND", "OTHER" };
+
+    public async Task<OrderDetailDto> ReviseAsync(Guid id, ReviseOrderRequest request, Guid userId)
+    {
+        if (request.Items == null || request.Items.Count == 0)
+            throw new InvalidOperationException("At least one item change is required.");
+        if (!ValidReviseReasons.Contains(request.Reason))
+            throw new InvalidOperationException($"Invalid reason '{request.Reason}'.");
+        if (request.Reason == "OTHER" && string.IsNullOrWhiteSpace(request.Note))
+            throw new InvalidOperationException("Note is required when reason is OTHER.");
+
+        var order = await _db.Orders
+            .Include(o => o.Items).ThenInclude(i => i.Variant).ThenInclude(v => v.Product)
+            .Include(o => o.Payments)
+            .Include(o => o.Customer)
+            .FirstOrDefaultAsync(o => o.Id == id)
+            ?? throw new KeyNotFoundException("Order not found.");
+
+        if (order.OrderStatus == "CANCELLED")
+            throw new InvalidOperationException("Cannot revise a cancelled order.");
+        if (order.FulfillmentStatus != "UNFULFILLED")
+            throw new InvalidOperationException("Can only revise an order before it's packed.");
+
+        // Validate each requested change against the order's actual current items — reduce-only.
+        foreach (var change in request.Items)
+        {
+            var item = order.Items.FirstOrDefault(i => i.Id == change.OrderItemId && i.DeletedAt == null)
+                ?? throw new KeyNotFoundException($"Order item {change.OrderItemId} not found.");
+            if (change.NewQty < 0)
+                throw new InvalidOperationException("Quantity cannot be negative.");
+            if (change.NewQty >= item.Qty)
+                throw new InvalidOperationException($"New quantity for {item.Variant?.Product?.Name ?? item.Id.ToString()} must be less than its current quantity (reduce or remove only).");
+        }
+
+        // Resulting order must retain at least one item with qty > 0
+        var changeByItemId = request.Items.ToDictionary(c => c.OrderItemId);
+        var remainingCount = order.Items.Count(i => i.DeletedAt == null &&
+            (!changeByItemId.TryGetValue(i.Id, out var c) || c.NewQty > 0));
+        if (remainingCount == 0)
+            throw new InvalidOperationException("Revision would leave the order with no items — cancel the order instead.");
+
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        try
+        {
+            var summaryParts = new List<string>();
+
+            foreach (var change in request.Items)
+            {
+                var item = order.Items.First(i => i.Id == change.OrderItemId);
+                var delta = item.Qty - change.NewQty; // amount being released
+                var itemLabel = item.Variant?.Product?.Name ?? item.VariantId.ToString();
+
+                // Release committed stock only if the order was confirmed — draft orders have
+                // zero stock effect (R8.3), so there's nothing to release yet.
+                if (!order.IsDraft && order.ConfirmedAt.HasValue)
+                {
+                    var inv = await _db.BranchVariantInventories
+                        .FromSqlRaw("SELECT * FROM branch_variant_inventories WITH (UPDLOCK) WHERE [BranchId] = {0} AND [VariantId] = {1}", order.BranchId, item.VariantId)
+                        .FirstOrDefaultAsync();
+                    if (inv != null)
+                    {
+                        inv.Committed = Math.Max(0, inv.Committed - delta);
+                        _db.StockMovements.Add(new StockMovement
+                        {
+                            BusinessId = _db.CurrentBusinessId,
+                            BranchId = order.BranchId,
+                            VariantId = item.VariantId,
+                            MovementType = "RELEASE",
+                            Qty = delta,
+                            ReferenceType = "Order",
+                            ReferenceId = order.Id,
+                            UserId = userId,
+                            Note = "Order revised"
+                        });
+                    }
+                }
+
+                if (change.NewQty <= 0)
+                {
+                    item.DeletedAt = DateTime.UtcNow;
+                    summaryParts.Add($"{itemLabel} removed ({item.Qty} pcs)");
+                }
+                else
+                {
+                    summaryParts.Add($"{itemLabel} {item.Qty}→{change.NewQty}");
+                    item.Qty = change.NewQty;
+                }
+            }
+
+            // ── Overpayment check & resolution ──────────────────────────────────
+            var newTotal = ComputeTotal(order);
+            var paid = order.Payments.Sum(p => p.Amount);
+            var excess = OrderMath.ComputeOverpaymentExcess(paid, newTotal);
+
+            if (excess > 0)
+            {
+                if (string.IsNullOrEmpty(request.ResolutionType))
+                    throw new OrderOverpaidException(excess);
+
+                if (request.ResolutionType == "REFUND")
+                {
+                    if (string.IsNullOrWhiteSpace(request.RefundMethod))
+                        throw new InvalidOperationException("RefundMethod is required for REFUND resolution.");
+                    _db.OrderPayments.Add(new OrderPayment
+                    {
+                        OrderId = order.Id,
+                        Method = $"REFUND_{request.RefundMethod}",
+                        Amount = -excess,
+                        ReceivedAt = DateTime.UtcNow,
+                        UserId = userId
+                    });
+                }
+                else if (request.ResolutionType == "STORE_CREDIT")
+                {
+                    if (order.Customer == null)
+                        throw new InvalidOperationException("Order has no linked customer to credit.");
+                    order.Customer.StoreCreditBalance += excess;
+                    _db.OrderPayments.Add(new OrderPayment
+                    {
+                        OrderId = order.Id,
+                        Method = "STORE_CREDIT",
+                        Amount = -excess,
+                        ReceivedAt = DateTime.UtcNow,
+                        UserId = userId
+                    });
+                }
+                else
+                {
+                    throw new InvalidOperationException($"Invalid resolution type '{request.ResolutionType}'.");
+                }
+
+                paid -= excess;
+            }
+
+            var prevPayment = order.PaymentStatus;
+            order.PaymentStatus = OrderMath.ComputePaymentStatus(paid, newTotal);
+            if (prevPayment != order.PaymentStatus)
+                _db.OrderStatusHistories.Add(new OrderStatusHistory { OrderId = order.Id, Track = "PAYMENT", FromStatus = prevPayment, ToStatus = order.PaymentStatus, UserId = userId });
+
+            order.IsRevised = true;
+            _db.OrderStatusHistories.Add(new OrderStatusHistory
+            {
+                OrderId = order.Id,
+                Track = "ITEMS",
+                FromStatus = "ORIGINAL",
+                ToStatus = "REVISED",
+                Reason = request.Reason,
+                Note = string.Join("; ", summaryParts) + (string.IsNullOrWhiteSpace(request.Note) ? "" : $" — {request.Note}"),
+                UserId = userId
+            });
+
+            await _db.SaveChangesAsync();
+            await tx.CommitAsync();
+        }
+        catch
+        {
+            await tx.RollbackAsync();
+            throw;
+        }
+
+        await _log.LogAsync(_db.CurrentBusinessId, userId, "UPDATE", "Order", order.Id);
+        return await GetAsync(id, true);
+    }
+
+    // ── Delete (soft, OWNER-only) ──────────────────────────────────────────────
+
+    public async Task DeleteAsync(Guid id, string reason, Guid userId)
+    {
+        var order = await _db.Orders
+            .Include(o => o.Items)
+            .FirstOrDefaultAsync(o => o.Id == id)
+            ?? throw new KeyNotFoundException("Order not found.");
+
+        if (order.OrderStatus == "CANCELLED")
+            throw new InvalidOperationException("Order is already cancelled. Cannot delete.");
+        if (order.FulfillmentStatus == "IN_TRANSIT" || order.FulfillmentStatus == "DELIVERED")
+            throw new InvalidOperationException("Cannot delete an order that is in transit or delivered. Cancel it first.");
+        if (order.FulfillmentStatus == "RETURNED")
+            throw new InvalidOperationException("Cannot delete a returned order.");
+
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        try
+        {
+            // Release committed stock if the order was confirmed (stock was reserved)
+            if (!order.IsDraft && order.ConfirmedAt.HasValue)
+            {
+                foreach (var item in order.Items.Where(i => i.DeletedAt == null))
+                {
+                    var inv = await _db.BranchVariantInventories
+                        .FromSqlRaw("SELECT * FROM branch_variant_inventories WITH (UPDLOCK) WHERE [BranchId] = {0} AND [VariantId] = {1}", order.BranchId, item.VariantId)
+                        .FirstOrDefaultAsync();
+                    if (inv != null)
+                    {
+                        inv.Committed = Math.Max(0, inv.Committed - item.Qty);
+                        _db.StockMovements.Add(new StockMovement
+                        {
+                            BusinessId = _db.CurrentBusinessId,
+                            BranchId = order.BranchId,
+                            VariantId = item.VariantId,
+                            MovementType = "RELEASE",
+                            Qty = item.Qty,
+                            ReferenceType = "Order",
+                            ReferenceId = order.Id,
+                            UserId = userId,
+                            Note = $"Order deleted: {reason}"
+                        });
+                    }
+                }
+            }
+
+            order.CancelledReason = reason;
+            order.DeletedAt = DateTime.UtcNow;
+
+            await _db.SaveChangesAsync();
+            await tx.CommitAsync();
+        }
+        catch
+        {
+            await tx.RollbackAsync();
+            throw;
+        }
+
+        await _log.LogAsync(_db.CurrentBusinessId, userId, "DELETE", "Order", order.Id);
+    }
+
+    // ── Confirm ───────────────────────────────────────────────────────────────
+
+    public async Task<OrderDetailDto> ConfirmAsync(Guid id, Guid userId, bool allowOversell = false)
+    {
+        var order = await _db.Orders
+            .Include(o => o.Items)
+            .FirstOrDefaultAsync(o => o.Id == id)
+            ?? throw new KeyNotFoundException("Order not found.");
+
+        // Idempotent no-op if this order was already confirmed — e.g. CreateAsync auto-confirms
+        // a non-draft order internally, and a caller (POS checkout) that then also calls this
+        // endpoint explicitly must not re-run stock-commit a second time. FulfillmentStatus alone
+        // can't detect this: confirming never changes it, only ConfirmedAt does.
+        if (order.ConfirmedAt != null)
+            return await GetAsync(id, true);
+
+        // Cancel doesn't touch IsDraft/FulfillmentStatus (see CancelAsync), so a cancelled draft
+        // still looks "UNFULFILLED" here — without this check it would pass the guard below and
+        // confirm (and commit stock for) an order everyone already considers dead.
+        if (order.OrderStatus == "CANCELLED")
+            throw new InvalidOperationException("Cannot confirm a cancelled order.");
+
+        if (order.FulfillmentStatus != "UNFULFILLED")
+            throw new InvalidOperationException($"Order cannot be confirmed in status {order.FulfillmentStatus}.");
+
+        order = await ConfirmInternalAsync(order, userId, allowOversell);
+        await _log.LogAsync(_db.CurrentBusinessId, userId, "UPDATE", "Order", order.Id);
+        return await GetAsync(id, true);
+    }
+
+    // ── Pack ──────────────────────────────────────────────────────────────────
+
+    public async Task<OrderDetailDto> PackAsync(Guid id, Guid userId)
+    {
+        var order = await _db.Orders.FirstOrDefaultAsync(o => o.Id == id)
+            ?? throw new KeyNotFoundException("Order not found.");
+
+        if (order.FulfillmentStatus != "UNFULFILLED" || order.IsDraft)
+            throw new InvalidOperationException("Order must be confirmed (not draft) and UNFULFILLED to pack.");
+
+        var prev = order.FulfillmentStatus;
+        order.FulfillmentStatus = "PACKED";
+        _db.OrderStatusHistories.Add(new OrderStatusHistory { OrderId = order.Id, Track = "FULFILLMENT", FromStatus = prev, ToStatus = "PACKED", UserId = userId });
+        await _db.SaveChangesAsync();
+
+        await _log.LogAsync(_db.CurrentBusinessId, userId, "UPDATE", "Order", order.Id);
+        return await GetAsync(id, true);
+    }
+
+    // ── Handover ──────────────────────────────────────────────────────────────
+
+    public async Task<OrderDetailDto> HandoverAsync(Guid id, HandoverOrderRequest request, Guid userId)
+    {
+        var order = await _db.Orders
+            .Include(o => o.Items)
+            .FirstOrDefaultAsync(o => o.Id == id)
+            ?? throw new KeyNotFoundException("Order not found.");
+
+        // Packing has no separate manual step anymore — handing over to a courier implicitly
+        // means it was packed, so this accepts straight from UNFULFILLED (the common case) as
+        // well as PACKED (kept for any order that already went through the old two-step flow).
+        if (order.FulfillmentStatus != "UNFULFILLED" && order.FulfillmentStatus != "PACKED")
+            throw new InvalidOperationException("Order must be confirmed before handover.");
+
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        try
+        {
+            foreach (var item in order.Items.Where(i => i.DeletedAt == null))
+            {
+                var inv = await _db.BranchVariantInventories
+                    .FromSqlRaw("SELECT * FROM branch_variant_inventories WITH (UPDLOCK) WHERE [BranchId] = {0} AND [VariantId] = {1}", order.BranchId, item.VariantId)
+                    .FirstOrDefaultAsync()
+                    ?? throw new InvalidOperationException($"Inventory record not found for variant {item.VariantId}.");
+
+                inv.OnHand -= item.Qty;
+                inv.Committed -= item.Qty;
+
+                _db.StockMovements.Add(new StockMovement
+                {
+                    BusinessId = _db.CurrentBusinessId,
+                    BranchId = order.BranchId,
+                    VariantId = item.VariantId,
+                    MovementType = "SALE_OUT",
+                    Qty = -item.Qty,
+                    ReferenceType = "Order",
+                    ReferenceId = order.Id,
+                    UserId = userId
+                });
+            }
+
+            var prev = order.FulfillmentStatus;
+            order.FulfillmentStatus = "IN_TRANSIT";
+            order.HandedOverAt = DateTime.UtcNow;
+            order.CourierId = request.CourierId;
+            order.DeliveryManId = request.DeliveryManId;
+            order.TrackingNo = request.TrackingNo;
+            order.DeliveryCostActual = request.DeliveryCostActual;
+
+            _db.OrderStatusHistories.Add(new OrderStatusHistory { OrderId = order.Id, Track = "FULFILLMENT", FromStatus = prev, ToStatus = "IN_TRANSIT", UserId = userId });
+
+            await _db.SaveChangesAsync();
+            await tx.CommitAsync();
+        }
+        catch
+        {
+            await tx.RollbackAsync();
+            throw;
+        }
+
+        await _log.LogAsync(_db.CurrentBusinessId, userId, "UPDATE", "Order", order.Id);
+        return await GetAsync(id, true);
+    }
+
+    // ── Deliver ───────────────────────────────────────────────────────────────
+
+    public async Task<OrderDetailDto> DeliverAsync(Guid id, Guid userId)
+    {
+        var order = await _db.Orders
+            .Include(o => o.Items)
+            .Include(o => o.Payments)
+            .FirstOrDefaultAsync(o => o.Id == id)
+            ?? throw new KeyNotFoundException("Order not found.");
+
+        if (order.FulfillmentStatus != "IN_TRANSIT")
+            throw new InvalidOperationException("Order must be IN_TRANSIT to mark delivered.");
+
+        var prev = order.FulfillmentStatus;
+        order.FulfillmentStatus = "DELIVERED";
+        order.DeliveredAt = DateTime.UtcNow;
+        order.OrderStatus = "COMPLETED";
+
+        // Set COD remittance status: if courier holds unpaid cash, track it
+        var total = ComputeTotal(order);
+        var paid = order.Payments.Sum(p => p.Amount);
+        order.CodRemittanceStatus = (total - paid > 0 && order.CourierId.HasValue)
+            ? "PENDING"
+            : "NOT_APPLICABLE";
+
+        _db.OrderStatusHistories.Add(new OrderStatusHistory { OrderId = order.Id, Track = "FULFILLMENT", FromStatus = prev, ToStatus = "DELIVERED", UserId = userId });
+        _db.OrderStatusHistories.Add(new OrderStatusHistory { OrderId = order.Id, Track = "ORDER", FromStatus = "OPEN", ToStatus = "COMPLETED", UserId = userId });
+
+        await _db.SaveChangesAsync();
+        await _log.LogAsync(_db.CurrentBusinessId, userId, "UPDATE", "Order", order.Id);
+        return await GetAsync(id, true);
+    }
+
+    // ── Return ────────────────────────────────────────────────────────────────
+
+    public async Task<OrderDetailDto> ReturnAsync(Guid id, ReturnOrderRequest request, Guid userId)
+    {
+        var order = await _db.Orders
+            .Include(o => o.Items)
+            .Include(o => o.Customer)
+            .FirstOrDefaultAsync(o => o.Id == id)
+            ?? throw new KeyNotFoundException("Order not found.");
+
+        if (order.FulfillmentStatus != "IN_TRANSIT" && order.FulfillmentStatus != "DELIVERED")
+            throw new InvalidOperationException("Order must be IN_TRANSIT or DELIVERED to return.");
+
+        // Return window enforcement (R9.4): configurable days, default 7
+        if (order.DeliveredAt.HasValue)
+        {
+            var windowDays = 7; // TODO: read from AppSettings when settings module is wired
+            var cutoff = order.DeliveredAt.Value.AddDays(windowDays);
+            if (DateTime.UtcNow > cutoff)
+                throw new InvalidOperationException(
+                    $"Return window of {windowDays} days has expired (delivered {order.DeliveredAt.Value:yyyy-MM-dd}).");
+        }
+
+        var validResolutions = new[] { "COURIER_RETURN", "REFUND", "STORE_CREDIT", "REPLACE_SAME", "EXCHANGE_DIFFERENT" };
+        if (!validResolutions.Contains(request.ResolutionType))
+            throw new InvalidOperationException($"Invalid resolution type '{request.ResolutionType}'.");
+
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        try
+        {
+            // ── Stock movements per item ──────────────────────────────────────
+            foreach (var ri in request.Items)
+            {
+                var item = order.Items.FirstOrDefault(i => i.Id == ri.OrderItemId)
+                    ?? throw new KeyNotFoundException($"Order item {ri.OrderItemId} not found.");
+
+                var inv = await _db.BranchVariantInventories
+                    .FromSqlRaw("SELECT * FROM branch_variant_inventories WITH (UPDLOCK) WHERE [BranchId] = {0} AND [VariantId] = {1}", order.BranchId, item.VariantId)
+                    .FirstOrDefaultAsync()
+                    ?? throw new InvalidOperationException($"Inventory record not found for variant {item.VariantId}.");
+
+                var notePrefix = request.ResolutionType switch
+                {
+                    "COURIER_RETURN" => "Courier return",
+                    "REFUND" => "Refund return",
+                    "STORE_CREDIT" => "Store credit return",
+                    "REPLACE_SAME" => "Replacement return",
+                    "EXCHANGE_DIFFERENT" => "Exchange return",
+                    _ => "Customer return"
+                };
+
+                if (ri.Inspection == "SELLABLE")
+                {
+                    inv.OnHand += ri.Qty;
+                    _db.StockMovements.Add(new StockMovement
+                    {
+                        BusinessId = _db.CurrentBusinessId,
+                        BranchId = order.BranchId,
+                        VariantId = item.VariantId,
+                        MovementType = "RETURN_IN",
+                        Qty = ri.Qty,
+                        ReferenceType = "Order",
+                        ReferenceId = order.Id,
+                        UserId = userId,
+                        Note = $"{notePrefix} — sellable"
+                    });
+                }
+                else
+                {
+                    inv.Damaged += ri.Qty;
+                    _db.StockMovements.Add(new StockMovement
+                    {
+                        BusinessId = _db.CurrentBusinessId,
+                        BranchId = order.BranchId,
+                        VariantId = item.VariantId,
+                        MovementType = "DAMAGE_IN",
+                        Qty = ri.Qty,
+                        ReferenceType = "Order",
+                        ReferenceId = order.Id,
+                        UserId = userId,
+                        Note = $"{notePrefix} — damaged"
+                    });
+                }
+            }
+
+            // ── Financial resolution ──────────────────────────────────────────
+            if (request.ResolutionType == "REFUND" && request.RefundAmount is > 0)
+            {
+                // Negative payment = money going back to customer
+                _db.OrderPayments.Add(new OrderPayment
+                {
+                    OrderId = order.Id,
+                    Method = $"REFUND_{request.RefundMethod ?? "CASH"}",
+                    Amount = -request.RefundAmount.Value,
+                    ReceivedAt = DateTime.UtcNow,
+                    UserId = userId
+                });
+                // Mark order as refunded if full amount returned
+                var totalPaid = order.Payments.Sum(p => p.Amount) - request.RefundAmount.Value;
+                order.PaymentStatus = totalPaid <= 0 ? "REFUNDED" : "PARTIALLY_PAID";
+            }
+            else if (request.ResolutionType == "STORE_CREDIT" && request.RefundAmount is > 0 && order.Customer != null)
+            {
+                order.Customer.StoreCreditBalance += request.RefundAmount.Value;
+                // Store credit is not cash out — record as a zero-cash resolved payment note
+                _db.OrderPayments.Add(new OrderPayment
+                {
+                    OrderId = order.Id,
+                    Method = "STORE_CREDIT",
+                    Amount = -request.RefundAmount.Value,
+                    ReceivedAt = DateTime.UtcNow,
+                    UserId = userId
+                });
+                order.PaymentStatus = "REFUNDED";
+            }
+
+            // ── Order resolution fields ───────────────────────────────────────
+            order.ReturnResolution = request.ResolutionType;
+            order.ReturnReason     = request.Reason;
+            order.ReturnNote       = request.Note;
+
+            var prev = order.FulfillmentStatus;
+            order.FulfillmentStatus = "RETURNED";
+            order.ReturnedAt = DateTime.UtcNow;
+
+            _db.OrderStatusHistories.Add(new OrderStatusHistory
+            {
+                OrderId = order.Id,
+                Track = "FULFILLMENT",
+                FromStatus = prev,
+                ToStatus = "RETURNED",
+                UserId = userId
+            });
+
+            await _db.SaveChangesAsync();
+            await tx.CommitAsync();
+        }
+        catch
+        {
+            await tx.RollbackAsync();
+            throw;
+        }
+
+        await _log.LogAsync(_db.CurrentBusinessId, userId, "UPDATE", "Order", order.Id);
+        return await GetAsync(id, true);
+    }
+
+    // ── Cancel ────────────────────────────────────────────────────────────────
+
+    public async Task<OrderDetailDto> CancelAsync(Guid id, CancelOrderRequest request, Guid userId)
+    {
+        var order = await _db.Orders
+            .Include(o => o.Items)
+            .FirstOrDefaultAsync(o => o.Id == id)
+            ?? throw new KeyNotFoundException("Order not found.");
+
+        if (order.OrderStatus == "CANCELLED")
+            throw new InvalidOperationException("Order is already cancelled.");
+        if (order.FulfillmentStatus == "IN_TRANSIT" || order.FulfillmentStatus == "DELIVERED")
+            throw new InvalidOperationException("Cannot cancel an order that is in transit or delivered.");
+
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        try
+        {
+            // Release committed stock only if order was confirmed
+            if (!order.IsDraft && order.ConfirmedAt.HasValue)
+            {
+                foreach (var item in order.Items.Where(i => i.DeletedAt == null))
+                {
+                    var inv = await _db.BranchVariantInventories
+                        .FromSqlRaw("SELECT * FROM branch_variant_inventories WITH (UPDLOCK) WHERE [BranchId] = {0} AND [VariantId] = {1}", order.BranchId, item.VariantId)
+                        .FirstOrDefaultAsync();
+
+                    if (inv != null)
+                    {
+                        inv.Committed = Math.Max(0, inv.Committed - item.Qty);
+                        _db.StockMovements.Add(new StockMovement
+                        {
+                            BusinessId = _db.CurrentBusinessId,
+                            BranchId = order.BranchId,
+                            VariantId = item.VariantId,
+                            MovementType = "RELEASE",
+                            Qty = item.Qty,
+                            ReferenceType = "Order",
+                            ReferenceId = order.Id,
+                            UserId = userId
+                        });
+                    }
+                }
+            }
+
+            var prevOrder = order.OrderStatus;
+            order.OrderStatus = "CANCELLED";
+            order.CancelledReason = request.Reason;
+
+            _db.OrderStatusHistories.Add(new OrderStatusHistory { OrderId = order.Id, Track = "ORDER", FromStatus = prevOrder, ToStatus = "CANCELLED", UserId = userId });
+
+            await _db.SaveChangesAsync();
+            await tx.CommitAsync();
+        }
+        catch
+        {
+            await tx.RollbackAsync();
+            throw;
+        }
+
+        await _log.LogAsync(_db.CurrentBusinessId, userId, "UPDATE", "Order", order.Id);
+        return await GetAsync(id, true);
+    }
+
+    // ── Payment ───────────────────────────────────────────────────────────────
+
+    public async Task<OrderDetailDto> AddPaymentAsync(Guid id, AddOrderPaymentRequest request, Guid userId)
+    {
+        var order = await _db.Orders
+            .Include(o => o.Items)
+            .Include(o => o.Payments)
+            .FirstOrDefaultAsync(o => o.Id == id)
+            ?? throw new KeyNotFoundException("Order not found.");
+
+        _db.OrderPayments.Add(new OrderPayment
+        {
+            OrderId = order.Id,
+            Method = request.Method,
+            Amount = request.Amount,
+            ReceivedAt = request.ReceivedAt ?? DateTime.UtcNow,
+            UserId = userId
+        });
+
+        // Recompute payment status
+        var totalPaid = order.Payments.Sum(p => p.Amount) + request.Amount;
+        var total = ComputeTotal(order);
+
+        var prevPayment = order.PaymentStatus;
+        order.PaymentStatus = totalPaid >= total ? "PAID" : totalPaid > 0 ? "PARTIALLY_PAID" : "UNPAID";
+
+        if (prevPayment != order.PaymentStatus)
+            _db.OrderStatusHistories.Add(new OrderStatusHistory { OrderId = order.Id, Track = "PAYMENT", FromStatus = prevPayment, ToStatus = order.PaymentStatus, UserId = userId });
+
+        await _db.SaveChangesAsync();
+        await _log.LogAsync(_db.CurrentBusinessId, userId, "CREATE", "OrderPayment", order.Id);
+        return await GetAsync(id, true);
+    }
+
+    // ── Claim ─────────────────────────────────────────────────────────────────
+
+    public async Task ClaimAsync(Guid id, Guid userId)
+    {
+        var order = await _db.Orders.FirstOrDefaultAsync(o => o.Id == id)
+            ?? throw new KeyNotFoundException("Order not found.");
+        order.HandlingUserId = userId;
+        await _db.SaveChangesAsync();
+    }
+
+    // ── Challan PDF ───────────────────────────────────────────────────────────
+
+    public async Task<byte[]> GetChallanPdfAsync(Guid id)
+    {
+        var order = await LoadFullOrderAsync(id)
+            ?? throw new KeyNotFoundException("Order not found.");
+
+        var business = await _db.Businesses.AsNoTracking()
+            .FirstOrDefaultAsync(b => b.Id == _db.CurrentBusinessId);
+
+        return ChallanPdfGenerator.Generate(order, business?.Name ?? "");
+    }
+
+    // ── Receipt PDF ───────────────────────────────────────────────────────────
+
+    public async Task<byte[]> GetReceiptPdfAsync(Guid id)
+    {
+        var order = await LoadFullOrderAsync(id)
+            ?? throw new KeyNotFoundException("Order not found.");
+
+        var business = await _db.Businesses.AsNoTracking()
+            .FirstOrDefaultAsync(b => b.Id == _db.CurrentBusinessId);
+
+        Branch? branch = null;
+        if (order.BranchId.HasValue)
+            branch = await _db.Branches.AsNoTracking().FirstOrDefaultAsync(b => b.Id == order.BranchId.Value);
+
+        // Online orders get a customer-facing A4 invoice (OrderInvoicePdfGenerator); Shop/Hawker
+        // counter sales keep the 80mm thermal POS receipt they're actually printed on.
+        if (order.Channel != "SHOP" && order.Channel != "HAWKER")
+        {
+            var logoBytes = TryReadLogoBytes(business?.LogoUrl);
+            return OrderInvoicePdfGenerator.Generate(order, business?.Name ?? "", branch?.Address, branch?.Phone, logoBytes);
+        }
+
+        return ReceiptPdfGenerator.Generate(order, business?.Name ?? "", branch?.Address, branch?.Phone);
+    }
+
+    // LogoUrl is a relative "/uploads/{businessId}/{file}" path (see MediaService.SaveImageAsync)
+    // — resolve it straight off disk rather than over HTTP, since we're already on the server.
+    private byte[]? TryReadLogoBytes(string? logoUrl)
+    {
+        if (string.IsNullOrWhiteSpace(logoUrl)) return null;
+        try
+        {
+            var webRoot = _env.WebRootPath ?? Path.Combine(_env.ContentRootPath, "wwwroot");
+            var relativePath = logoUrl.TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
+            var fullPath = Path.Combine(webRoot, relativePath);
+            return File.Exists(fullPath) ? File.ReadAllBytes(fullPath) : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    // ── Internal helpers ──────────────────────────────────────────────────────
+
+    private async Task<Order> ConfirmInternalAsync(Order order, Guid userId, bool allowOversell = false)
+    {
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        try
+        {
+            var unavailable = new List<string>();
+
+            foreach (var item in order.Items.Where(i => i.DeletedAt == null))
+            {
+                var inv = await _db.BranchVariantInventories
+                    .FromSqlRaw("SELECT * FROM branch_variant_inventories WITH (UPDLOCK) WHERE [BranchId] = {0} AND [VariantId] = {1}", order.BranchId, item.VariantId)
+                    .FirstOrDefaultAsync();
+
+                var available = inv?.Available ?? 0;
+                if (available < item.Qty)
+                {
+                    var variant = await _db.ProductVariants.AsNoTracking()
+                        .Include(v => v.Product)
+                        .FirstOrDefaultAsync(v => v.Id == item.VariantId);
+                    // "0.###" — qty is DECIMAL(12,3) for fractional-unit products (e.g. kg), but
+                    // most are whole pieces; this trims trailing zeros (1.000 -> "1") instead of
+                    // always showing three decimal places.
+                    unavailable.Add($"{variant?.Product?.Name ?? "Unknown"} ({variant?.Sku ?? item.VariantId.ToString()}): need {item.Qty:0.###}, available {available:0.###}");
+                }
+            }
+
+            // R3.3: online, an oversell blocks the confirm outright (first-commit-wins). A sale
+            // that already happened offline can't be un-sold on sync, so it's accepted anyway and
+            // flagged for the owner to verify physical stock instead — no Notifications module
+            // exists yet (that's its own unbuilt feature) so this uses Activity Log, the closest
+            // existing owner-reviewable trail, rather than inventing a bespoke alert mechanism.
+            if (unavailable.Any())
+            {
+                if (!allowOversell)
+                    throw new StockUnavailableException(unavailable);
+
+                await _log.LogAsync(
+                    _db.CurrentBusinessId, userId, "OVERSOLD", "Order", order.Id,
+                    after: new { Message = "Offline sale accepted despite insufficient stock — verify physical stock.", Items = unavailable }
+                );
+            }
+
+            foreach (var item in order.Items.Where(i => i.DeletedAt == null))
+            {
+                var inv = await _db.BranchVariantInventories
+                    .FromSqlRaw("SELECT * FROM branch_variant_inventories WITH (UPDLOCK) WHERE [BranchId] = {0} AND [VariantId] = {1}", order.BranchId, item.VariantId)
+                    .FirstOrDefaultAsync()!;
+
+                inv!.Committed += item.Qty;
+
+                // Snapshot costs at confirm time (GTR-8)
+                var variant = await _db.ProductVariants.AsNoTracking()
+                    .FirstOrDefaultAsync(v => v.Id == item.VariantId);
+                item.UnitCostSnapshot = variant?.AvgLandedCost;
+
+                _db.StockMovements.Add(new StockMovement
+                {
+                    BusinessId = _db.CurrentBusinessId,
+                    BranchId = order.BranchId,
+                    VariantId = item.VariantId,
+                    MovementType = "COMMIT",
+                    Qty = item.Qty,
+                    ReferenceType = "Order",
+                    ReferenceId = order.Id,
+                    UserId = userId
+                });
+            }
+
+            var prev = order.IsDraft ? "DRAFT" : order.FulfillmentStatus;
+            order.IsDraft = false;
+            order.ConfirmedAt = DateTime.UtcNow;
+
+            _db.OrderStatusHistories.Add(new OrderStatusHistory { OrderId = order.Id, Track = "ORDER", FromStatus = prev, ToStatus = "OPEN", UserId = userId });
+
+            await _db.SaveChangesAsync();
+            await tx.CommitAsync();
+        }
+        catch
+        {
+            await tx.RollbackAsync();
+            throw;
+        }
+
+        return order;
+    }
+
+    // Same override pattern as StockAdjustmentService.ResolveBranchIdAsync: an explicit request
+    // branch wins (validated against this business's active branches), otherwise fall back to
+    // whatever the X-Branch-Id header currently resolves to.
+    private async Task<Guid> ResolveOrderBranchIdAsync(Guid? requestedBranchId)
+    {
+        if (requestedBranchId.HasValue)
+        {
+            var exists = await _db.Branches.AnyAsync(b => b.Id == requestedBranchId.Value && b.IsActive);
+            if (!exists)
+                throw new KeyNotFoundException("Branch not found or inactive.");
+            return requestedBranchId.Value;
+        }
+
+        return _db.CurrentBranchId
+            ?? throw new InvalidOperationException("A branch must be selected to create an order.");
+    }
+
+    private async Task<Customer> FindOrCreateCustomerAsync(string phone, string name, string? address)
+    {
+        var existing = await _db.Customers.FirstOrDefaultAsync(c => c.Phone == phone);
+        if (existing != null) return existing;
+
+        var customer = new Customer
+        {
+            BusinessId = _db.CurrentBusinessId,
+            Name = name,
+            Phone = phone,
+            Address = address
+        };
+        _db.Customers.Add(customer);
+        await _db.SaveChangesAsync();
+        return customer;
+    }
+
+    private async Task<string> GenerateOrderNoAsync()
+    {
+        // IgnoreQueryFilters is essential here, not just belt-and-suspenders: Order is
+        // IBranchScoped, so a plain _db.Orders.CountAsync() is silently filtered down to only
+        // the CURRENT branch whenever a branch is selected (not "All Branches"). OrderNo
+        // uniqueness is BUSINESS-wide (IX_orders_BusinessId_OrderNo), so counting one branch's
+        // orders undercounts and reuses numbers already taken by another branch. Re-adding the
+        // BusinessId filter manually keeps the business scope while dropping the branch/soft-
+        // delete ones. Same class of bug as ProductService.GenerateSkuAsync.
+        var count = await _db.Orders.IgnoreQueryFilters()
+            .CountAsync(o => o.BusinessId == _db.CurrentBusinessId) + 1;
+        return $"O-{count:D4}";
+    }
+
+    private async Task<Order?> LoadFullOrderAsync(Guid id)
+    {
+        return await _db.Orders
+            .Include(o => o.Items).ThenInclude(i => i.Variant).ThenInclude(v => v.Product)
+            .Include(o => o.Payments).ThenInclude(p => p.User)
+            .Include(o => o.StatusHistory).ThenInclude(h => h.User)
+            .Include(o => o.Customer)
+            .Include(o => o.Courier)
+            .Include(o => o.DeliveryMan)
+            .Include(o => o.HandlingUser)
+            .Include(o => o.CreatedByUser)
+            .FirstOrDefaultAsync(o => o.Id == id);
+    }
+
+    // ── DTO mapping ───────────────────────────────────────────────────────────
+
+    private static decimal ComputeSubtotal(Order o) =>
+        o.Items.Where(i => i.DeletedAt == null).Sum(i => i.Qty * i.UnitPrice);
+
+    private static decimal ComputeDiscount(Order o)
+    {
+        if (o.DiscountType == null || o.DiscountValue == null) return 0;
+        var sub = ComputeSubtotal(o);
+        return o.DiscountType == "PERCENT"
+            ? Math.Round(sub * o.DiscountValue.Value / 100, 2)
+            : o.DiscountValue.Value;
+    }
+
+    private static decimal ComputeTotal(Order o) =>
+        ComputeSubtotal(o) - ComputeDiscount(o) + o.DeliveryChargeCustomer;
+
+    private static OrderListDto ToListDto(Order o, bool canSeeCosts, Dictionary<(Guid BranchId, Guid VariantId), decimal> stock)
+    {
+        var total = ComputeTotal(o);
+        var paid = o.Payments.Sum(p => p.Amount);
+        var items = o.Items.Where(i => i.DeletedAt == null)
+            .Select(i => new OrderListItemSummaryDto(
+                i.Variant?.Product?.Name ?? "Unknown", i.Variant?.Sku ?? "", i.Qty,
+                o.BranchId.HasValue ? stock.GetValueOrDefault((o.BranchId.Value, i.VariantId)) : 0,
+                i.Variant?.Product?.Id ?? Guid.Empty
+            ))
+            .ToList();
+
+        // Same formula as OrderDetailDto.Economics (ToDetailDto) — cost = cost-snapshot per line
+        // + actual delivery cost, so the day-total profit here always matches what the order
+        // detail page would show for the same orders.
+        decimal? profit = null;
+        if (canSeeCosts)
+        {
+            var cost = o.Items.Where(i => i.DeletedAt == null && i.UnitCostSnapshot.HasValue)
+                .Sum(i => i.UnitCostSnapshot!.Value * i.Qty) + o.DeliveryCostActual;
+            profit = total - cost;
+        }
+
+        return new OrderListDto(
+            o.Id, o.OrderNo, o.Channel, o.Source, o.ExternalSource, o.ExternalOrderId,
+            o.CustomerName, o.CustomerPhone,
+            o.OrderStatus, o.PaymentStatus, o.FulfillmentStatus,
+            o.IsDraft, total, Math.Max(0, total - paid),
+            o.TrackingNo, o.HandlingUser?.Name, o.CreatedAt, o.BusinessDate,
+            items, profit, o.IsRevised,
+            o.CourierId, o.Courier?.Name, o.HandedOverAt,
+            o.CustomerAddress,
+            o.BranchId, o.Branch?.Name
+        );
+    }
+
+    private static OrderDetailDto ToDetailDto(Order o, bool isOwner, Dictionary<(Guid BranchId, Guid VariantId), decimal> stock)
+    {
+        var subtotal = ComputeSubtotal(o);
+        var discount = ComputeDiscount(o);
+        var total = subtotal - discount + o.DeliveryChargeCustomer;
+        var paid = o.Payments.Sum(p => p.Amount);
+
+        var items = o.Items.Where(i => i.DeletedAt == null).Select(i =>
+        {
+            var lineSubtotal = i.Qty * i.UnitPrice;
+            decimal? lineProfit = isOwner && i.UnitCostSnapshot.HasValue
+                ? lineSubtotal - (i.UnitCostSnapshot.Value * i.Qty)
+                : null;
+            return new OrderItemDto(
+                i.Id, i.VariantId,
+                i.Variant?.Sku ?? "",
+                i.Variant?.Product?.Name ?? "",
+                i.Variant?.VariantValuesJson,
+                i.Qty, i.UnitPrice, lineSubtotal,
+                isOwner ? i.UnitCostSnapshot : null,
+                lineProfit,
+                i.IsDamagedItem,
+                o.BranchId.HasValue ? stock.GetValueOrDefault((o.BranchId.Value, i.VariantId)) : 0
+            );
+        }).ToList();
+
+        OrderEconomicsDto? economics = null;
+        if (isOwner)
+        {
+            // Product profit/loss only — delivery is a logistics pass-through, not product
+            // margin, so neither the customer's delivery charge nor the courier's actual cost
+            // belongs in this figure (previously both were netted in here, which either
+            // inflated or deflated "profit" by whatever the delivery markup/loss happened to be).
+            var productRevenue = subtotal - discount;
+            var cost = o.Items.Where(i => i.DeletedAt == null && i.UnitCostSnapshot.HasValue)
+                .Sum(i => i.UnitCostSnapshot!.Value * i.Qty);
+            economics = new OrderEconomicsDto(productRevenue, cost, productRevenue - cost, discount);
+        }
+
+        return new OrderDetailDto(
+            o.Id, o.OrderNo, o.Channel, o.Source, o.ExternalSource, o.ExternalOrderId,
+            o.CustomerId, o.CustomerName, o.CustomerPhone, o.CustomerAddress,
+            o.OrderStatus, o.PaymentStatus, o.FulfillmentStatus, o.IsDraft,
+            o.DiscountType, o.DiscountValue,
+            o.DeliveryChargeCustomer, o.DeliveryCostActual,
+            subtotal, discount, total, paid, Math.Max(0, total - paid),
+            o.CourierId, o.Courier?.Name, o.TrackingNo,
+            o.DeliveryManId, o.DeliveryMan?.Name,
+            o.HandlingUserId, o.HandlingUser?.Name,
+            o.Note,
+            o.ConfirmedAt, o.HandedOverAt, o.DeliveredAt, o.ReturnedAt, o.CancelledReason, o.ReturnResolution, o.ReturnReason, o.ReturnNote,
+            o.CreatedAt, o.CreatedByUser?.Name ?? "",
+            items,
+            o.Payments.Select(p => new OrderPaymentDto(p.Id, p.Method, p.Amount, p.ReceivedAt, p.User?.Name ?? "")).ToList(),
+            o.StatusHistory.OrderBy(h => h.At)
+                .Select(h => new OrderStatusHistoryDto(h.Track, h.FromStatus, h.ToStatus, h.User?.Name ?? "", h.At, h.Reason, h.Note))
+                .ToList(),
+            economics,
+            o.IsRevised
+        );
+    }
+}

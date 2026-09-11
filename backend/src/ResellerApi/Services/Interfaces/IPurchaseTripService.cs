@@ -9,6 +9,7 @@ public interface IPurchaseTripService
     Task<List<PurchaseTripSummaryDto>> ListAsync(string? status);
     Task<PurchaseTripDetailDto> GetAsync(Guid id);
     Task<PurchaseTripDetailDto> UpdateHeaderAsync(Guid tripId, UpdateTripHeaderRequest request, Guid userId);
+    Task<PurchaseTripDetailDto> UpdateAttachmentsAsync(Guid tripId, UpdateTripAttachmentsRequest request, Guid userId);
 
     // ── Items ─────────────────────────────────────────────────────────────────
     Task<PurchaseItemDto> AddItemAsync(Guid tripId, AddPurchaseItemRequest request, Guid userId);

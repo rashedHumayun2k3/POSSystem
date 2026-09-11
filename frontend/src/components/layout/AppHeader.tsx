@@ -1,62 +1,132 @@
 "use client";
 
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "@/store/authStore";
+import { useBranchSelection } from "@/hooks/useBranchSelection";
+import { useConnectivityStore } from "@/store/connectivityStore";
+import { useToastStore } from "@/store/toastStore";
 import { BellIcon } from "@heroicons/react/24/outline";
 import Link from "next/link";
+import Image from "next/image";
 import { useLanguage, type Lang } from "@/i18n/LanguageContext";
+import Avatar from "@/components/ui/Avatar";
+import ConnectivityPill from "@/components/layout/ConnectivityPill";
+import CustomSelect from "@/components/ui/CustomSelect";
+import { listOrders } from "@/lib/ordersApi";
 
 interface Props {
   title: string;
   backHref?: string;
+  // Rendered before the standard language/notifications/avatar icons — NOT a replacement for
+  // them, so every page keeps those regardless of what page-specific actions it adds (e.g. the
+  // order detail page's Delete button).
+  extraActions?: React.ReactNode;
 }
 
-export default function AppHeader({ title, backHref }: Props) {
-  const { user, businesses, currentBusinessId, switchBusiness, isOwner } = useAuthStore();
-  const { lang, setLang } = useLanguage();
+export default function AppHeader({ title, backHref, extraActions }: Props) {
+  const { user, businesses, currentBusinessId, switchBusiness, isOwner, canAccessAllBranches, branches, currentBranchId, switchBranch, clearBranch } = useAuthStore();
+  const { lang, setLang, t } = useLanguage();
+  const resolveBranch = useBranchSelection();
+  const isOnline = useConnectivityStore((s) => s.isOnline);
+  const queryClient = useQueryClient();
+
+  // Same query (and cache key) as the Notifications list page — the bell badge reflects real
+  // pending-order data instead of a live-push counter, so it's correct even if the SignalR
+  // connection never connects/negotiates (it degrades to this page's own 15s poll instead of
+  // going blank). useLiveNotifications invalidates this key on a live "OrderCreated" push for
+  // an instant bump while the socket is up.
+  const { data: pendingOrders = [] } = useQuery({
+    queryKey: ["notifications-online-orders", currentBranchId],
+    queryFn: () => listOrders({ channel: "WEBSITE", fulfillmentStatus: "UNFULFILLED" }),
+    staleTime: 15_000,
+  });
+  const unreadCount = pendingOrders.length;
 
   const toggleLang = () => setLang(lang === "bn" ? "en" : ("bn" as Lang));
 
+  const handleBusinessSwitch = async (id: string) => {
+    switchBusiness(id);
+    await resolveBranch();
+  };
+
+  // Every branch-scoped number across the whole app (stock, orders, expenses, reports —
+  // everything this session found going stale piecemeal) is cleared from cache in this one place,
+  // the single chokepoint every branch switch goes through — so whatever page you're already on
+  // just refetches fresh under the new branch instead of needing a forced navigation to get there.
+  const handleBranchChange = (value: string) => {
+    const branchName = value === "" ? t("pickers.allBranches") : branches.find((b) => b.id === value)?.name ?? "";
+    useToastStore.getState().show(t("common.nowViewingBranch", { branch: branchName }));
+    queryClient.clear();
+    if (value === "") clearBranch();
+    else switchBranch(value);
+  };
+
   return (
-    <header className="sticky top-0 z-40 bg-white border-b border-gray-200 px-4 h-14 flex items-center gap-3">
+    <header
+      className={`sticky top-0 z-40 border-b px-4 h-14 flex items-center gap-3 transition-colors ${
+        isOnline ? "bg-white border-gray-200" : "bg-red-50 border-red-200"
+      }`}
+    >
       {backHref ? (
-        <Link href={backHref} className="text-indigo-600 mr-1">
-          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <Link href={backHref} className="flex items-center gap-2 min-w-0 flex-1 text-indigo-600 mr-1">
+          <svg className="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
+          <span className="truncate text-sm font-semibold text-gray-900">{title}</span>
         </Link>
-      ) : null}
-
-      {/* Business switcher — owner only */}
-      {isOwner() && businesses.length > 1 ? (
-        <select
-          value={currentBusinessId ?? ""}
-          onChange={(e) => switchBusiness(e.target.value)}
-          className="text-sm font-semibold text-gray-900 border-none outline-none bg-transparent"
-        >
-          {businesses.map((b) => (
-            <option key={b.id} value={b.id}>{b.name}</option>
-          ))}
-        </select>
+      ) : isOwner() && businesses.length > 1 ? (
+        <div className="flex-1 min-w-0">
+          <CustomSelect
+            triggerClassName="w-full flex items-center gap-1 text-sm font-semibold text-gray-900 text-left"
+            value={currentBusinessId ?? ""}
+            onChange={handleBusinessSwitch}
+            options={businesses.map((b) => ({ value: b.id, label: b.name }))}
+          />
+        </div>
       ) : (
-        <span className="text-[15px] font-semibold text-gray-900 flex-1">{title}</span>
+        <Link href="/dashboard" className="flex items-center flex-1">
+          <Image src="/logo.png" alt="LavLokshan" width={152} height={152} className="rounded-md object-contain" />
+        </Link>
       )}
 
+      {/* A sole branch is selected automatically and needs no switcher. Multi-branch users can
+          switch here; authorized roles also get the "All Branches" option. */}
+      {branches.length > 1 ? (
+        <div className="max-w-[110px] shrink-0">
+          <CustomSelect
+            triggerClassName="w-full flex items-center gap-1 text-xs font-medium text-indigo-600 bg-indigo-50 rounded-lg px-2 py-1 text-left"
+            value={currentBranchId ?? ""}
+            onChange={handleBranchChange}
+            placeholder="All Branches"
+            options={[
+              ...(canAccessAllBranches() ? [{ value: "", label: "All Branches" }] : []),
+              ...branches.map((b) => ({ value: b.id, label: b.name })),
+            ]}
+          />
+        </div>
+      ) : null}
+
       <div className="ml-auto flex items-center gap-3">
-        {!backHref && (
-          <>
-            <button
-              onClick={toggleLang}
-              className="text-xs font-semibold px-2 py-1 rounded-lg bg-indigo-50 text-indigo-600 border border-indigo-100 leading-none"
-              title="Switch language"
-            >
-              {lang === "bn" ? "EN" : "বাং"}
-            </button>
-            <Link href="/notifications" className="relative text-gray-500">
-              <BellIcon className="w-6 h-6" />
-            </Link>
-            <span className="text-xs text-gray-400">{user?.name}</span>
-          </>
-        )}
+        <ConnectivityPill />
+        {extraActions}
+        <button
+          onClick={toggleLang}
+          className="text-xs font-semibold px-2 py-1 rounded-lg bg-indigo-50 text-indigo-600 border border-indigo-100 leading-none"
+          title="Switch language"
+        >
+          {lang === "bn" ? "EN" : "বাং"}
+        </button>
+        <Link href="/notifications" className="relative text-gray-500">
+          <BellIcon className="w-6 h-6" />
+          {unreadCount > 0 && (
+            <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] leading-none rounded-full min-w-[16px] h-4 px-0.5 flex items-center justify-center">
+              {unreadCount > 9 ? "9+" : unreadCount}
+            </span>
+          )}
+        </Link>
+        <Link href="/profile">
+          <Avatar name={user?.name ?? "?"} photoUrl={user?.photoUrl} size={28} />
+        </Link>
       </div>
     </header>
   );

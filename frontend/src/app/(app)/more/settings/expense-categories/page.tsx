@@ -6,7 +6,8 @@ import { useRouter } from "next/navigation";
 import { getExpenseCategories, createExpenseCategory, updateExpenseCategory, deleteExpenseCategory } from "@/lib/settingsApi";
 import type { ExpenseCategory } from "@/types/settings";
 import { useLanguage } from "@/i18n/LanguageContext";
-import { PencilIcon, TrashIcon } from "@heroicons/react/24/outline";
+import { PencilIcon, PlusIcon, TrashIcon } from "@heroicons/react/24/outline";
+import { useToastStore } from "@/store/toastStore";
 
 type FormMode = "add" | "edit" | null;
 const EMPTY_FORM = { name: "", isDefault: false };
@@ -19,19 +20,18 @@ export default function ExpenseCategoriesPage() {
   const [mode, setMode] = useState<FormMode>(null);
   const [editTarget, setEditTarget] = useState<ExpenseCategory | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
-  const [error, setError] = useState("");
 
   const { data: cats = [], isLoading } = useQuery({
     queryKey: ["expense-categories"],
     queryFn: getExpenseCategories,
   });
 
-  const openAdd = () => { setForm(EMPTY_FORM); setEditTarget(null); setError(""); setMode("add"); };
+  const openAdd = () => { setForm(EMPTY_FORM); setEditTarget(null); setMode("add"); };
   const openEdit = (c: ExpenseCategory) => {
     setForm({ name: c.name, isDefault: c.isDefault });
-    setEditTarget(c); setError(""); setMode("edit");
+    setEditTarget(c); setMode("edit");
   };
-  const close = () => { setMode(null); setEditTarget(null); setError(""); };
+  const close = () => { setMode(null); setEditTarget(null); };
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -39,7 +39,16 @@ export default function ExpenseCategoriesPage() {
       else if (editTarget) await updateExpenseCategory(editTarget.id, form);
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["expense-categories"] }); close(); },
-    onError: () => setError(t("settings.failedSaveExpCat")),
+    onError: () => useToastStore.getState().show(t("settings.failedSaveExpCat"), "error"),
+  });
+
+  const setDefaultMutation = useMutation({
+    mutationFn: (category: ExpenseCategory) => updateExpenseCategory(category.id, {
+      name: category.name,
+      isDefault: true,
+    }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["expense-categories"] }),
+    onError: () => useToastStore.getState().show(t("settings.failedSaveExpCat"), "error"),
   });
 
   const deleteMutation = useMutation({
@@ -56,7 +65,10 @@ export default function ExpenseCategoriesPage() {
           </svg>
         </button>
         <h1 className="flex-1 text-base font-semibold text-gray-900">{t("settings.expCatTitle")}</h1>
-        <button onClick={openAdd} className="text-sm font-semibold text-indigo-600">{t("settings.addCategory")}</button>
+        <button onClick={openAdd} className="flex items-center gap-1 text-sm font-semibold text-indigo-600">
+          <PlusIcon className="w-4 h-4" />
+          {t("settings.addCategory")}
+        </button>
       </div>
 
       <div className="px-4 pt-4 space-y-2">
@@ -78,13 +90,27 @@ export default function ExpenseCategoriesPage() {
                 </div>
               </div>
               <div className="flex items-center gap-1.5">
-                <button onClick={() => openEdit(c)} className="p-1.5 rounded-lg bg-gray-50 text-gray-500">
-                  <PencilIcon className="w-4 h-4" />
-                </button>
-                <button onClick={() => { if (confirm(t("settings.deleteConfirm", { name: c.name }))) deleteMutation.mutate(c.id); }}
-                  className="p-1.5 rounded-lg bg-red-50 text-red-500">
-                  <TrashIcon className="w-4 h-4" />
-                </button>
+                {c.isSystem ? (
+                  !c.isDefault && (
+                    <button
+                      onClick={() => setDefaultMutation.mutate(c)}
+                      disabled={setDefaultMutation.isPending}
+                      className="text-xs font-semibold text-indigo-600 disabled:opacity-40"
+                    >
+                      {t("settings.isDefault")}
+                    </button>
+                  )
+                ) : (
+                  <>
+                    <button onClick={() => openEdit(c)} className="p-1.5 rounded-lg bg-gray-50 text-gray-500">
+                      <PencilIcon className="w-4 h-4" />
+                    </button>
+                    <button onClick={() => { if (confirm(t("settings.deleteConfirm", { name: c.name }))) deleteMutation.mutate(c.id); }}
+                      className="p-1.5 rounded-lg bg-red-50 text-red-500">
+                      <TrashIcon className="w-4 h-4" />
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           ))
@@ -108,7 +134,6 @@ export default function ExpenseCategoriesPage() {
                 className="w-4 h-4 rounded accent-indigo-600" />
               <span className="text-sm text-gray-700">{t("settings.isDefault")}</span>
             </label>
-            {error && <p className="text-xs text-red-600">{error}</p>}
             <button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending || !form.name}
               className="w-full h-12 rounded-xl bg-indigo-600 text-white font-semibold text-sm disabled:opacity-40">
               {saveMutation.isPending ? t("common.saving") : t("common.save")}

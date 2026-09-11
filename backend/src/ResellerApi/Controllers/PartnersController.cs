@@ -10,7 +10,7 @@ namespace ResellerApi.Controllers;
 // Owner-only on every route — GTR-10 / R15.10: capital/profit data is exactly what STAFF must
 // never see, and partners themselves use a separate portal (sub-phase 15e), not this controller.
 [ApiController]
-[Authorize(Roles = Roles.Owner)]
+[Authorize(Roles = Roles.OwnerOrPartner)]
 [Route("api/v1/partners")]
 public class PartnersController : ControllerBase
 {
@@ -37,6 +37,7 @@ public class PartnersController : ControllerBase
     }
 
     [HttpPost]
+    [Authorize(Roles = Roles.Owner)]
     public async Task<IActionResult> Create([FromBody] CreatePartnerRequest request)
     {
         try
@@ -48,6 +49,7 @@ public class PartnersController : ControllerBase
     }
 
     [HttpPut("{id:guid}")]
+    [Authorize(Roles = Roles.Owner)]
     public async Task<IActionResult> Update(Guid id, [FromBody] UpdatePartnerRequest request)
     {
         try { return Ok(await _partners.UpdateAsync(id, request, _user.UserId)); }
@@ -71,7 +73,12 @@ public class PartnersController : ControllerBase
     public async Task<IActionResult> ListInjections(Guid id)
         => Ok(await _capital.ListInjectionsAsync(id));
 
+    [HttpGet("capital-injections/awaiting-approval")]
+    public async Task<IActionResult> ListPendingInjections()
+        => Ok(await _capital.ListPendingInjectionsAsync());
+
     [HttpPost("{id:guid}/capital-injections")]
+    [Authorize(Roles = Roles.Owner)]
     public async Task<IActionResult> RecordInjection(Guid id, [FromBody] CreateCapitalInjectionRequest request)
     {
         try
@@ -81,5 +88,85 @@ public class PartnersController : ControllerBase
         }
         catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
         catch (ArgumentException ex) { return BadRequest(new { message = ex.Message }); }
+        catch (InvalidOperationException ex) { return Conflict(new { message = ex.Message }); }
+    }
+
+    [HttpPut("{id:guid}/capital-injections/{injectionId:guid}")]
+    [Authorize(Roles = Roles.Owner)]
+    public async Task<IActionResult> UpdateInjection(Guid id, Guid injectionId, [FromBody] CreateCapitalInjectionRequest request)
+    {
+        try { return Ok(await _capital.UpdateInjectionAsync(id, injectionId, request, _user.UserId)); }
+        catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
+        catch (ArgumentException ex) { return BadRequest(new { message = ex.Message }); }
+        catch (UnauthorizedAccessException ex) { return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message }); }
+        catch (InvalidOperationException ex) { return Conflict(new { message = ex.Message }); }
+    }
+
+    [HttpDelete("{id:guid}/capital-injections/{injectionId:guid}")]
+    [Authorize(Roles = Roles.Owner)]
+    public async Task<IActionResult> DeleteInjection(Guid id, Guid injectionId)
+    {
+        try
+        {
+            await _capital.DeleteInjectionAsync(id, injectionId, _user.UserId);
+            return NoContent();
+        }
+        catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
+        catch (InvalidOperationException ex) { return Conflict(new { message = ex.Message }); }
+    }
+
+    [HttpPost("{id:guid}/capital-injections/{injectionId:guid}/submit")]
+    [Authorize(Roles = Roles.Owner)]
+    public async Task<IActionResult> SubmitInjection(Guid id, Guid injectionId)
+    {
+        try { return Ok(await _capital.SubmitInjectionForApprovalAsync(id, injectionId, _user.UserId)); }
+        catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
+        catch (InvalidOperationException ex) { return Conflict(new { message = ex.Message }); }
+    }
+
+    [HttpGet("{id:guid}/capital-injections/{injectionId:guid}/approval")]
+    public async Task<IActionResult> GetInjectionApproval(Guid id, Guid injectionId)
+    {
+        try { return Ok(await _capital.GetInjectionApprovalStatusAsync(id, injectionId)); }
+        catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
+    }
+
+    [HttpPost("{id:guid}/capital-injections/{injectionId:guid}/votes")]
+    public async Task<IActionResult> CastInjectionVote(Guid id, Guid injectionId, [FromBody] CastCapitalInjectionApprovalVoteRequest request)
+    {
+        try { return Ok(await _capital.CastInjectionApprovalVoteAsync(id, injectionId, request, _user.UserId)); }
+        catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
+        catch (ArgumentException ex) { return BadRequest(new { message = ex.Message }); }
+        catch (UnauthorizedAccessException ex) { return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message }); }
+        catch (InvalidOperationException ex) { return Conflict(new { message = ex.Message }); }
+    }
+
+    // R15.11 — new partner approval workflow.
+
+    [HttpGet("{id:guid}/approval")]
+    public async Task<IActionResult> GetApproval(Guid id)
+    {
+        try { return Ok(await _partners.GetApprovalStatusAsync(id)); }
+        catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
+    }
+
+    [HttpPost("{id:guid}/votes")]
+    public async Task<IActionResult> CastVote(Guid id, [FromBody] CastApprovalVoteRequest request)
+    {
+        try { return Ok(await _partners.CastVoteAsync(id, request, _user.UserId)); }
+        catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
+        catch (ArgumentException ex) { return BadRequest(new { message = ex.Message }); }
+        catch (UnauthorizedAccessException ex) { return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message }); }
+        catch (InvalidOperationException ex) { return Conflict(new { message = ex.Message }); }
+    }
+
+    [HttpPost("{id:guid}/cancel")]
+    [Authorize(Roles = Roles.Owner)]
+    public async Task<IActionResult> CancelPending(Guid id, [FromBody] CancelPendingPartnerRequest request)
+    {
+        try { return Ok(await _partners.CancelPendingAsync(id, request, _user.UserId)); }
+        catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
+        catch (ArgumentException ex) { return BadRequest(new { message = ex.Message }); }
+        catch (InvalidOperationException ex) { return Conflict(new { message = ex.Message }); }
     }
 }

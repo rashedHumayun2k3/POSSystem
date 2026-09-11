@@ -9,7 +9,9 @@ public class PurchaseItem : BaseEntity
     public decimal QtyBought { get; set; }
     public decimal QtyUsable { get; set; }      // cumulative total from all APPROVED sessions
     public decimal QtyDamaged { get; set; }     // cumulative total from all APPROVED sessions
+    public decimal QtyMissing { get; set; }     // cumulative shortage from all APPROVED sessions
     public decimal TotalCost { get; set; }
+    public decimal UnitWeightGrams { get; set; }
     public string? ShopName { get; set; }
     public string? MemoPhotoUrl { get; set; }
     public decimal PaidNow { get; set; }
