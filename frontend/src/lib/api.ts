@@ -94,6 +94,9 @@ api.interceptors.response.use(
     return res;
   },
   async (error) => {
+    // Switching an order search/filter cancels the previous query. Cancellation says
+    // nothing about connectivity and must not unmount the page via OfflineGate.
+    if (axios.isCancel(error)) return Promise.reject(error);
     const original = error.config;
     apiDebug("response error", {
       message: error.message,

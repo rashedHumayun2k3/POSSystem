@@ -73,7 +73,7 @@ export default function CustomerPickerSlide({ open, onClose, onSelect, selectedP
           placeholder={t('orders.searchByPhoneOrName')}
           value={search}
           inputMode="text"
-          autoFocus
+          autoFocus={open}
           onChange={(e) => { setSearch(e.target.value); setShowAddForm(false); }}
         />
       </div>
@@ -149,7 +149,9 @@ export default function CustomerPickerSlide({ open, onClose, onSelect, selectedP
             <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
             </svg>
-            {t('orders.addNewCustomer')}{search ? ` "${search}"` : ''}
+            {/* Keep changing text inside one element: browser translation can replace bare
+                text nodes, which would make clearing the search fail during React removal. */}
+            <span>{`${t('orders.addNewCustomer')}${search ? ` "${search}"` : ''}`}</span>
           </button>
         )}
       </div>

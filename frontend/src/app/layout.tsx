@@ -27,7 +27,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="bn" className={`${inter.variable} ${hindSiliguri.variable} h-full antialiased`}>
+    <html lang="bn" suppressHydrationWarning className={`${inter.variable} ${hindSiliguri.variable} h-full antialiased`}>
       <body className="min-h-full bg-gray-50 font-sans" suppressHydrationWarning>
         <Providers>{children}</Providers>
         <GlobalToast />

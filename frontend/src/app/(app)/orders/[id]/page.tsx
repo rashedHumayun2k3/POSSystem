@@ -1,4 +1,5 @@
 "use client";
+import PaymentReferenceInput, { supportsPaymentReference } from "@/components/orders/PaymentReferenceInput";
 
 import { Fragment, use, useEffect, useState } from "react";
 import Link from "next/link";
@@ -6,7 +7,7 @@ import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   getOrder, confirmOrder, handoverOrder, deliverOrder,
-  returnOrder, cancelOrder, addOrderPayment, downloadChallan, downloadReceipt,
+  returnOrder, cancelOrder, addOrderPayment,
   updateOrder, deleteOrder, reviseOrder,
   listCouriers, listDeliveryMen, createDeliveryMan,
 } from "@/lib/ordersApi";
@@ -111,9 +112,8 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
   const [showPayment, setShowPayment] = useState(false);
   const [payMethod, setPayMethod] = useState("CASH");
   const [payAmount, setPayAmount] = useState("");
+  const [payReference, setPayReference] = useState("");
 
-  const [challanLoading, setChallanLoading] = useState(false);
-  const [receiptLoading, setReceiptLoading] = useState(false);
   const showToast = useToastStore((s) => s.show);
 
   const { data: order, isLoading } = useQuery<OrderDetail>({
@@ -215,8 +215,11 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
   });
 
   const paymentMut = useMutation({
-    mutationFn: () => addOrderPayment(id, { method: payMethod, amount: parseFloat(payAmount) }),
-    ...mutOpts(() => { setShowPayment(false); setPayAmount(""); }),
+    mutationFn: () => addOrderPayment(id, {
+      method: payMethod, amount: parseFloat(payAmount),
+      paymentReference: supportsPaymentReference(payMethod) ? payReference.trim() || undefined : undefined,
+    }),
+    ...mutOpts(() => { setShowPayment(false); setPayAmount(""); setPayReference(""); }),
   });
 
   const editMut = useMutation({
@@ -349,16 +352,6 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
     ? Math.round(revisedSubtotal * (order.discountValue ?? 0)) / 100
     : order.discountType === "FIXED" ? (order.discountValue ?? 0) : 0;
   const revisedTotal = revisedSubtotal - revisedDiscount + order.deliveryChargeCustomer;
-  const handleChallan = async () => {
-    setChallanLoading(true);
-    try { await downloadChallan(id); } finally { setChallanLoading(false); }
-  };
-
-  const handleReceipt = async () => {
-    setReceiptLoading(true);
-    try { await downloadReceipt(id); } finally { setReceiptLoading(false); }
-  };
-
   const PAYMENT_METHODS = ["CASH", "BKASH", "NAGAD", "CARD", "BAKI", "COD"];
   const TABS: { key: Tab; label: string }[] = [
     { key: "overview", label: t("orders.overview") },
@@ -456,27 +449,15 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                 </div>
               </div>
 
-              {/* Print links — plain text links instead of buttons, sitting right above the
-                  order-no card so they read as quick actions on the order rather than a
-                  competing CTA in the sticky bar. */}
-              {!order.isDraft && (
+              {/* Customer invoice preview button above the order details. */}
+              {!order.isDraft && os !== "CANCELLED" && (
                 <div className="flex items-center gap-4 px-1">
-                  <button
-                    onClick={handleChallan}
-                    disabled={challanLoading}
-                    className="text-xs font-medium text-indigo-600 underline underline-offset-2 disabled:opacity-50"
+                  <Link
+                    href={`/more/reports/invoices/${id}`}
+                    className="flex-1 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold text-center"
                   >
-                    {challanLoading ? "…" : t("orders.printChallan")}
-                  </button>
-                  {os !== "CANCELLED" && (
-                    <button
-                      onClick={handleReceipt}
-                      disabled={receiptLoading}
-                      className="text-xs font-medium text-indigo-600 underline underline-offset-2 disabled:opacity-50"
-                    >
-                      {receiptLoading ? "…" : t("orders.printReceipt")}
-                    </button>
-                  )}
+                    {t("orders.printInvoice")}
+                  </Link>
                 </div>
               )}
 
@@ -842,6 +823,9 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                   <div key={p.id} className="bg-white rounded-xl border border-gray-100 px-4 py-3 flex justify-between text-sm">
                     <div>
                       <p className="font-medium text-gray-800">{p.method}</p>
+                      {p.paymentReference && (
+                        <p className="text-xs text-gray-500 break-all">{t("orders.paymentReference")}: {p.paymentReference}</p>
+                      )}
                       <p className="text-xs text-gray-400">
                         {new Date(p.receivedAt).toLocaleDateString("en-GB")} · {p.recordedByName}
                       </p>
@@ -864,7 +848,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
       </div>
 
       {/* ── Sticky action bar ── sits above the bottom nav (h-16) ── */}
-      <div className="fixed bottom-16 left-1/2 -translate-x-1/2 w-full max-w-[768px] bg-white border-t border-gray-100 px-4 pt-2 pb-3 space-y-2 z-30">
+      <div className="fixed bottom-16 left-1/2 -translate-x-1/2 w-full max-w-[768px] bg-white border-t border-gray-100 px-4 pt-2 pb-[calc(3.75rem+env(safe-area-inset-bottom))] space-y-2 z-30">
 
         {/* Row 1 — primary lifecycle action(s). os !== "CANCELLED" guards the whole row: Cancel
             doesn't touch isDraft/fulfillmentStatus (see CancelAsync), so without this a cancelled
@@ -1425,7 +1409,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
       {/* ── Payment panel ── */}
       <SlidePanel
         open={showPayment}
-        onClose={() => setShowPayment(false)}
+        onClose={() => { setShowPayment(false); setPayReference(""); }}
         title={t("orders.addPayment")}
         footer={
           <button
@@ -1503,7 +1487,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
               {PAYMENT_METHODS.map((m) => (
                 <button
                   key={m}
-                  onClick={() => setPayMethod(m)}
+                  onClick={() => { setPayMethod(m); if (m !== payMethod) setPayReference(""); }}
                   className={`px-3 py-1.5 rounded-full text-xs font-medium transition ${
                     payMethod === m ? "bg-indigo-600 text-white" : "bg-gray-100 text-gray-600"
                   }`}
@@ -1514,7 +1498,8 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
             </div>
           </div>
           <div>
-            <label className="text-xs text-gray-500 mb-1 block">{t("orders.advancePaid")}</label>
+            <PaymentReferenceInput method={payMethod} value={payReference} onChange={setPayReference} />
+            <label className="text-xs text-gray-500 mb-1 block mt-3">{t("orders.advancePaid")}</label>
             <input
               type="number"
               value={payAmount}

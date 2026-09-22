@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using QuestPDF.Fluent;
+using QuestPDF.Infrastructure;
 using ResellerApi.Data;
 using ResellerApi.DTOs.Orders;
 using ResellerApi.Entities;
@@ -34,18 +36,64 @@ public class OrderService : IOrderService
     private readonly AppDbContext _db;
     private readonly IActivityLogService _log;
     private readonly IWebHostEnvironment _env;
+    private readonly IConfiguration? _configuration;
+    private readonly IHttpClientFactory? _httpClientFactory;
 
-    public OrderService(AppDbContext db, IActivityLogService log, IWebHostEnvironment env)
+    public OrderService(AppDbContext db, IActivityLogService log, IWebHostEnvironment env,
+        IConfiguration? configuration = null, IHttpClientFactory? httpClientFactory = null)
     {
         _db = db;
         _env = env;
         _log = log;
+        _configuration = configuration;
+        _httpClientFactory = httpClientFactory;
     }
 
+    public async Task<InvoiceListPageDto> ListInvoicesAsync(string? q, int page, int pageSize,
+        DateOnly? from = null, DateOnly? to = null, string? payment = null, DateOnly? today = null)
+    {
+        if (from.HasValue && to.HasValue && from > to) throw new ArgumentException("End date must be on or after start date.");
+        if (payment is not (null or "" or "paid" or "due")) throw new ArgumentException("Invalid payment filter.");
+        pageSize = Math.Clamp(pageSize, 1, 100);
+        var raw = _db.Orders.AsNoTracking().Where(o => !o.IsDraft && o.OrderStatus != "CANCELLED")
+            .Select(o => new { o.Id, o.OrderNo, o.Channel, o.CustomerName, o.BusinessDate, o.CreatedAt,
+                o.DiscountType, o.DiscountValue, o.DeliveryChargeCustomer,
+                Subtotal = o.Items.Where(i => i.DeletedAt == null).Sum(i => (decimal?)(i.Qty * i.UnitPrice)) ?? 0,
+                Paid = o.Payments.Where(p => p.DeletedAt == null).Sum(p => (decimal?)p.Amount) ?? 0 });
+        var financials = raw.Select(o => new { o.Id, o.OrderNo, o.Channel, o.CustomerName, o.BusinessDate, o.CreatedAt, o.Paid,
+            Total = o.Subtotal - (o.DiscountType == "PERCENT" ? Math.Round(o.Subtotal * (o.DiscountValue ?? 0) / 100, 2)
+                : o.DiscountType == "FIXED" ? o.DiscountValue ?? 0 : 0) + o.DeliveryChargeCustomer });
+        var summaryDate = today ?? DateOnly.FromDateTime(DateTime.UtcNow);
+        var daily = await financials.Where(o => o.BusinessDate == summaryDate).Select(o => new { o.Total, o.Paid }).ToListAsync();
+        var summary = new InvoiceSummaryDto(summaryDate, daily.Sum(o => o.Total), daily.Sum(o => o.Paid), daily.Sum(o => Math.Max(0, o.Total - o.Paid)));
+        var query = financials;
+        if (!string.IsNullOrWhiteSpace(q))
+        {
+            var search = q.Trim().ToLower();
+            query = query.Where(o => o.OrderNo.ToLower().Contains(search));
+        }
+        if (from.HasValue) query = query.Where(o => o.BusinessDate >= from.Value);
+        if (to.HasValue) query = query.Where(o => o.BusinessDate <= to.Value);
+        if (payment == "paid") query = query.Where(o => o.Paid >= o.Total);
+        if (payment == "due") query = query.Where(o => o.Paid < o.Total);
+        var count = await query.CountAsync();
+        page = Math.Clamp(page, 1, Math.Max(1, (int)Math.Ceiling(count / (double)pageSize)));
+        var items = await query.OrderByDescending(o => o.BusinessDate).ThenByDescending(o => o.CreatedAt).ThenBy(o => o.Id)
+            .Skip((page - 1) * pageSize).Take(pageSize)
+            .Select(o => new InvoiceListDto(o.Id, o.OrderNo, o.Channel, o.CustomerName, o.BusinessDate, o.Total, o.Paid, o.Total - o.Paid)).ToListAsync();
+        return new InvoiceListPageDto(items, count, page, pageSize, summary);
+    }
     // ── Create ────────────────────────────────────────────────────────────────
 
     public async Task<OrderDetailDto> CreateAsync(CreateOrderRequest request, Guid userId)
     {
+        var paymentTerms = (request.PaymentTerms ?? "COD").Trim().ToUpperInvariant();
+        var paymentReference = OrderPaymentReference.Normalize(request.AdvancePaymentMethod ?? "CASH", request.AdvancePaymentReference);
+        if (paymentTerms is not ("COD" or "PREPAID" or "CREDIT"))
+            throw new InvalidOperationException("Payment terms must be COD, PREPAID, or CREDIT.");
+        if (request.AdvancePaid < 0)
+            throw new InvalidOperationException("Payment amount cannot be negative.");
+
         // Idempotency check
         if (!string.IsNullOrWhiteSpace(request.ClientUid))
         {
@@ -101,7 +149,7 @@ public class OrderService : IOrderService
             CourierId = request.CourierId,
             CreatedBy = userId,
             OrderStatus = "OPEN",
-            PaymentStatus = request.AdvancePaid > 0 ? "PARTIALLY_PAID" : "UNPAID",
+            PaymentTerms = paymentTerms,
             FulfillmentStatus = "UNFULFILLED"
         };
 
@@ -115,6 +163,15 @@ public class OrderService : IOrderService
             });
         }
 
+        var orderTotal = ComputeTotal(order);
+        if (request.AdvancePaid > orderTotal)
+            throw new InvalidOperationException("Payment amount cannot exceed the order total.");
+        if (paymentTerms == "PREPAID" && request.AdvancePaid != orderTotal)
+            throw new InvalidOperationException("A prepaid order must be paid in full.");
+        if (paymentTerms == "CREDIT" && request.AdvancePaid != 0)
+            throw new InvalidOperationException("A credit order cannot include an advance payment.");
+        order.PaymentStatus = OrderMath.ComputePaymentStatus(request.AdvancePaid, orderTotal);
+
         _db.Orders.Add(order);
         await _db.SaveChangesAsync();
 
@@ -125,6 +182,7 @@ public class OrderService : IOrderService
             {
                 OrderId = order.Id,
                 Method = request.AdvancePaymentMethod ?? "CASH",
+                PaymentReference = paymentReference,
                 Amount = request.AdvancePaid,
                 ReceivedAt = DateTime.UtcNow,
                 UserId = userId
@@ -160,6 +218,15 @@ public class OrderService : IOrderService
     // ── List ──────────────────────────────────────────────────────────────────
 
     public async Task<List<OrderListDto>> ListAsync(string? orderStatus, string? fulfillmentStatus, string? paymentStatus, string? channel, string? q, string? customerQuery, string? productQuery, DateTime? from, DateTime? to, bool canSeeCosts)
+    {
+        var orders = await OrderListQuery(orderStatus, fulfillmentStatus, paymentStatus, channel, q, customerQuery, productQuery, from, to)
+            .OrderByDescending(o => o.BusinessDate).ThenByDescending(o => o.CreatedAt)
+            .Take(200).ToListAsync();
+        var stock = await BuildStockLookupAsync(orders);
+        return orders.Select(o => ToListDto(o, canSeeCosts, stock)).ToList();
+    }
+
+    private IQueryable<Order> OrderListQuery(string? orderStatus, string? fulfillmentStatus, string? paymentStatus, string? channel, string? q, string? customerQuery, string? productQuery, DateTime? from, DateTime? to)
     {
         var query = _db.Orders
             .AsNoTracking()
@@ -213,13 +280,49 @@ public class OrderService : IOrderService
         if (to.HasValue)
             query = query.Where(o => o.CreatedAt <= to.Value);
 
-        var orders = await query
-            .OrderByDescending(o => o.BusinessDate).ThenByDescending(o => o.CreatedAt)
-            .Take(200)
-            .ToListAsync();
+        return query;
+    }
 
+    public async Task<OrderManagementPageDto> ListManagementAsync(string? tab, string? q, string? channel, string? customerQuery, string? productQuery, DateTime? from, DateTime? to, int page, bool canSeeCosts)
+    {
+        const int pageSize = 25;
+        var query = OrderListQuery(null, null, null, channel, q?.Trim(), customerQuery, productQuery, from, to)
+            .Where(o => o.Channel != "SHOP" && o.Channel != "HAWKER");
+        // Project before paging: counters describe every matching order, not only the current page.
+        var queues = query.Select(o => new
+        {
+            o.Id,
+            Queue = o.OrderStatus == "CANCELLED" ? "CANCELLED" : o.IsDraft ? "UNFULFILLED" :
+                o.FulfillmentStatus == "UNFULFILLED" ? "PROCESSING" :
+                o.FulfillmentStatus == "PACKED" ? "WAITING_COURIER" :
+                o.FulfillmentStatus == "IN_TRANSIT" ? "PENDING" : o.FulfillmentStatus,
+            Issue = o.IsDraft && o.OrderStatus != "CANCELLED" && o.Items.Any(i => i.DeletedAt == null &&
+                (_db.BranchVariantInventories.Where(s => s.BranchId == o.BranchId && s.VariantId == i.VariantId)
+                    .Select(s => (decimal?)(s.OnHand - s.Committed - s.Damaged)).FirstOrDefault() ?? 0) < i.Qty)
+        });
+        var grouped = await queues.GroupBy(o => o.Queue).Select(g => new { Key = g.Key, Count = g.Count() }).ToListAsync();
+        var counts = grouped.ToDictionary(g => g.Key, g => g.Count);
+        counts["ALL"] = grouped.Sum(g => g.Count);
+        counts["ISSUES"] = await queues.CountAsync(o => o.Issue);
+        if (!string.IsNullOrEmpty(tab) && tab != "ALL")
+        {
+            var ids = tab == "ISSUES" ? queues.Where(o => o.Issue).Select(o => o.Id) : queues.Where(o => o.Queue == tab).Select(o => o.Id);
+            query = query.Where(o => ids.Contains(o.Id));
+        }
+        var totalCount = counts.GetValueOrDefault(string.IsNullOrEmpty(tab) ? "ALL" : tab);
+        page = Math.Clamp(page, 1, Math.Max(1, (totalCount + pageSize - 1) / pageSize));
+        // Sort the full All queue by lifecycle before paging; sorting a page alone
+        // could leave older new orders behind already-delivered orders.
+        var sorted = string.IsNullOrEmpty(tab) || tab == "ALL"
+            ? query.OrderBy(o => o.OrderStatus == "CANCELLED" ? 7 : o.IsDraft ? 0 :
+                o.FulfillmentStatus == "UNFULFILLED" ? 1 : o.FulfillmentStatus == "PACKED" ? 2 :
+                o.FulfillmentStatus == "IN_TRANSIT" ? 3 : o.FulfillmentStatus == "DELIVERED" ? 4 :
+                o.FulfillmentStatus == "RETURNED" ? 5 : 6).ThenByDescending(o => o.BusinessDate)
+            : query.OrderByDescending(o => o.BusinessDate);
+        var orders = await sorted.ThenByDescending(o => o.CreatedAt).ThenBy(o => o.Id)
+            .Skip((page - 1) * pageSize).Take(pageSize).ToListAsync();
         var stock = await BuildStockLookupAsync(orders);
-        return orders.Select(o => ToListDto(o, canSeeCosts, stock)).ToList();
+        return new(orders.Select(o => ToListDto(o, canSeeCosts, stock)).ToList(), counts, totalCount, page, pageSize);
     }
 
     // ── List by product ───────────────────────────────────────────────────────
@@ -930,6 +1033,7 @@ public class OrderService : IOrderService
 
     public async Task<OrderDetailDto> AddPaymentAsync(Guid id, AddOrderPaymentRequest request, Guid userId)
     {
+        var paymentReference = OrderPaymentReference.Normalize(request.Method, request.PaymentReference);
         var order = await _db.Orders
             .Include(o => o.Items)
             .Include(o => o.Payments)
@@ -940,6 +1044,7 @@ public class OrderService : IOrderService
         {
             OrderId = order.Id,
             Method = request.Method,
+            PaymentReference = paymentReference,
             Amount = request.Amount,
             ReceivedAt = request.ReceivedAt ?? DateTime.UtcNow,
             UserId = userId
@@ -985,40 +1090,111 @@ public class OrderService : IOrderService
 
     // ── Receipt PDF ───────────────────────────────────────────────────────────
 
-    public async Task<byte[]> GetReceiptPdfAsync(Guid id)
+    public Task<byte[]> GetReceiptPdfAsync(Guid id) => GetOrderPdfAsync(id, customerInvoice: false);
+
+    public async Task<byte[]> GetInvoicePdfAsync(Guid id, bool mobile = false)
+    {
+        if (!mobile) return await GetOrderPdfAsync(id, customerInvoice: true);
+        var (order, business, branch) = await LoadOrderDocumentDataAsync(id);
+        return OrderInvoicePdfGenerator.CreateMobileDocument(order, await CreateInvoiceSellerAsync(business, branch)).GeneratePdf();
+    }
+
+    public async Task<InvoicePreviewDto> GetInvoicePreviewAsync(Guid id, bool mobile = false)
+    {
+        var (order, business, branch) = await LoadOrderDocumentDataAsync(id);
+        var seller = await CreateInvoiceSellerAsync(business, branch);
+        var document = mobile ? OrderInvoicePdfGenerator.CreateMobileDocument(order, seller) : OrderInvoicePdfGenerator.CreateDocument(order, seller);
+        // Render the shared layout directly to images: viewing an invoice does not generate a PDF.
+        var pages = document.GenerateImages(new ImageGenerationSettings { RasterDpi = 144 })
+            .Select(bytes => "data:image/png;base64," + Convert.ToBase64String(bytes)).ToList();
+        return new InvoicePreviewDto(order.OrderNo, order.CustomerName, pages,
+            OrderInvoicePdfGenerator.CreateMobileInvoice(order, seller));
+    }
+
+    private async Task<(Order Order, Business? Business, Branch? Branch)> LoadOrderDocumentDataAsync(Guid id)
     {
         var order = await LoadFullOrderAsync(id)
             ?? throw new KeyNotFoundException("Order not found.");
 
         var business = await _db.Businesses.AsNoTracking()
+            .Include(b => b.BusinessUsers).ThenInclude(bu => bu.User)
             .FirstOrDefaultAsync(b => b.Id == _db.CurrentBusinessId);
 
         Branch? branch = null;
         if (order.BranchId.HasValue)
             branch = await _db.Branches.AsNoTracking().FirstOrDefaultAsync(b => b.Id == order.BranchId.Value);
 
-        // Online orders get a customer-facing A4 invoice (OrderInvoicePdfGenerator); Shop/Hawker
-        // counter sales keep the 80mm thermal POS receipt they're actually printed on.
-        if (order.Channel != "SHOP" && order.Channel != "HAWKER")
+        return (order, business, branch);
+    }
+
+    private async Task<Document> CreateInvoiceDocumentAsync(Order order, Business? business, Branch? branch)
+        => OrderInvoicePdfGenerator.CreateDocument(order, await CreateInvoiceSellerAsync(business, branch));
+
+    private async Task<InvoiceSeller> CreateInvoiceSellerAsync(Business? business, Branch? branch)
+        => new InvoiceSeller(business?.Name ?? "",
+            branch?.Address, branch?.Phone, await TryReadLogoBytesAsync(business?.LogoUrl),
+            business?.Currency ?? "BDT", business?.ExternalWebsiteUrl,
+            Email: business?.BusinessUsers.Select(bu => bu.User).Where(u => u.Role == "OWNER" && u.IsActive)
+                .OrderBy(u => u.CreatedAt).Select(u => u.Email).FirstOrDefault(email => !string.IsNullOrWhiteSpace(email)));
+
+    private async Task<byte[]> GetOrderPdfAsync(Guid id, bool customerInvoice)
+    {
+        var (order, business, branch) = await LoadOrderDocumentDataAsync(id);
+
+        // The invoice report always uses A4. Receipt actions retain the thermal format
+        // for Shop/Hawker counter sales.
+        if (customerInvoice || (order.Channel != "SHOP" && order.Channel != "HAWKER"))
         {
-            var logoBytes = TryReadLogoBytes(business?.LogoUrl);
-            return OrderInvoicePdfGenerator.Generate(order, business?.Name ?? "", branch?.Address, branch?.Phone, logoBytes);
+            return (await CreateInvoiceDocumentAsync(order, business, branch)).GeneratePdf();
         }
 
         return ReceiptPdfGenerator.Generate(order, business?.Name ?? "", branch?.Address, branch?.Phone);
     }
 
-    // LogoUrl is a relative "/uploads/{businessId}/{file}" path (see MediaService.SaveImageAsync)
-    // — resolve it straight off disk rather than over HTTP, since we're already on the server.
-    private byte[]? TryReadLogoBytes(string? logoUrl)
+    // Read legacy local logos or fetch from the configured media origin. Never fetch an
+    // arbitrary URL supplied in a business profile, or forward API credentials.
+    private async Task<byte[]?> TryReadLogoBytesAsync(string? logoUrl)
     {
+        var prefix = $"/uploads/{_db.CurrentBusinessId}/";
         if (string.IsNullOrWhiteSpace(logoUrl)) return null;
+
+        var origin = _configuration?["Media:BaseUrl"];
+        if (string.IsNullOrWhiteSpace(origin) && _env.IsDevelopment()) origin = "http://localhost:5090";
+        Uri.TryCreate(origin, UriKind.Absolute, out var mediaBaseUri);
+
+        string uploadPath;
+        if (Uri.TryCreate(logoUrl, UriKind.Absolute, out var absoluteLogoUri)
+            && (absoluteLogoUri.Scheme == Uri.UriSchemeHttp || absoluteLogoUri.Scheme == Uri.UriSchemeHttps))
+        {
+            if (mediaBaseUri == null
+                || !string.Equals(absoluteLogoUri.Scheme, mediaBaseUri.Scheme, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(absoluteLogoUri.Host, mediaBaseUri.Host, StringComparison.OrdinalIgnoreCase)
+                || absoluteLogoUri.Port != mediaBaseUri.Port)
+                return null;
+            uploadPath = absoluteLogoUri.AbsolutePath;
+        }
+
+        else
+        {
+            uploadPath = logoUrl.StartsWith('/') ? logoUrl : $"/{logoUrl}";
+        }
+
+        if (!uploadPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return null;
+        var name = uploadPath[prefix.Length..];
+        if (name.Length == 0 || name.Any(c => !char.IsAsciiLetterOrDigit(c) && c != '-' && c != '.') || name.Contains("..")) return null;
         try
         {
             var webRoot = _env.WebRootPath ?? Path.Combine(_env.ContentRootPath, "wwwroot");
-            var relativePath = logoUrl.TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
+            var relativePath = uploadPath.TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
             var fullPath = Path.Combine(webRoot, relativePath);
-            return File.Exists(fullPath) ? File.ReadAllBytes(fullPath) : null;
+            if (File.Exists(fullPath)) return await File.ReadAllBytesAsync(fullPath);
+            if (_httpClientFactory == null || mediaBaseUri == null) return null;
+            using var client = _httpClientFactory.CreateClient();
+            client.Timeout = TimeSpan.FromSeconds(5);
+            using var response = await client.GetAsync(new Uri(mediaBaseUri, uploadPath), HttpCompletionOption.ResponseHeadersRead);
+            if (!response.IsSuccessStatusCode || response.Content.Headers.ContentType?.MediaType?.StartsWith("image/") != true) return null;
+            await response.Content.LoadIntoBufferAsync(5 * 1024 * 1024);
+            return await response.Content.ReadAsByteArrayAsync();
         }
         catch
         {
@@ -1201,7 +1377,8 @@ public class OrderService : IOrderService
             .Select(i => new OrderListItemSummaryDto(
                 i.Variant?.Product?.Name ?? "Unknown", i.Variant?.Sku ?? "", i.Qty,
                 o.BranchId.HasValue ? stock.GetValueOrDefault((o.BranchId.Value, i.VariantId)) : 0,
-                i.Variant?.Product?.Id ?? Guid.Empty
+                i.Variant?.Product?.Id ?? Guid.Empty,
+                i.Variant?.ImageUrl ?? i.Variant?.Product?.ImageUrl
             ))
             .ToList();
 
@@ -1219,7 +1396,7 @@ public class OrderService : IOrderService
         return new OrderListDto(
             o.Id, o.OrderNo, o.Channel, o.Source, o.ExternalSource, o.ExternalOrderId,
             o.CustomerName, o.CustomerPhone,
-            o.OrderStatus, o.PaymentStatus, o.FulfillmentStatus,
+            o.OrderStatus, o.PaymentStatus, o.PaymentTerms, o.FulfillmentStatus,
             o.IsDraft, total, Math.Max(0, total - paid),
             o.TrackingNo, o.HandlingUser?.Name, o.CreatedAt, o.BusinessDate,
             items, profit, o.IsRevised,
@@ -1271,7 +1448,7 @@ public class OrderService : IOrderService
         return new OrderDetailDto(
             o.Id, o.OrderNo, o.Channel, o.Source, o.ExternalSource, o.ExternalOrderId,
             o.CustomerId, o.CustomerName, o.CustomerPhone, o.CustomerAddress,
-            o.OrderStatus, o.PaymentStatus, o.FulfillmentStatus, o.IsDraft,
+            o.OrderStatus, o.PaymentStatus, o.PaymentTerms, o.FulfillmentStatus, o.IsDraft,
             o.DiscountType, o.DiscountValue,
             o.DeliveryChargeCustomer, o.DeliveryCostActual,
             subtotal, discount, total, paid, Math.Max(0, total - paid),
@@ -1282,7 +1459,7 @@ public class OrderService : IOrderService
             o.ConfirmedAt, o.HandedOverAt, o.DeliveredAt, o.ReturnedAt, o.CancelledReason, o.ReturnResolution, o.ReturnReason, o.ReturnNote,
             o.CreatedAt, o.CreatedByUser?.Name ?? "",
             items,
-            o.Payments.Select(p => new OrderPaymentDto(p.Id, p.Method, p.Amount, p.ReceivedAt, p.User?.Name ?? "")).ToList(),
+            o.Payments.Select(p => new OrderPaymentDto(p.Id, p.Method, p.Amount, p.ReceivedAt, p.User?.Name ?? "", p.PaymentReference)).ToList(),
             o.StatusHistory.OrderBy(h => h.At)
                 .Select(h => new OrderStatusHistoryDto(h.Track, h.FromStatus, h.ToStatus, h.User?.Name ?? "", h.At, h.Reason, h.Note))
                 .ToList(),

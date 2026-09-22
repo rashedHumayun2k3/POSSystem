@@ -136,7 +136,9 @@ public record CreateOrderRequest(
     Guid? BranchId = null,
     string? Source = null,
     string? ExternalSource = null,
-    string? ExternalOrderId = null
+    string? ExternalOrderId = null,
+    string? PaymentTerms = null,
+    string? AdvancePaymentReference = null
 );
 
 public record UpdateOrderRequest(
@@ -202,7 +204,8 @@ public record ReviseOrderRequest(
 public record AddOrderPaymentRequest(
     string Method,
     decimal Amount,
-    DateTime? ReceivedAt
+    DateTime? ReceivedAt,
+    string? PaymentReference = null
 );
 
 // ── Order response DTOs ───────────────────────────────────────────────────────
@@ -230,7 +233,8 @@ public record OrderPaymentDto(
     string Method,
     decimal Amount,
     DateTime ReceivedAt,
-    string RecordedByName
+    string RecordedByName,
+    string? PaymentReference = null
 );
 
 public record OrderStatusHistoryDto(
@@ -261,8 +265,11 @@ public record OrderListItemSummaryDto(
     decimal AvailableStock,
     // Lets a product-detail page (e.g. ListByProductAsync) pick out just this order's line(s)
     // for the specific product it's already scoped to, without matching on name.
-    Guid ProductId
+    Guid ProductId,
+    string? ImageUrl = null
 );
+
+public record OrderManagementPageDto(List<OrderListDto> Items, Dictionary<string, int> Counts, int TotalCount, int Page, int PageSize);
 
 public record OrderListDto(
     Guid Id,
@@ -275,6 +282,7 @@ public record OrderListDto(
     string CustomerPhone,
     string OrderStatus,
     string PaymentStatus,
+    string PaymentTerms,
     string FulfillmentStatus,
     bool IsDraft,
     decimal TotalAmount,
@@ -307,6 +315,7 @@ public record OrderDetailDto(
     string? CustomerAddress,
     string OrderStatus,
     string PaymentStatus,
+    string PaymentTerms,
     string FulfillmentStatus,
     bool IsDraft,
     string? DiscountType,

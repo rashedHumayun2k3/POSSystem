@@ -4,6 +4,8 @@ namespace ResellerApi.Services.Interfaces;
 
 public interface IOrderService
 {
+    Task<OrderManagementPageDto> ListManagementAsync(string? tab, string? q, string? channel, string? customerQuery, string? productQuery, DateTime? from, DateTime? to, int page, bool canSeeCosts);
+    Task<InvoiceListPageDto> ListInvoicesAsync(string? q, int page, int pageSize, DateOnly? from = null, DateOnly? to = null, string? payment = null, DateOnly? today = null);
     Task<OrderDetailDto> CreateAsync(CreateOrderRequest request, Guid userId);
     Task<List<OrderListDto>> ListAsync(string? orderStatus, string? fulfillmentStatus, string? paymentStatus, string? channel, string? q, string? customerQuery, string? productQuery, DateTime? from, DateTime? to, bool canSeeCosts);
     Task<List<OrderListDto>> ListByProductAsync(Guid productId, bool canSeeCosts);
@@ -20,5 +22,7 @@ public interface IOrderService
     Task<OrderDetailDto> AddPaymentAsync(Guid id, AddOrderPaymentRequest request, Guid userId);
     Task<byte[]> GetChallanPdfAsync(Guid id);
     Task<byte[]> GetReceiptPdfAsync(Guid id);
+    Task<byte[]> GetInvoicePdfAsync(Guid id, bool mobile = false);
+    Task<InvoicePreviewDto> GetInvoicePreviewAsync(Guid id, bool mobile = false);
     Task ClaimAsync(Guid id, Guid userId);
 }

@@ -16,6 +16,8 @@ import SlidePanel from "@/components/ui/SlidePanel";
 import CourierManager from "@/components/settings/CourierManager";
 import { resolveMediaUrl } from "@/lib/media";
 import { formatVariantLabel } from "@/lib/format";
+import type { PaymentTerms } from "@/types/orders";
+import PaymentReferenceInput, { supportsPaymentReference } from "@/components/orders/PaymentReferenceInput";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 interface CartLine {
@@ -158,6 +160,8 @@ export default function NewOrderPage() {
   const [deliveryCharge, setDeliveryCharge] = useState("0");
   const [advancePaid, setAdvancePaid] = useState("0");
   const [advanceMethod, setAdvanceMethod] = useState("CASH");
+  const [advanceReference, setAdvanceReference] = useState("");
+  const [paymentTerms, setPaymentTerms] = useState<PaymentTerms>("COD");
   const [note, setNote] = useState("");
   const [showDiscountSheet, setShowDiscountSheet] = useState(false);
 
@@ -224,6 +228,11 @@ export default function NewOrderPage() {
 
   const deliveryNum = parseFloat(deliveryCharge) || 0;
   const total = subtotal - discountAmount + deliveryNum;
+  const paymentReceived = paymentTerms === "PREPAID"
+    ? Math.max(total, 0)
+    : paymentTerms === "CREDIT"
+      ? 0
+      : Math.min(Math.max(parseFloat(advancePaid) || 0, 0), Math.max(total, 0));
   const safeDiscountLimit = isOwner ? (subtotal > 0 ? subtotal - subtotal * 0.1 : 0) : null;
 
   // ── Cart operations ─────────────────────────────────────────────────────
@@ -287,11 +296,14 @@ export default function NewOrderPage() {
         // says — see the pinning comment near orderBranchId.
         branchId: orderBranchId ?? undefined,
         courierId: courierId || undefined,
-        advancePaymentMethod: parseFloat(advancePaid) > 0 ? advanceMethod : undefined,
+        advancePaymentMethod: paymentReceived > 0 ? advanceMethod : undefined,
+        advancePaymentReference: paymentReceived > 0 && supportsPaymentReference(advanceMethod)
+          ? advanceReference.trim() || undefined : undefined,
+        paymentTerms,
         discountType: discountAmount > 0 ? discountType : undefined,
         discountValue: discountAmount > 0 ? (parseFloat(discountValue) || 0) : undefined,
         deliveryChargeCustomer: deliveryNum,
-        advancePaid: parseFloat(advancePaid) || 0,
+        advancePaid: paymentReceived,
         note: note.trim() || undefined,
         clientUid: crypto.randomUUID(),
         items: cart.map((l) => ({
@@ -776,24 +788,51 @@ export default function NewOrderPage() {
                 Advance Paid, which read like it was somehow net of the advance — it isn't; Baki
                 below is the actual net-of-advance figure. */}
             <div className="flex justify-between text-base font-bold border-t pt-3">
-              <span>{t("orders.totalCod")}</span>
+              <span>{t("orders.total")}</span>
               <span className="text-indigo-700">৳{total.toFixed(2)}</span>
             </div>
 
-            {/* Advance payment is out of scope for edit mode — it's recorded/managed separately
-                via the order detail page's Payments tab, not re-submittable through this form. */}
             {!isEditMode && (
+              <div>
+                <label className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2 block">
+                  {t("orders.paymentTerms")}
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {/* TODO:: Enable CREDIT when credit orders are activated later. */}
+                  {(["COD", "PREPAID"] as PaymentTerms[]).map((term) => (
+                    <button
+                      key={term}
+                      type="button"
+                      onClick={() => {
+                        setPaymentTerms(term);
+                        if (term !== "COD") setAdvancePaid("0");
+                      }}
+                      className={`min-h-16 rounded-xl border px-2 py-2 text-xs font-semibold transition ${
+                        paymentTerms === term
+                          ? "border-indigo-600 bg-indigo-600 text-white"
+                          : "border-gray-200 bg-gray-50 text-gray-600"
+                      }`}
+                    >
+                      {t(`orders.paymentTerms${term}`)}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-gray-400 mt-2">{t(`orders.paymentTerms${paymentTerms}Hint`)}</p>
+              </div>
+            )}
+
+            {!isEditMode && paymentTerms === "COD" && (
               <div className="flex items-center gap-3">
                 <label className="text-sm text-gray-500 flex-1">{t("orders.advancePaid")}</label>
                 <input
-                  type="number" inputMode="decimal" min="0" value={advancePaid}
+                  type="number" inputMode="decimal" min="0" max={Math.max(total, 0)} value={advancePaid}
                   onChange={(e) => setAdvancePaid(e.target.value)}
                   className="w-24 h-9 border border-gray-200 rounded-lg text-sm px-2 text-right focus:outline-none focus:ring-1 focus:ring-indigo-400"
                 />
               </div>
             )}
 
-            {!isEditMode && parseFloat(advancePaid) > 0 && (
+            {!isEditMode && paymentReceived > 0 && (
               <div>
                 <label className="text-xs text-gray-400 mb-1.5 block">{t("orders.advanceMethod")}</label>
                 <div className="flex gap-2">
@@ -801,7 +840,7 @@ export default function NewOrderPage() {
                     <button
                       key={m}
                       type="button"
-                      onClick={() => setAdvanceMethod(m)}
+                      onClick={() => { setAdvanceMethod(m); if (m !== advanceMethod) setAdvanceReference(""); }}
                       className={`px-3 py-1.5 rounded-full text-xs font-semibold transition ${
                         advanceMethod === m
                           ? "bg-indigo-600 text-white"
@@ -812,17 +851,17 @@ export default function NewOrderPage() {
                     </button>
                   ))}
                 </div>
+                <PaymentReferenceInput method={advanceMethod} value={advanceReference} onChange={setAdvanceReference} />
               </div>
             )}
 
-            {/* What the courier actually still needs to collect — total minus whatever's already
-                been paid as advance. Didn't exist as its own line before; staff had to do
-                Total − Advance in their head. */}
             {!isEditMode && (
               <div className="flex justify-between text-sm border-t pt-3">
-                <span className="text-gray-500">{t("orders.due")}</span>
-                <span className="font-semibold text-red-600">
-                  ৳{Math.max(total - (parseFloat(advancePaid) || 0), 0).toFixed(2)}
+                <span className="text-gray-500">
+                  {paymentTerms === "COD" ? t("orders.codCollection") : t("orders.due")}
+                </span>
+                <span className={`font-semibold ${paymentReceived >= total ? "text-emerald-600" : "text-red-600"}`}>
+                  ৳{Math.max(total - paymentReceived, 0).toFixed(2)}
                 </span>
               </div>
             )}
@@ -889,7 +928,7 @@ export default function NewOrderPage() {
       <CustomerPickerSlide
         open={customerPickerOpen}
         onClose={() => setCustomerPickerOpen(false)}
-        onSelect={(c) => { setCustomer(c); setDeliveryAddress(c.address ?? ""); setCustomerPickerOpen(false); }}
+        onSelect={(c) => { setCustomer(c); setDeliveryAddress(c.address ?? ""); }}
         selectedPhone={customer?.phone}
       />
 

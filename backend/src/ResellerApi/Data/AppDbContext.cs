@@ -850,6 +850,8 @@ public class AppDbContext : DbContext
             e.Property(x => x.CustomerAddress).HasMaxLength(500);
             e.Property(x => x.OrderStatus).HasMaxLength(20).IsRequired();
             e.Property(x => x.PaymentStatus).HasMaxLength(20).IsRequired();
+            e.Property(x => x.PaymentTerms).HasMaxLength(20).HasDefaultValue("COD").IsRequired();
+            e.ToTable(t => t.HasCheckConstraint("CK_orders_PaymentTerms", "[PaymentTerms] IN ('COD', 'PREPAID', 'CREDIT')"));
             e.Property(x => x.FulfillmentStatus).HasMaxLength(20).IsRequired();
             e.Property(x => x.DiscountType).HasMaxLength(10);
             e.Property(x => x.DiscountValue).HasColumnType("DECIMAL(14,2)");
@@ -932,6 +934,7 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<OrderPayment>(e =>
         {
             e.ToTable("order_payments");
+            e.Property(x => x.PaymentReference).HasMaxLength(100);
             e.HasKey(x => x.Id);
             e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
             e.Property(x => x.Method).HasMaxLength(20).IsRequired();

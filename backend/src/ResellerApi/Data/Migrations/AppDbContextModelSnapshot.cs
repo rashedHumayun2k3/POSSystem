@@ -2007,6 +2007,13 @@ namespace ResellerApi.Data.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("nvarchar(20)");
 
+                    b.Property<string>("PaymentTerms")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasDefaultValue("COD");
+
                     b.Property<Guid?>("RemittanceId")
                         .HasColumnType("uniqueidentifier");
 
@@ -2077,7 +2084,10 @@ namespace ResellerApi.Data.Migrations
 
                     b.HasIndex("BusinessId", "OrderStatus", "CreatedAt");
 
-                    b.ToTable("orders", (string)null);
+                    b.ToTable("orders", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_orders_PaymentTerms", "[PaymentTerms] IN ('COD', 'PREPAID', 'CREDIT')");
+                        });
                 });
 
             modelBuilder.Entity("ResellerApi.Entities.OrderItem", b =>
@@ -2163,6 +2173,10 @@ namespace ResellerApi.Data.Migrations
 
                     b.Property<Guid>("OrderId")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("PaymentReference")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
 
                     b.Property<DateTime>("ReceivedAt")
                         .HasColumnType("datetime2");

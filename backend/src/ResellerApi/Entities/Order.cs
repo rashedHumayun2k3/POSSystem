@@ -24,6 +24,7 @@ public class Order : BusinessScopedEntity, IBranchScoped
     // 3 independent status tracks
     public string OrderStatus { get; set; } = "OPEN";           // OPEN|COMPLETED|CANCELLED
     public string PaymentStatus { get; set; } = "UNPAID";       // UNPAID|PARTIALLY_PAID|PAID|REFUNDED
+    public string PaymentTerms { get; set; } = "COD";           // COD|PREPAID|CREDIT
     public string FulfillmentStatus { get; set; } = "UNFULFILLED"; // UNFULFILLED|PACKED|IN_TRANSIT|DELIVERED|RETURNED
 
     public bool IsDraft { get; set; }

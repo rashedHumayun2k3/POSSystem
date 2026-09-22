@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useAuthStore } from "@/store/authStore";
 import { useConnectivityStore } from "@/store/connectivityStore";
 import AppHeader from "@/components/layout/AppHeader";
@@ -54,6 +55,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     "/more/deliveries":  t("more.deliveries"),
     "/more/baki":        t("more.baki"),
     "/more/reports":              t("more.reports"),
+    "/more/reports/invoices":     t("reports.menu.invoices"),
     "/more/reports/dashboard":   t("reports.menu.dashboard"),
     "/more/reports/daily-closing": t("reports.menu.dailyClosing"),
     "/more/reports/sales":       t("reports.menu.sales"),
@@ -76,18 +78,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     "/onboarding/catalog":       t("catalogTemplates.title"),
   };
 
-  const backHrefMap: Record<string, string> = {
-    "/more/reports/dashboard": "/more/reports",
-    "/more/reports/daily-closing": "/more/reports",
-    "/more/reports/sales":     "/more/reports",
-    "/more/reports/inventory": "/more/reports",
-    "/more/reports/financial": "/more/reports",
-    "/more/reports/orders":    "/more/reports",
-    "/more/reports/stock-valuation": "/more/reports",
-  };
-
-  const title = titleMap[pathname] ?? "LavLokshan";
-  const backHref = backHrefMap[pathname];
+  const isInvoicePreview = /^\/more\/reports\/invoices\/[^/]+$/.test(pathname);
+  const title = isInvoicePreview ? t("reports.invoices.preview") : titleMap[pathname] ?? "LavLokshan";
 
   // /orders/new and /orders/[id] render their own complete AppHeader (real title + edit/delete
   // actions) — the layout must not also render its default one, or the branch dropdown (and
@@ -95,19 +87,47 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const hasOwnHeader = /^\/orders\/[^/]+$/.test(pathname);
   const isOfflineSafe = OFFLINE_SAFE_PATHS.includes(pathname);
   const showOfflineGate = !isOnline && !isOfflineSafe;
+  const reportParentNavigation = pathname === "/more/reports"
+    ? { href: "/more", label: t("nav.more") }
+    : pathname.startsWith("/more/reports/")
+      ? { href: "/more/reports", label: t("more.reports") }
+      : null;
+  const settingsParentNavigation = pathname === "/more/settings"
+    ? { href: "/more", label: t("nav.more") }
+    : pathname.startsWith("/more/settings/")
+      ? { href: "/more/settings", label: t("more.settings") }
+      : null;
+  const moreParentNavigation = pathname.startsWith("/more/")
+    ? { href: "/more", label: t("nav.more") }
+    : null;
+  const parentNavigation = reportParentNavigation ?? settingsParentNavigation ?? moreParentNavigation;
 
   return (
-    <div className="max-w-[768px] mx-auto min-h-full bg-white shadow-sm flex flex-col min-h-screen">
+    <div className={`w-full max-w-[var(--app-max-width)] mx-auto min-h-full bg-white shadow-sm flex flex-col min-h-screen ${isInvoicePreview ? "print:max-w-none print:shadow-none print:min-h-0" : ""}`}>
       <div className="print:hidden">
-        {!hasOwnHeader && <AppHeader title={title} backHref={backHref} />}
+        {!hasOwnHeader && <AppHeader title={title} />}
         {/* OfflineGate below already explains "no internet" full-screen on this same trigger —
             showing the banner too would just repeat it. The banner only earns its keep on pages
             where OfflineGate doesn't render (POS, Night Entry, More, FAQ). */}
         {!showOfflineGate && <ConnectivityBanner />}
         <TrialBanner />
       </div>
-      <main className="flex-1 overflow-y-auto pb-20 print:pb-0 print:overflow-visible">
-        {showOfflineGate ? <OfflineGate /> : children}
+      <main className="min-h-0 flex-1 overflow-y-auto pb-20 print:pb-0 print:overflow-visible">
+        {showOfflineGate ? <OfflineGate /> : (
+          <>
+            {parentNavigation && (
+              <div className="border-b border-gray-100 bg-white px-4 py-2.5">
+                <Link href={parentNavigation.href} className="inline-flex items-center gap-1.5 text-sm font-medium text-indigo-600">
+                  <svg aria-hidden="true" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                  </svg>
+                  {parentNavigation.label}
+                </Link>
+              </div>
+            )}
+            {children}
+          </>
+        )}
       </main>
       <div className="print:hidden">
         <BottomTabBar />

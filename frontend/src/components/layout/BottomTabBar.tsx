@@ -50,7 +50,7 @@ export default function BottomTabBar() {
   ];
 
   return (
-    <nav className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[768px] z-40 bg-white border-t border-gray-200 safe-area-bottom">
+    <nav className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[var(--app-max-width)] z-40 bg-white border-t border-gray-200 safe-area-bottom">
       <div className="flex h-20">
         {tabs.map(({ href, labelKey, Icon, IconActive, center }) => {
           const active = pathname.startsWith(href);

@@ -34,6 +34,17 @@ public class OrdersController : ControllerBase
         [FromQuery] DateTime? to)
         => Ok(await _svc.ListAsync(orderStatus, fulfillmentStatus, paymentStatus, channel, q, customerQuery, productQuery, from, to, _user.CanSeeCosts));
 
+    [HttpGet("invoices")]
+    public async Task<IActionResult> Invoices([FromQuery] string? q, [FromQuery] int page = 1, [FromQuery] int pageSize = 20,
+        [FromQuery] DateOnly? from = null, [FromQuery] DateOnly? to = null, [FromQuery] string? payment = null, [FromQuery] DateOnly? today = null)
+        => Ok(await _svc.ListInvoicesAsync(q, page, pageSize, from, to, payment, today));
+
+    [HttpGet("management")]
+    public async Task<IActionResult> Management([FromQuery] string? tab, [FromQuery] string? q,
+        [FromQuery] string? channel, [FromQuery] string? customerQuery, [FromQuery] string? productQuery,
+        [FromQuery] DateTime? from, [FromQuery] DateTime? to, [FromQuery] int page = 1)
+        => Ok(await _svc.ListManagementAsync(tab, q, channel, customerQuery, productQuery, from, to, page, _user.CanSeeCosts));
+
     [HttpGet("{id:guid}")]
     public async Task<IActionResult> Get(Guid id)
         => Ok(await _svc.GetAsync(id, _user.CanSeeCosts));
@@ -140,7 +151,16 @@ public class OrdersController : ControllerBase
 
     [HttpPost("{id:guid}/payments")]
     public async Task<IActionResult> AddPayment(Guid id, [FromBody] AddOrderPaymentRequest request)
-        => Ok(await _svc.AddPaymentAsync(id, request, _user.UserId));
+    {
+        try
+        {
+            return Ok(await _svc.AddPaymentAsync(id, request, _user.UserId));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
 
     [HttpGet("{id:guid}/challan")]
     public async Task<IActionResult> Challan(Guid id)
@@ -155,6 +175,17 @@ public class OrdersController : ControllerBase
         var pdf = await _svc.GetReceiptPdfAsync(id);
         return File(pdf, "application/pdf", $"receipt-{id}.pdf");
     }
+
+    [HttpGet("{id:guid}/invoice")]
+    public async Task<IActionResult> Invoice(Guid id, [FromQuery] bool mobile = false)
+    {
+        var pdf = await _svc.GetInvoicePdfAsync(id, mobile);
+        return File(pdf, "application/pdf", $"invoice-{id}.pdf");
+    }
+
+    [HttpGet("{id:guid}/invoice/preview")]
+    public async Task<IActionResult> InvoicePreview(Guid id, [FromQuery] bool mobile = false)
+        => Ok(await _svc.GetInvoicePreviewAsync(id, mobile));
 
     [HttpPost("{id:guid}/claim")]
     public async Task<IActionResult> Claim(Guid id)

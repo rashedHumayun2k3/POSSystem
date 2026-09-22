@@ -40,6 +40,7 @@ export function useLiveNotifications() {
       // counter — invalidating here just makes the badge bump instantly instead of waiting out
       // the 15s staleTime, on top of the browser tab that placed the toast either way.
       queryClient.invalidateQueries({ queryKey: ["notifications-online-orders"] });
+      queryClient.invalidateQueries({ queryKey: ["orders"] });
       showToast(
         `New order ${payload.orderNo} from ${payload.customerName} (${payload.itemCount} item${payload.itemCount > 1 ? "s" : ""})`,
         "success"

@@ -42,7 +42,7 @@ export default function OrdersReportPage() {
   });
 
   return (
-    <div className="flex flex-col min-h-screen">
+    <div className="flex flex-col min-h-full">
       <DateRangeBar period={period} onPeriod={setPeriod} groupBy={groupBy} onGroupBy={setGroupBy} />
 
       <div className="px-4 py-4 pb-10">

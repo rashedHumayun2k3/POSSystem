@@ -63,17 +63,21 @@ export default function AppHeader({ title, backHref, extraActions }: Props) {
 
   return (
     <header
-      className={`sticky top-0 z-40 border-b px-4 h-14 flex items-center gap-3 transition-colors ${
+      className={`sticky top-0 z-40 shrink-0 border-b px-4 h-14 flex items-center gap-3 transition-colors ${
         isOnline ? "bg-white border-gray-200" : "bg-red-50 border-red-200"
       }`}
     >
       {backHref ? (
-        <Link href={backHref} className="flex items-center gap-2 min-w-0 flex-1 text-indigo-600 mr-1">
+        <div className="flex min-w-0 flex-1 items-center gap-2 mr-1">
+          <Link href={backHref} aria-label={t("common.back")} className="shrink-0 text-indigo-600">
           <svg className="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
-          <span className="truncate text-sm font-semibold text-gray-900">{title}</span>
-        </Link>
+          </Link>
+          <Link href="/dashboard" aria-label="LavLokshan" className="shrink-0">
+            <Image src="/logo.png" alt="LavLokshan" width={32} height={32} className="rounded-md object-contain" />
+          </Link>
+        </div>
       ) : isOwner() && businesses.length > 1 ? (
         <div className="flex-1 min-w-0">
           <CustomSelect

@@ -209,7 +209,7 @@ function ProductCard({
         <div className="p-3 flex gap-3">
           <div className="w-[60px] h-[60px] rounded-[10px] bg-gray-100 flex items-center justify-center shrink-0 overflow-hidden">
             {product.imageUrl ? (
-              <img src={resolveMediaUrl(product.imageUrl) ?? ''} alt={product.name} className="w-full h-full object-cover" />
+              <img src={resolveMediaUrl(product.imageUrl) ?? ''} alt={product.name} className="w-full h-full object-center" />
             ) : (
               <svg className="w-6 h-6 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path

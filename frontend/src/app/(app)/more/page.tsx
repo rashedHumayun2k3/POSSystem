@@ -38,51 +38,36 @@ export default function MorePage() {
   const [search, setSearch] = useState("");
 
   const ownerLinks = [
-    { href: "/more/categories", labelKey: "more.categories", Icon: TagIcon,         descKey: "more.categoriesDesc" },
-    { href: "/more/catalog-templates", labelKey: "more.catalogTemplates", Icon: RectangleStackIcon, descKey: "more.catalogTemplatesDesc" },
-    { href: "/more/purchases",  labelKey: "more.purchases",  Icon: TruckIcon,       descKey: "more.purchasesDesc" },
-    { href: "/more/supplier-returns", labelKey: "more.supplierReturns", Icon: ArrowUturnLeftIcon, descKey: "more.supplierReturnsDesc" },
-    { href: "/more/storeroom",  labelKey: "more.storeroom",  Icon: ArchiveBoxIcon,  descKey: "more.storeroomDesc" },
-    { href: "/more/deliveries", labelKey: "more.deliveries", Icon: TruckIcon,       descKey: "more.deliveriesDesc" },
-    { href: "/more/expenses",   labelKey: "more.expenses",   Icon: BanknotesIcon,   descKey: "more.expensesDesc" },
-    { href: "/more/baki",       labelKey: "more.baki",       Icon: ScaleIcon,       descKey: "more.bakiDesc" },
-    { href: "/more/reports",    labelKey: "more.reports",    Icon: ChartBarIcon,    descKey: "more.reportsDesc" },
-    { href: "/more/customers",  labelKey: "more.customers",  Icon: UserGroupIcon,   descKey: "more.customersDesc" },
-    { href: "/more/settings",   labelKey: "more.settings",   Icon: Cog6ToothIcon,   descKey: "more.settingsDesc" },
-    { href: "/more/faq",        labelKey: "more.faq",        Icon: QuestionMarkCircleIcon, descKey: "more.faqDesc" },
-    { href: "/more/feedback",   labelKey: "more.feedback",   Icon: ChatBubbleLeftRightIcon, descKey: "more.feedbackDesc" },
+    { href: "/more/categories", labelKey: "more.categories", Icon: TagIcon, descKey: "more.categoriesDesc", keywords: ["category", "categories", "product category", "item type", "product fields", "attributes", "product group", "khaat", "dhoron", "ক্যাটাগরি", "পণ্যের ধরন", "বিভাগ"] },
+    { href: "/more/catalog-templates", labelKey: "more.catalogTemplates", Icon: RectangleStackIcon, descKey: "more.catalogTemplatesDesc", keywords: ["quick add", "add product", "new product", "product template", "ready product", "item entry", "notun product", "product add koro", "পণ্য যুক্ত করুন", "নতুন প্রোডাক্ট", "তাড়াতাড়ি প্রোডাক্ট"] },
+    { href: "/more/purchases", labelKey: "more.purchases", Icon: TruckIcon, descKey: "more.purchasesDesc", keywords: ["purchase", "purchases", "buying", "buy", "supplier purchase", "purchase order", "purchase trip", "lot", "landed cost", "kena", "mal kena", "ক্রয়", "মাল কেনা", "সাপ্লায়ার থেকে কেনা"] },
+    { href: "/more/supplier-returns", labelKey: "more.supplierReturns", Icon: ArrowUturnLeftIcon, descKey: "more.supplierReturnsDesc", keywords: ["return", "supplier return", "return supplier", "damaged goods", "supplier refund", "debit note", "product return", "mal ferot", "ferot dao", "ফেরত", "সাপ্লায়ার ফেরত", "ড্যামেজ প্রোডাক্ট"] },
+    { href: "/more/storeroom", labelKey: "more.storeroom", Icon: ArchiveBoxIcon, descKey: "more.storeroomDesc", keywords: ["store", "storeroom", "warehouse", "godown", "gudam", "cartons", "boxes", "labels", "storage", "mal rakha", "গুদাম", "স্টোর", "মাল রাখার জায়গা"] },
+    { href: "/more/deliveries", labelKey: "more.deliveries", Icon: TruckIcon, descKey: "more.deliveriesDesc", keywords: ["delivery", "deliveries", "courier", "parcel", "COD", "shipment", "pending delivery", "order delivery", "deliveryman", "pathano", "ডেলিভারি", "পার্সেল", "মাল পাঠানো"] },
+    { href: "/more/expenses", labelKey: "more.expenses", Icon: BanknotesIcon, descKey: "more.expensesDesc", keywords: ["expense", "expenses", "cost", "petty cash", "business cost", "kharoch", "bill", "খরচ", "ব্যয়", "দোকানের খরচ"] },
+    { href: "/more/baki", labelKey: "more.baki", Icon: ScaleIcon, descKey: "more.bakiDesc", keywords: ["baki", "credit", "due", "customer due", "supplier payable", "receivable", "outstanding", "khata", "বাকি", "দেনা", "পাওনা", "বাকি হিসাব", "ক্রেডিট"] },
+    { href: "/more/reports", labelKey: "more.reports", Icon: ChartBarIcon, descKey: "more.reportsDesc", keywords: ["report", "reports", "analysis", "summary", "hisab", "hisab nikash", "রিপোর্ট", "হিসাব", "বিশ্লেষণ"] },
+    { href: "/more/customers", labelKey: "more.customers", Icon: UserGroupIcon, descKey: "more.customersDesc", keywords: ["customer", "customers", "buyer", "client", "phone number", "customer profile", "khoridar", "ক্রেতা", "কাস্টমার", "খরিদদার"] },
+    { href: "/more/settings", labelKey: "more.settings", Icon: Cog6ToothIcon, descKey: "more.settingsDesc", keywords: ["settings", "setting", "configuration", "options", "shop setting", "সেটিংস", "নিয়ন্ত্রণ"] },
+    { href: "/more/faq", labelKey: "more.faq", Icon: QuestionMarkCircleIcon, descKey: "more.faqDesc", keywords: ["faq", "help", "questions", "common questions", "guide", "how to", "সাহায্য", "প্রশ্ন উত্তর"] },
+    { href: "/more/feedback", labelKey: "more.feedback", Icon: ChatBubbleLeftRightIcon, descKey: "more.feedbackDesc", keywords: ["feedback", "review", "comment", "suggestion", "complaint", "rating", "মতামত", "রিভিউ", "অভিযোগ"] },
   ];
 
   const managerLinks = [
-    { href: "/more/purchases",  labelKey: "more.purchases",  Icon: TruckIcon,     descKey: "more.purchasesDesc" },
-    { href: "/more/supplier-returns", labelKey: "more.supplierReturns", Icon: ArrowUturnLeftIcon, descKey: "more.supplierReturnsDesc" },
-    { href: "/more/deliveries", labelKey: "more.deliveries", Icon: TruckIcon,     descKey: "more.deliveriesDesc" },
-    { href: "/more/expenses",   labelKey: "more.expenses",   Icon: BanknotesIcon, descKey: "more.expensesDesc" },
-    { href: "/more/reports",    labelKey: "more.reports",    Icon: ChartBarIcon,  descKey: "more.reportsDesc" },
-    { href: "/more/customers",  labelKey: "more.customers",  Icon: UserGroupIcon, descKey: "more.customersDesc" },
-    { href: "/more/settings",   labelKey: "more.settings",   Icon: Cog6ToothIcon, descKey: "more.settingsDescStaff" },
-    { href: "/more/faq",        labelKey: "more.faq",        Icon: QuestionMarkCircleIcon, descKey: "more.faqDesc" },
-    { href: "/more/feedback",   labelKey: "more.feedback",   Icon: ChatBubbleLeftRightIcon, descKey: "more.feedbackDesc" },
+    ...ownerLinks.filter(({ href }) => ["/more/purchases", "/more/supplier-returns", "/more/deliveries", "/more/expenses", "/more/reports", "/more/customers", "/more/settings", "/more/faq", "/more/feedback"].includes(href)),
   ];
 
   const warehouseLinks = [
-    { href: "/more/purchases",  labelKey: "more.purchases",  Icon: TruckIcon,      descKey: "more.purchasesDesc" },
-    { href: "/more/storeroom",  labelKey: "more.storeroom",  Icon: ArchiveBoxIcon, descKey: "more.storeroomDesc" },
-    { href: "/more/settings",   labelKey: "more.settings",   Icon: Cog6ToothIcon,  descKey: "more.settingsDescStaff" },
-    { href: "/more/faq",        labelKey: "more.faq",        Icon: QuestionMarkCircleIcon, descKey: "more.faqDesc" },
-    { href: "/more/feedback",   labelKey: "more.feedback",   Icon: ChatBubbleLeftRightIcon, descKey: "more.feedbackDesc" },
+    ...ownerLinks.filter(({ href }) => ["/more/purchases", "/more/storeroom", "/more/settings", "/more/faq", "/more/feedback"].includes(href)),
   ];
 
   const staffLinks = [
-    { href: "/more/deliveries", labelKey: "more.deliveries", Icon: TruckIcon,     descKey: "more.deliveriesDescStaff" },
-    { href: "/more/settings",   labelKey: "more.settings",   Icon: Cog6ToothIcon, descKey: "more.settingsDescStaff" },
-    { href: "/more/faq",        labelKey: "more.faq",        Icon: QuestionMarkCircleIcon, descKey: "more.faqDesc" },
-    { href: "/more/feedback",   labelKey: "more.feedback",   Icon: ChatBubbleLeftRightIcon, descKey: "more.feedbackDesc" },
+    ...ownerLinks.filter(({ href }) => ["/more/deliveries", "/more/settings", "/more/faq", "/more/feedback"].includes(href)),
   ];
 
   const partnerLinks = [
-    { href: "/more/settings/partners", labelKey: "partners.title", Icon: UserGroupIcon, descKey: "more.partnersApprovalDesc" },
-    { href: "/more/faq", labelKey: "more.faq", Icon: QuestionMarkCircleIcon, descKey: "more.faqDesc" },
+    { href: "/more/settings/partners", labelKey: "partners.title", Icon: UserGroupIcon, descKey: "more.partnersApprovalDesc", keywords: ["partner", "business partner", "partnership", "investment", "installment", "co-owner", "shareholder", "ongshider", "অংশীদার", "ব্যবসার পার্টনার"] },
+    { ...ownerLinks.find(({ href }) => href === "/more/faq")! },
   ];
 
   const links = isOwner ? ownerLinks
@@ -94,15 +79,15 @@ export default function MorePage() {
   const query = search.trim().toLocaleLowerCase();
   const matches = (...keys: string[]) =>
     matchesMenuSearch(query, ...keys);
-  const visibleReports = matches("more.reports", "more.reportsDesc")
+  const visibleReports = matches("more.reports", "more.reportsDesc", ...ownerLinks.find((item) => item.href === "/more/reports")!.keywords)
     ? REPORT_MENU_ITEMS
-    : REPORT_MENU_ITEMS.filter((item) => matches(item.titleKey, item.descKey));
+    : REPORT_MENU_ITEMS.filter((item) => matches(item.titleKey, item.descKey, ...item.keywords));
   const settingsLink = links.find((item) => item.href === "/more/settings");
-  const visibleSettings = settingsLink && matches(settingsLink.labelKey, settingsLink.descKey)
+  const visibleSettings = settingsLink && matches(settingsLink.labelKey, settingsLink.descKey, ...settingsLink.keywords)
     ? settingsItems
-    : settingsItems.filter((item) => matches(item.titleKey, item.descKey));
+    : settingsItems.filter((item) => matches(item.titleKey, item.descKey, ...item.keywords));
   const visibleLinks = links.filter((item) =>
-    matches(item.labelKey, item.descKey) ||
+    matches(item.labelKey, item.descKey, ...item.keywords) ||
     (item.href === "/more/reports" && visibleReports.length > 0) ||
     (item.href === "/more/settings" && visibleSettings.length > 0)
   );

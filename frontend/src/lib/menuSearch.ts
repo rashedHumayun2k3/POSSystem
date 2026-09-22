@@ -14,7 +14,7 @@ export function matchesMenuSearch(query: string, ...keys: string[]): boolean {
   const normalizedQuery = query.normalize("NFKC").trim().toLocaleLowerCase();
   return [en, bn].some((dictionary) =>
     keys.some((key) =>
-      translatedText(dictionary, key).normalize("NFKC").toLocaleLowerCase().includes(normalizedQuery)
+      (translatedText(dictionary, key) || key).normalize("NFKC").toLocaleLowerCase().includes(normalizedQuery)
     )
   );
 }

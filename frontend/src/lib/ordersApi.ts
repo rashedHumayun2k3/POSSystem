@@ -17,6 +17,25 @@ import type {
 
 const BASE = '/orders';
 
+export interface InvoiceListItem {
+  id: string;
+  orderNo: string;
+  channel: string;
+  customerName: string;
+  businessDate: string;
+  totalAmount: number;
+  totalPaid: number;
+  dueAmount: number;
+}
+
+export const listInvoices = async (q: string, page: number, filters: { from?: string; to?: string; payment?: string; today?: string } = {}): Promise<{
+  items: InvoiceListItem[]; totalCount: number; page: number; pageSize: number;
+  summary: { date: string; total: number; paid: number; due: number };
+}> => {
+  const { data } = await api.get(`${BASE}/invoices`, { params: { q, page, pageSize: 20, ...filters } });
+  return data;
+};
+
 // ── Orders ────────────────────────────────────────────────────────────────────
 
 export interface ListOrdersParams {
@@ -119,17 +138,81 @@ export const downloadChallan = async (id: string): Promise<void> => {
   }
 };
 
-export const downloadReceipt = async (id: string): Promise<void> => {
-  const response = await api.get(`${BASE}/${id}/receipt`, { responseType: 'blob' });
+const openOrderPdf = async (id: string, document: 'receipt' | 'invoice'): Promise<void> => {
+  const response = await api.get(`${BASE}/${id}/${document}`, { responseType: 'blob' });
   const url = URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
   const win = window.open(url, '_blank');
   setTimeout(() => URL.revokeObjectURL(url), 30_000);
   if (!win) {
-    const a = document.createElement('a');
+    const a = window.document.createElement('a');
     a.href = url;
-    a.download = `receipt-${id}.pdf`;
+    a.download = `${document}-${id}.pdf`;
     a.click();
   }
+};
+
+export interface OrderManagementPage {
+  items: OrderListItem[];
+  counts: Record<string, number>;
+  totalCount: number;
+  page: number;
+  pageSize: number;
+}
+
+export const listOrderManagement = async (params: ListOrdersParams & { tab: string; page: number }, signal?: AbortSignal): Promise<OrderManagementPage> => {
+  const { data } = await api.get(`${BASE}/management`, { params, signal });
+  return data;
+};
+
+export const downloadReceipt = (id: string): Promise<void> => openOrderPdf(id, 'receipt');
+export interface InvoicePreview {
+  orderNo: string;
+  customerName: string;
+  pages: string[];
+  invoice: MobileInvoice;
+}
+
+export interface MobileInvoice {
+  documentNumber: string;
+  invoiceDate: string;
+  orderDate: string;
+  sellerName: string;
+  sellerAddress: string | null;
+  sellerPhone: string | null;
+  sellerEmail: string | null;
+  sellerWebsite: string | null;
+  logo: string | null;
+  contactLink: string | null;
+  customerAddress: string | null;
+  customerPhone: string | null;
+  currency: string;
+  paymentMethods: string;
+  items: { itemId: string; description: string; variant: string; sku: string;
+    qty: string; unitPrice: string; discount: string; totalPrice: string }[];
+  subtotal: string;
+  discount: string;
+  shipping: string;
+  total: string;
+  paid: string;
+  due: string;
+  credit: string | null;
+}
+
+export const getInvoicePreview = async (id: string, mobile = false): Promise<InvoicePreview> => {
+  const { data } = await api.get(`${BASE}/${id}/invoice/preview`, { params: { mobile } });
+  return data;
+};
+
+export const downloadInvoice = async (id: string, orderNo: string, mobile = false): Promise<void> => {
+  const { data } = await api.get(`${BASE}/${id}/invoice`, { params: { mobile }, responseType: 'blob' });
+  const url = URL.createObjectURL(new Blob([data], { type: 'application/pdf' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `invoice-${orderNo.replace(/[^a-zA-Z0-9_-]/g, '-')}${mobile ? '-mobile' : ''}.pdf`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 30_000);
 };
 
 export const claimOrder = async (id: string): Promise<void> => {

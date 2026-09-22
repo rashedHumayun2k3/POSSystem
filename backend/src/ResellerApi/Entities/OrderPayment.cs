@@ -9,6 +9,7 @@ public class OrderPayment : BaseEntity
 
     public string Method { get; set; } = null!; // CASH|BKASH|NAGAD|CARD|BAKI|STORE_CREDIT|COD
     public decimal Amount { get; set; }
+    public string? PaymentReference { get; set; }
     public DateTime ReceivedAt { get; set; } = DateTime.UtcNow;
 
     public Guid UserId { get; set; }

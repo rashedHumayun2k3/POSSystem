@@ -63,7 +63,7 @@ export default function InventoryReportPage() {
   const totalShortageQty = lowStockItems.reduce((sum, item) => sum + Math.max(0, item.reorderLevel - item.available), 0);
 
   return (
-    <div className="flex flex-col min-h-screen">
+    <div className="flex flex-col min-h-full">
       {/* Summary strip */}
       <div className="bg-white border-b border-gray-100 px-4 py-3 grid grid-cols-4 gap-2 text-center">
         <div>

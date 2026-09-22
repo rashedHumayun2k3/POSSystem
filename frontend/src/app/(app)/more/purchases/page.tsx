@@ -3,7 +3,6 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { listTrips } from '@/lib/purchasesApi';
 import type { TripStatus } from '@/types/purchases';
 import { useLanguage } from '@/i18n/LanguageContext';
@@ -33,7 +32,6 @@ const formatQty = (value: number | null | undefined) =>
     : '0';
 
 export default function PurchasesPage() {
-  const router = useRouter();
   const [activeTab, setActiveTab] = useState<'INCOMPLETE' | 'COMPLETED'>('INCOMPLETE');
   const { t } = useLanguage();
 
@@ -80,18 +78,7 @@ export default function PurchasesPage() {
 
   return (
     <div className="pb-24">
-      {/* Header */}
       <div className="sticky top-0 z-10 bg-white border-b border-gray-100">
-        <div className="px-4 py-3 flex items-center gap-3">
-          <button onClick={() => router.back()} className="text-gray-500 p-1">
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-          </button>
-          <h1 className="flex-1 text-base font-semibold text-gray-900">{t('purchases.title')}</h1>
-        </div>
-
-        {/* Status tabs */}
         <div className="flex gap-2 px-4 pb-3 overflow-x-auto scrollbar-hide">
           {TABS.map((tab) => (
             <button

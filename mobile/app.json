@@ -1,0 +1,23 @@
+{
+  "expo": {
+    "name": "LavLokshan",
+    "slug": "lavlokshan-mobile",
+    "scheme": "lavlokshan",
+    "web": { "bundler": "metro" },
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "backgroundColor": "#f7f8fc"
+    },
+    "android": {
+      "package": "com.lavlokshan.mobile"
+    },
+    "ios": {
+      "bundleIdentifier": "com.lavlokshan.mobile"
+    },
+    "plugins": [
+      "expo-router"
+    ]
+  }
+}

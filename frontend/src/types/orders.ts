@@ -59,6 +59,7 @@ export interface DeliveryManDto {
 export type OrderChannel = 'FACEBOOK' | 'WHATSAPP' | 'INSTAGRAM' | 'PHONE' | 'SHOP' | 'HAWKER' | 'MYWEBSITE' | 'OTHER';
 export type OrderStatus = 'OPEN' | 'COMPLETED' | 'CANCELLED';
 export type PaymentStatus = 'UNPAID' | 'PARTIALLY_PAID' | 'PAID' | 'REFUNDED';
+export type PaymentTerms = 'COD' | 'PREPAID' | 'CREDIT';
 export type FulfillmentStatus = 'UNFULFILLED' | 'PACKED' | 'IN_TRANSIT' | 'DELIVERED' | 'RETURNED';
 
 export interface OrderItemDto {
@@ -82,6 +83,7 @@ export interface OrderPaymentDto {
   amount: number;
   receivedAt: string;
   recordedByName: string;
+  paymentReference?: string | null;
 }
 
 export interface OrderStatusHistoryDto {
@@ -103,6 +105,7 @@ export interface OrderEconomicsDto {
 }
 
 export interface OrderListItemSummary {
+  imageUrl?: string | null;
   productName: string;
   variantSku: string;
   qty: number;
@@ -119,6 +122,7 @@ export interface OrderListItem {
   customerAddress?: string;
   orderStatus: OrderStatus;
   paymentStatus: PaymentStatus;
+  paymentTerms: PaymentTerms;
   fulfillmentStatus: FulfillmentStatus;
   isDraft: boolean;
   totalAmount: number;
@@ -147,6 +151,7 @@ export interface OrderDetail {
   customerAddress?: string;
   orderStatus: OrderStatus;
   paymentStatus: PaymentStatus;
+  paymentTerms: PaymentTerms;
   fulfillmentStatus: FulfillmentStatus;
   isDraft: boolean;
   discountType?: string;
@@ -202,6 +207,8 @@ export interface CreateOrderPayload {
   deliveryChargeCustomer: number;
   advancePaid: number;
   advancePaymentMethod?: string;
+  advancePaymentReference?: string;
+  paymentTerms?: PaymentTerms;
   note?: string;
   clientUid?: string;
   courierId?: string;
@@ -256,6 +263,7 @@ export interface ReturnOrderPayload {
 }
 
 export interface AddPaymentPayload {
+  paymentReference?: string;
   method: string;
   amount: number;
   receivedAt?: string;

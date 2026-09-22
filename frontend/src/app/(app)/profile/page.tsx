@@ -10,7 +10,8 @@ import Avatar from "@/components/ui/Avatar";
 import { useLanguage } from "@/i18n/LanguageContext";
 import { useToastStore } from "@/store/toastStore";
 import { useLogout } from "@/hooks/useAuth";
-import { ArrowRightOnRectangleIcon, EnvelopeIcon } from "@heroicons/react/24/outline";
+import { ArrowRightOnRectangleIcon, ChevronDownIcon, EnvelopeIcon } from "@heroicons/react/24/outline";
+import StorefrontSettings from "@/components/settings/StorefrontSettings";
 
 const ROLE_KEY: Record<string, string> = {
   OWNER: "settings.roleOwner",
@@ -37,6 +38,7 @@ export default function ProfilePage() {
   const [logoutSheetOpen, setLogoutSheetOpen] = useState(false);
   const [sendingReport, setSendingReport] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [companyInformationOpen, setCompanyInformationOpen] = useState(false);
   const logout = useLogout();
 
   if (!user) return null;
@@ -145,6 +147,29 @@ export default function ProfilePage() {
           <p className="text-sm font-medium text-gray-900 mt-0.5">{t(ROLE_KEY[user.role] ?? "settings.roleStaff")}</p>
         </div>
       </div>
+
+      {user.role === "OWNER" && (
+        <section className="overflow-hidden rounded-2xl border border-orange-700 bg-orange-600 shadow-sm">
+          <button
+            type="button"
+            aria-expanded={companyInformationOpen}
+            onClick={() => setCompanyInformationOpen((open) => !open)}
+            className="flex w-full items-center gap-3 px-4 py-4 text-left"
+          >
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-white">{t("profile.companyInformation")}</p>
+              <p className="mt-0.5 text-xs text-orange-100">{t("profile.companyInformationDesc")}</p>
+            </div>
+            <ChevronDownIcon aria-hidden="true"
+              className={`h-5 w-5 shrink-0 text-white transition-transform ${companyInformationOpen ? "rotate-180" : ""}`} />
+          </button>
+          {companyInformationOpen && (
+            <div className="border-t border-orange-500 bg-orange-600 p-3">
+              <StorefrontSettings embedded />
+            </div>
+          )}
+        </section>
+      )}
 
       {canOfferClosingReport && (
         <div className="space-y-2">

@@ -34,82 +34,56 @@ export default function SlidePanel({ open, onClose, title, children, footer }: S
     return () => { document.body.style.overflow = ''; };
   }, [open]);
 
-  const header = (
-    <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-100 shrink-0">
-      <button
-        onClick={onClose}
-        className="text-gray-400 p-1 rounded-full hover:bg-gray-100 active:bg-gray-200"
-      >
-        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-        </svg>
-      </button>
-      <h2 className="flex-1 text-base font-semibold text-gray-900">{title}</h2>
-    </div>
-  );
-
-  const content = (
-    <>
-      <div className="flex-1 overflow-y-auto">
-        {children}
-      </div>
-      {footer && (
-        <div className="shrink-0 px-4 py-3 border-t border-gray-100">
-          {footer}
-        </div>
-      )}
-    </>
-  );
-
   return (
-    <div className={`fixed inset-0 ${open ? '' : 'pointer-events-none'}`} style={{ zIndex }}>
-
-      {/* ── Mobile / tablet (< 768px): bottom sheet ──────────────────── */}
-
-      {/* Full backdrop */}
+    <div
+      className={`fixed inset-0 flex items-end justify-center md:items-center md:p-6 ${open ? '' : 'pointer-events-none'}`}
+      style={{ zIndex }}
+    >
       <div
-        className={`md:hidden absolute inset-0 bg-black/50 transition-opacity duration-300 ${
+        className={`absolute inset-0 bg-black/50 transition-opacity duration-300 md:bg-black/40 md:duration-200 ${
           open ? 'opacity-100' : 'opacity-0'
         }`}
         onClick={onClose}
       />
 
-      {/* Sheet — slides up from bottom */}
+      {/* A single responsive panel keeps one React-owned copy of its children in the DOM.
+          Rendering separate mobile and desktop copies caused both versions (including any
+          autoFocus input) to mount and reconcile even though CSS hid one of them. */}
       <div
-        className={`md:hidden absolute inset-x-0 bottom-0 bg-white rounded-t-2xl flex flex-col shadow-2xl transition-transform duration-300 ease-in-out max-h-[90vh] ${
-          open ? 'translate-y-0' : 'translate-y-full'
+        role="dialog"
+        aria-modal="true"
+        aria-hidden={!open}
+        className={`relative w-full max-h-[90vh] bg-white rounded-t-2xl flex flex-col shadow-2xl transition-all duration-300 ease-in-out md:max-w-md md:max-h-[85vh] md:rounded-2xl md:duration-200 ${
+          open
+            ? 'translate-y-0 opacity-100 scale-100'
+            : 'translate-y-full opacity-0 md:translate-y-0 md:scale-95'
         }`}
       >
-        {/* Drag handle */}
-        <div className="shrink-0 flex justify-center pt-3 pb-1">
+        <div className="shrink-0 flex justify-center pt-3 pb-1 md:hidden">
           <div className="w-10 h-1 rounded-full bg-gray-200" />
         </div>
-        {header}
-        {content}
-      </div>
-
-      {/* ── Desktop (≥ 768px): centered modal ─────────────────────────── */}
-
-      {/* Full-screen backdrop */}
-      <div
-        className={`hidden md:block absolute inset-0 bg-black/40 transition-opacity duration-200 ${
-          open ? 'opacity-100' : 'opacity-0'
-        }`}
-        onClick={onClose}
-      />
-
-      {/* Centered dialog */}
-      <div className="hidden md:flex absolute inset-0 items-center justify-center p-6">
-        <div
-          className={`relative bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[85vh] flex flex-col transition-all duration-200 ${
-            open ? 'opacity-100 scale-100' : 'opacity-0 scale-95'
-          }`}
-        >
-          {header}
-          {content}
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-100 shrink-0">
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="text-gray-400 p-1 rounded-full hover:bg-gray-100 active:bg-gray-200"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+          <h2 className="flex-1 text-base font-semibold text-gray-900">{title}</h2>
         </div>
+        <div className="flex-1 overflow-y-auto">
+          {children}
+        </div>
+        {footer && (
+          <div className="shrink-0 px-4 py-3 border-t border-gray-100">
+            {footer}
+          </div>
+        )}
       </div>
-
     </div>
   );
 }
