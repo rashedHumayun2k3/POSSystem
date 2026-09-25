@@ -2,7 +2,9 @@ import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { Platform } from "react-native";
 import * as SecureStore from "expo-secure-store";
 
-export const API_URL = "http://127.0.0.1:5018/api/v1";
+export const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://127.0.0.1:5018/api/v1";
+export const HUB_URL = process.env.EXPO_PUBLIC_HUB_URL ?? "http://127.0.0.1:5018/hubs/live";
+export const MEDIA_URL = process.env.EXPO_PUBLIC_MEDIA_URL ?? "http://127.0.0.1:5090";
 type Business = { id: string; name: string; salesChannels?: string[]; shopType?: "BIG_SUPERSHOP" | "SMALL_SHOWROOM" | "HAWKER_SHOP" | null };
 export type Branch = { id: string; name: string };
 type Session = { accessToken: string; refreshToken: string; user: { id?: string; name: string; phone?: string; email?: string | null; role?: string; canAccessPos?: boolean; photoUrl?: string | null }; businesses: Business[]; businessId?: string; branchId?: string; branchName?: string };
@@ -27,7 +29,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     if (!response.ok) throw Object.assign(new Error(body.message || (response.status === 401 ? "Your session expired. Please sign in again." : `Request failed (${response.status}).`)), { status: response.status });
     return body;
   } catch (error) {
-    if (error instanceof TypeError || (error as Error).name === "AbortError") throw new Error("Cannot reach your computer. Check the USB cable and that the .NET server is running.");
+    if (error instanceof TypeError || (error as Error).name === "AbortError") throw new Error("Cannot reach the server. Check your internet connection and try again.");
     throw error;
   } finally { clearTimeout(timer); }
 }

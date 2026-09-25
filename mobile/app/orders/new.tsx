@@ -6,17 +6,16 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
   TextInput,
   useWindowDimensions,
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import ProductPicker, {
-  type Product,
+  type ProductPickerResult,
 } from "../../src/components/ProductPicker";
 
-type CartItem = Product & { quantity: number; unitPrice: string };
+type CartItem = ProductPickerResult & { quantity: number; unitPrice: string };
 
 const customers = [
   { id: "1", name: "Rahim Ahmed", phone: "01700000001", address: "Dhaka" },
@@ -88,6 +87,7 @@ export default function NewOrderScreen() {
 
   return (
     <ScrollView
+      style={styles.screen}
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
     >
@@ -98,7 +98,7 @@ export default function NewOrderScreen() {
           onPress={() => router.back()}
           style={styles.backButton}
         >
-          <Ionicons name="arrow-back" size={21} color="#263248" />
+          <Ionicons name="arrow-back" size={21} color={colors.heading} />
         </Pressable>
         <View style={styles.titleCopy}>
           <Text style={styles.title}>New Online Order</Text>
@@ -117,7 +117,7 @@ export default function NewOrderScreen() {
             onPress={() => setProductPickerOpen(true)}
             style={styles.addButton}
           >
-            <Ionicons name="add" size={17} color="#4557d9" />
+            <Ionicons name="add" size={17} color={colors.primaryDark} />
             <Text style={styles.addText}>
               {productAdded ? "Add another" : "Add item"}
             </Text>
@@ -130,32 +130,32 @@ export default function NewOrderScreen() {
               const quantity = item.quantity;
               const orderTotal = (Number(unitPrice) || 0) * quantity;
               return (
-                <View key={item.id} style={styles.selectedProductCard}>
+                <View key={item.variantId} style={styles.selectedProductCard}>
                   <Pressable
                     accessibilityLabel="Remove product"
                     onPress={() =>
                       setCart((items) =>
-                        items.filter((entry) => entry.id !== item.id),
+                        items.filter((entry) => entry.variantId !== item.variantId),
                       )
                     }
                     style={styles.removeProduct}
                   >
-                    <Ionicons name="close" size={18} color="#9aa3b2" />
+                    <Ionicons name="close" size={18} color={colors.muted} />
                   </Pressable>
                   <View style={styles.productIdentityRow}>
                     <View style={styles.productThumbnail}>
-                      <Ionicons name="cube-outline" size={30} color="#4557d9" />
+                      <Ionicons name="cube-outline" size={30} color={colors.primaryDark} />
                     </View>
                     <View style={styles.productDetails}>
                       <Text style={styles.selectedProductName}>
-                        {item.name}
+                        {item.productName}
                       </Text>
-                      <Text style={styles.productSku}>SKU: {item.id}</Text>
+                      <Text style={styles.productSku}>SKU: {item.variantSku}</Text>
                       <View style={styles.stockRow}>
                         <Ionicons
                           name="cube-outline"
                           size={14}
-                          color="#12966f"
+                          color={colors.successText}
                         />
                         <Text style={styles.stockText}>Available in stock</Text>
                       </View>
@@ -173,7 +173,7 @@ export default function NewOrderScreen() {
                         onChangeText={(unitPrice) =>
                           setCart((items) =>
                             items.map((entry) =>
-                              entry.id === item.id
+                              entry.variantId === item.variantId
                                 ? { ...entry, unitPrice }
                                 : entry,
                             ),
@@ -190,7 +190,7 @@ export default function NewOrderScreen() {
                           onPress={() =>
                             setCart((items) =>
                               items.map((entry) =>
-                                entry.id === item.id
+                                entry.variantId === item.variantId
                                   ? {
                                       ...entry,
                                       quantity: Math.max(1, entry.quantity - 1),
@@ -201,7 +201,7 @@ export default function NewOrderScreen() {
                           }
                           style={styles.quantityButtonMuted}
                         >
-                          <Ionicons name="remove" size={18} color="#657086" />
+                          <Ionicons name="remove" size={18} color={colors.secondary} />
                         </Pressable>
                         <Text style={styles.quantityValue}>
                           {item.quantity}
@@ -211,7 +211,7 @@ export default function NewOrderScreen() {
                           onPress={() =>
                             setCart((items) =>
                               items.map((entry) =>
-                                entry.id === item.id
+                                entry.variantId === item.variantId
                                   ? { ...entry, quantity: entry.quantity + 1 }
                                   : entry,
                               ),
@@ -219,7 +219,7 @@ export default function NewOrderScreen() {
                           }
                           style={styles.quantityButton}
                         >
-                          <Ionicons name="add" size={18} color="#4557d9" />
+                          <Ionicons name="add" size={18} color={colors.primaryDark} />
                         </Pressable>
                       </View>
                     </View>
@@ -240,7 +240,7 @@ export default function NewOrderScreen() {
           </View>
         ) : (
           <View style={styles.emptyProducts}>
-            <Ionicons name="cube-outline" size={27} color="#a7afbd" />
+            <Ionicons name="cube-outline" size={27} color={colors.muted} />
             <Text style={styles.emptyText}>No items added yet</Text>
           </View>
         )}
@@ -266,7 +266,7 @@ export default function NewOrderScreen() {
                 onPress={() => setCustomerOpen(true)}
                 style={styles.addButton}
               >
-                <Ionicons name="add" size={17} color="#4557d9" />
+                <Ionicons name="add" size={17} color={colors.primaryDark} />
                 <Text style={styles.addText}>Add Customer</Text>
               </Pressable>
             )}
@@ -300,7 +300,7 @@ export default function NewOrderScreen() {
                       accessibilityLabel="Close customer popup"
                       onPress={closeCustomerPicker}
                     >
-                      <Ionicons name="close" size={23} color="#334155" />
+                      <Ionicons name="close" size={23} color={colors.secondary} />
                     </Pressable>
                   </View>
                   {!showNewCustomerForm ? (
@@ -318,7 +318,7 @@ export default function NewOrderScreen() {
                             <Ionicons
                               name="person-circle-outline"
                               size={26}
-                              color="#4557d9"
+                              color={colors.primaryDark}
                             />
                             <View>
                               <Text style={styles.customerName}>
@@ -334,7 +334,7 @@ export default function NewOrderScreen() {
                       <TextInput
                         accessibilityLabel="Search customers"
                         placeholder="Search by phone or name"
-                        placeholderTextColor="#929aaa"
+                        placeholderTextColor={colors.muted}
                         value={customerSearch}
                         onChangeText={setCustomerSearch}
                         style={styles.input}
@@ -347,7 +347,7 @@ export default function NewOrderScreen() {
                         <Ionicons
                           name="person-add-outline"
                           size={19}
-                          color="#4557d9"
+                          color={colors.primaryDark}
                         />
                         <Text style={styles.addNewCustomerText}>
                           Add New Customer
@@ -362,7 +362,7 @@ export default function NewOrderScreen() {
                       <TextInput
                         accessibilityLabel="Customer phone"
                         placeholder="Phone number"
-                        placeholderTextColor="#929aaa"
+                        placeholderTextColor={colors.muted}
                         keyboardType="phone-pad"
                         value={newCustomer.phone}
                         onChangeText={(phone) =>
@@ -373,7 +373,7 @@ export default function NewOrderScreen() {
                       <TextInput
                         accessibilityLabel="Customer name"
                         placeholder="Customer name"
-                        placeholderTextColor="#929aaa"
+                        placeholderTextColor={colors.muted}
                         value={newCustomer.name}
                         onChangeText={(name) =>
                           setNewCustomer((value) => ({ ...value, name }))
@@ -383,7 +383,7 @@ export default function NewOrderScreen() {
                       <TextInput
                         accessibilityLabel="Delivery address"
                         placeholder="Delivery address"
-                        placeholderTextColor="#929aaa"
+                        placeholderTextColor={colors.muted}
                         multiline
                         value={newCustomer.address}
                         onChangeText={(address) =>
@@ -442,7 +442,7 @@ export default function NewOrderScreen() {
             <View style={styles.customerSummary}>
               <View style={styles.customerTopRow}>
                 <View style={styles.customerAvatar}>
-                  <Ionicons name="person-outline" size={21} color="#059669" />
+                  <Ionicons name="person-outline" size={21} color={colors.primaryDark} />
                 </View>
                 <View style={styles.customerIdentity}>
                   <Text style={styles.customerName}>{customer.name}</Text>
@@ -451,7 +451,7 @@ export default function NewOrderScreen() {
                     <Ionicons
                       name="location-outline"
                       size={13}
-                      color="#059669"
+                      color={colors.primaryDark}
                     />
                     <Text numberOfLines={1} style={styles.customerAddress}>
                       {customer.address || "Not provided"}
@@ -478,7 +478,7 @@ export default function NewOrderScreen() {
                 <TextInput
                   accessibilityLabel="Delivery address"
                   placeholder="Enter delivery address"
-                  placeholderTextColor="#929aaa"
+                  placeholderTextColor={colors.muted}
                   value={customer.address}
                   onChangeText={(address) =>
                     setCustomer({ ...customer, address })
@@ -535,7 +535,7 @@ export default function NewOrderScreen() {
               accessibilityLabel="Manage couriers"
               style={styles.manageCourierButton}
             >
-              <Ionicons name="settings-outline" size={18} color="#4b5563" />
+              <Ionicons name="settings-outline" size={18} color={colors.secondary} />
             </Pressable>
           </View>
           <View style={styles.courierOptions}>
@@ -685,7 +685,7 @@ export default function NewOrderScreen() {
                 <Ionicons
                   name="document-text-outline"
                   size={20}
-                  color="#b45309"
+                  color={colors.primaryDark}
                 />
               </View>
               <View style={styles.noteButtonCopy}>
@@ -694,7 +694,7 @@ export default function NewOrderScreen() {
                   Include delivery or order instructions
                 </Text>
               </View>
-              <Ionicons name="add-circle-outline" size={22} color="#b45309" />
+              <Ionicons name="add-circle-outline" size={22} color={colors.primaryDark} />
             </Pressable>
           ) : (
             <>
@@ -704,13 +704,13 @@ export default function NewOrderScreen() {
                   accessibilityLabel="Remove note"
                   onPress={() => setNoteOpen(false)}
                 >
-                  <Ionicons name="close" size={20} color="#92400e" />
+                  <Ionicons name="close" size={20} color={colors.primaryDark} />
                 </Pressable>
               </View>
               <TextInput
                 accessibilityLabel="Order note"
                 placeholder="Add delivery or order instructions..."
-                placeholderTextColor="#a16207"
+                placeholderTextColor={colors.muted}
                 multiline
                 style={styles.noteInput}
               />
@@ -742,10 +742,10 @@ export default function NewOrderScreen() {
         onClose={() => setProductPickerOpen(false)}
         onSelect={(selected) => {
           setCart((items) => {
-            const existing = items.find((item) => item.id === selected.id);
+            const existing = items.find((item) => item.variantId === selected.variantId);
             if (existing) {
               return items.map((item) =>
-                item.id === selected.id
+                item.variantId === selected.variantId
                   ? { ...item, quantity: item.quantity + 1 }
                   : item,
               );
@@ -755,7 +755,7 @@ export default function NewOrderScreen() {
               {
                 ...selected,
                 quantity: 1,
-                unitPrice: selected.price.replace(/[^\d.]/g, ""),
+                unitPrice: String(selected.sellingPrice),
               },
             ];
           });
@@ -766,7 +766,8 @@ export default function NewOrderScreen() {
 }
 
 const styles = StyleSheet.create({
-  content: { padding: 16, paddingBottom: 36, gap: 14 },
+  screen: { flex: 1, backgroundColor: colors.white },
+  content: { flexGrow: 1, width: "100%", maxWidth: 760, alignSelf: "center", backgroundColor: colors.white, padding: 16, paddingBottom: 48, gap: 16 },
   titleRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -777,33 +778,38 @@ const styles = StyleSheet.create({
     width: 42,
     height: 42,
     borderRadius: 12,
-    backgroundColor: "#eef0ff",
+    backgroundColor: colors.primaryLight,
     alignItems: "center",
     justifyContent: "center",
   },
   titleCopy: { flex: 1 },
-  title: { color: "#172033", fontSize: 24, fontWeight: "400" },
-  subtitle: { color: "#7e899c", fontSize: 12, marginTop: 4 },
+  title: { color: colors.heading, fontSize: 23, fontWeight: "400", letterSpacing: -0.4 },
+  subtitle: { color: colors.secondary, fontSize: 12, lineHeight: 18, marginTop: 3 },
   section: {
-    backgroundColor: "#fff",
+    backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: "#e8ebf1",
-    borderRadius: 14,
-    padding: 14,
-    gap: 11,
+    borderColor: colors.divider,
+    borderRadius: 16,
+    padding: 15,
+    gap: 12,
+    shadowColor: colors.heading,
+    shadowOpacity: 0.04,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 1,
   },
   sectionHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
   },
-  sectionTitle: { color: "#172033", fontSize: 16, fontWeight: "400" },
+  sectionTitle: { color: colors.heading, fontSize: 15, fontWeight: "400" },
   selectedCustomerSection: {
-    backgroundColor: "#f3f4f6",
-    borderColor: "#9ca3af",
+    backgroundColor: colors.cardSecondary,
+    borderColor: colors.border,
   },
   selectedCustomerSectionTitle: {
-    color: "#9ca3af",
+    color: colors.primaryDark,
     fontSize: 11,
     letterSpacing: 0.8,
     textTransform: "uppercase",
@@ -815,18 +821,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: 9,
     paddingVertical: 7,
     borderRadius: 8,
-    backgroundColor: "#eef0ff",
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.primaryLight,
   },
-  addText: { color: "#4557d9", fontSize: 12, fontWeight: "700" },
+  addText: { color: colors.primaryDark, fontSize: 12, fontWeight: "400" },
   emptyProducts: {
     minHeight: 80,
     alignItems: "center",
     justifyContent: "center",
     gap: 7,
     borderRadius: 10,
-    backgroundColor: "#f7f8fc",
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: colors.border,
+    backgroundColor: colors.cardSecondary,
   },
-  emptyText: { color: "#7e899c", fontSize: 12 },
+  emptyText: { color: colors.secondary, fontSize: 12 },
   productList: { gap: 12 },
   selectedProductCard: {
     position: "relative",
@@ -834,8 +845,8 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 13,
     borderWidth: 1,
-    borderColor: "#dfe3ff",
-    backgroundColor: "#f4f6ff",
+    borderColor: colors.border,
+    backgroundColor: colors.cardSecondary,
   },
   removeProduct: {
     position: "absolute",
@@ -859,21 +870,21 @@ const styles = StyleSheet.create({
     height: 64,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: "#dfe3ff",
-    backgroundColor: "#fff",
+    borderColor: colors.border,
+    backgroundColor: colors.card,
     alignItems: "center",
     justifyContent: "center",
   },
   productDetails: { flex: 1, minWidth: 0 },
-  selectedProductName: { color: "#3849b9", fontSize: 15, fontWeight: "400" },
-  productSku: { color: "#929aaa", fontSize: 11, marginTop: 3 },
+  selectedProductName: { color: colors.heading, fontSize: 15, fontWeight: "400" },
+  productSku: { color: colors.muted, fontSize: 11, marginTop: 3 },
   stockRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
     marginTop: 4,
   },
-  stockText: { color: "#12966f", fontSize: 12, fontWeight: "400" },
+  stockText: { color: colors.successText, fontSize: 11, fontWeight: "400" },
   productControls: {
     flexDirection: "row",
     justifyContent: "center",
@@ -882,18 +893,20 @@ const styles = StyleSheet.create({
     paddingVertical: 11,
     paddingHorizontal: 14,
     borderRadius: 11,
-    backgroundColor: "#e4e8ff",
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.primaryLight,
   },
   controlColumn: { alignItems: "center", gap: 5 },
-  controlLabel: { color: "#7e899c", fontSize: 11 },
+  controlLabel: { color: colors.secondary, fontSize: 10, fontWeight: "400" },
   priceInput: {
     width: 86,
     height: 36,
     borderWidth: 1,
-    borderColor: "#d3d8e2",
+    borderColor: colors.secondaryBorder,
     borderRadius: 8,
-    backgroundColor: "#fff",
-    color: "#263248",
+    backgroundColor: colors.card,
+    color: colors.heading,
     fontSize: 14,
     fontWeight: "400",
     textAlign: "center",
@@ -904,7 +917,9 @@ const styles = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 17,
-    backgroundColor: "#cfd5ff",
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.secondaryBorder,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -912,15 +927,17 @@ const styles = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 17,
-    backgroundColor: "#fff",
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
     alignItems: "center",
     justifyContent: "center",
   },
   quantityValue: {
     width: 24,
-    color: "#263248",
+    color: colors.heading,
     fontSize: 15,
-    fontWeight: "800",
+    fontWeight: "400",
     textAlign: "center",
   },
   productTotalBar: {
@@ -933,17 +950,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 9,
     borderRadius: 11,
-    backgroundColor: "#9a3412",
+    backgroundColor: colors.primaryDark,
   },
-  totalEquation: { color: "#fed7aa", fontSize: 13 },
-  productTotalText: { color: "#fff", fontSize: 15, fontWeight: "400" },
+  totalEquation: { color: colors.primaryLight, fontSize: 12 },
+  productTotalText: { color: colors.white, fontSize: 15, fontWeight: "400" },
   input: {
     minHeight: 46,
     borderWidth: 1,
-    borderColor: "#dce1eb",
+    borderColor: colors.divider,
     borderRadius: 9,
     paddingHorizontal: 11,
-    color: "#263248",
+    backgroundColor: colors.card,
+    color: colors.heading,
     fontSize: 13,
   },
   addressInput: { minHeight: 76, paddingTop: 12, textAlignVertical: "top" },
@@ -953,21 +971,21 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 4,
   },
-  label: { color: "#657086", fontSize: 13 },
-  choiceValue: { color: "#4557d9", fontSize: 13, fontWeight: "700" },
+  label: { color: colors.secondary, fontSize: 12 },
+  choiceValue: { color: colors.primaryDark, fontSize: 12, fontWeight: "400" },
   totalRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     borderTopWidth: 1,
-    borderTopColor: "#edf0f4",
+    borderTopColor: colors.divider,
     paddingTop: 12,
   },
-  totalLabel: { color: "#263248", fontSize: 15, fontWeight: "700" },
-  totalValue: { color: "#172033", fontSize: 22, fontWeight: "800" },
+  totalLabel: { color: colors.heading, fontSize: 15, fontWeight: "400" },
+  totalValue: { color: colors.primaryDark, fontSize: 22, fontWeight: "400" },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: "#17203385",
+    backgroundColor: colors.overlay,
   },
   mobileModalBackdrop: { justifyContent: "flex-end" },
   desktopModalBackdrop: {
@@ -978,7 +996,7 @@ const styles = StyleSheet.create({
   customerModal: {
     width: "100%",
     maxWidth: 520,
-    backgroundColor: "#fff",
+    backgroundColor: colors.card,
     padding: 16,
     gap: 11,
     overflow: "hidden",
@@ -993,7 +1011,7 @@ const styles = StyleSheet.create({
     maxHeight: "85%",
     borderRadius: 18,
     paddingBottom: 20,
-    shadowColor: "#172033",
+    shadowColor: colors.heading,
     shadowOpacity: 0.2,
     shadowRadius: 18,
     shadowOffset: { width: 0, height: 8 },
@@ -1005,12 +1023,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingBottom: 8,
     borderBottomWidth: 1,
-    borderBottomColor: "#edf0f4",
+    borderBottomColor: colors.divider,
   },
   newCustomerLabel: {
-    color: "#4557d9",
+    color: colors.primaryDark,
     fontSize: 13,
-    fontWeight: "800",
+    fontWeight: "400",
     marginTop: 4,
   },
   customerResult: {
@@ -1019,7 +1037,7 @@ const styles = StyleSheet.create({
     gap: 9,
     padding: 10,
     borderRadius: 9,
-    backgroundColor: "#f7f8fc",
+    backgroundColor: colors.cardSecondary,
   },
   customerResults: { gap: 7 },
   addNewCustomerButton: {
@@ -1029,33 +1047,33 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 8,
     borderWidth: 1,
-    borderColor: "#cfd5ff",
+    borderColor: colors.border,
     borderRadius: 10,
-    backgroundColor: "#eef0ff",
+    backgroundColor: colors.primaryLight,
   },
-  addNewCustomerText: { color: "#4557d9", fontSize: 13, fontWeight: "800" },
+  addNewCustomerText: { color: colors.primaryDark, fontSize: 13, fontWeight: "400" },
   cancelNewCustomerButton: {
     minHeight: 42,
     alignItems: "center",
     justifyContent: "center",
   },
-  cancelNewCustomerText: { color: "#657086", fontSize: 12, fontWeight: "700" },
+  cancelNewCustomerText: { color: colors.secondary, fontSize: 12, fontWeight: "400" },
   inlineButton: {
     minHeight: 44,
     borderRadius: 9,
-    backgroundColor: "#4557d9",
+    backgroundColor: colors.primary,
     alignItems: "center",
     justifyContent: "center",
   },
-  inlineButtonText: { color: "#fff", fontSize: 13, fontWeight: "800" },
+  inlineButtonText: { color: colors.white, fontSize: 13, fontWeight: "400" },
   disabledButton: { opacity: 0.45 },
   customerSummary: {
     paddingHorizontal: 14,
     paddingVertical: 12,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#a7f3d0",
-    backgroundColor: "#ecfdf5",
+    borderColor: colors.border,
+    backgroundColor: colors.cardSecondary,
   },
   customerTopRow: {
     flexDirection: "row",
@@ -1066,13 +1084,13 @@ const styles = StyleSheet.create({
     width: 38,
     height: 38,
     borderRadius: 19,
-    backgroundColor: "#d1fae5",
+    backgroundColor: colors.primaryLight,
     alignItems: "center",
     justifyContent: "center",
   },
   customerIdentity: { flex: 1, minWidth: 0, gap: 2 },
-  customerName: { color: "#064e3b", fontSize: 14, fontWeight: "800" },
-  customerPhone: { color: "#047857", fontSize: 12, marginTop: 1 },
+  customerName: { color: colors.heading, fontSize: 14, fontWeight: "400" },
+  customerPhone: { color: colors.secondary, fontSize: 12, marginTop: 1 },
   customerLocation: {
     flex: 1,
     flexDirection: "row",
@@ -1080,7 +1098,7 @@ const styles = StyleSheet.create({
     gap: 3,
     marginTop: 1,
   },
-  customerAddress: { flex: 1, color: "#059669", fontSize: 12 },
+  customerAddress: { flex: 1, color: colors.secondary, fontSize: 12 },
   newCustomerBadge: {
     alignSelf: "flex-start",
     marginTop: 4,
@@ -1088,41 +1106,41 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     borderRadius: 10,
     overflow: "hidden",
-    backgroundColor: "#fef3c7",
-    color: "#b45309",
+    backgroundColor: colors.warningBackground,
+    color: colors.warningText,
     fontSize: 10,
-    fontWeight: "700",
+    fontWeight: "400",
   },
   changeCustomer: { paddingTop: 2, paddingLeft: 8 },
-  changeCustomerText: { color: "#047857", fontSize: 12, fontWeight: "800" },
+  changeCustomerText: { color: colors.primaryDark, fontSize: 12, fontWeight: "400" },
   deliveryAddressBlock: {
     marginTop: 12,
     paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: "#d1fae5",
+    borderTopColor: colors.border,
   },
   deliveryAddressLabel: {
-    color: "#059669",
+    color: colors.secondary,
     fontSize: 12,
-    fontWeight: "700",
+    fontWeight: "400",
     marginBottom: 6,
   },
   deliveryAddressInput: {
     minHeight: 42,
     borderWidth: 1,
-    borderColor: "#a7f3d0",
+    borderColor: colors.border,
     borderRadius: 9,
-    backgroundColor: "#fff",
-    color: "#263248",
+    backgroundColor: colors.card,
+    color: colors.heading,
     fontSize: 13,
     paddingHorizontal: 11,
   },
   orderDetailSection: {
     padding: 14,
     borderWidth: 1,
-    borderColor: "#9ca3af",
+    borderColor: colors.border,
     borderRadius: 14,
-    backgroundColor: "#f3f4f6",
+    backgroundColor: colors.cardSecondary,
     gap: 10,
   },
   orderDetailHeader: {
@@ -1131,7 +1149,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   orderDetailTitle: {
-    color: "#9ca3af",
+    color: colors.primaryDark,
     fontSize: 11,
     fontWeight: "400",
     letterSpacing: 0.8,
@@ -1149,27 +1167,27 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 42,
     borderWidth: 1,
-    borderColor: "#d1d5db",
+    borderColor: colors.divider,
     borderRadius: 12,
-    backgroundColor: "#fff",
+    backgroundColor: colors.card,
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 8,
   },
-  courierButtonActive: { borderColor: "#818cf8", backgroundColor: "#eef2ff" },
+  courierButtonActive: { borderColor: colors.activeBorder, backgroundColor: colors.primaryLight },
   courierButtonText: {
-    color: "#4b5563",
+    color: colors.secondary,
     fontSize: 12,
-    fontWeight: "600",
+    fontWeight: "400",
     textAlign: "center",
   },
-  courierButtonTextActive: { color: "#4338ca", fontWeight: "800" },
+  courierButtonTextActive: { color: colors.primaryDark, fontWeight: "400" },
   paymentCard: {
     padding: 14,
     borderWidth: 1,
-    borderColor: "#e5e7eb",
+    borderColor: colors.divider,
     borderRadius: 12,
-    backgroundColor: "#fff",
+    backgroundColor: colors.card,
     gap: 13,
   },
   paymentRow: {
@@ -1179,50 +1197,50 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 12,
   },
-  paymentLabel: { flex: 1, color: "#6b7280", fontSize: 13 },
-  paymentValue: { color: "#111827", fontSize: 13, fontWeight: "700" },
+  paymentLabel: { flex: 1, color: colors.secondary, fontSize: 13 },
+  paymentValue: { color: colors.heading, fontSize: 13, fontWeight: "400" },
   moneyInput: {
     width: 96,
     height: 38,
     borderWidth: 1,
-    borderColor: "#d1d5db",
+    borderColor: colors.border,
     borderRadius: 8,
-    backgroundColor: "#fff",
-    color: "#111827",
+    backgroundColor: colors.card,
+    color: colors.heading,
     fontSize: 13,
     textAlign: "right",
     paddingHorizontal: 9,
   },
-  discountAction: { color: "#4f46e5", fontSize: 13, fontWeight: "700" },
+  discountAction: { color: colors.primaryDark, fontSize: 13, fontWeight: "400" },
   paymentTotalRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     borderTopWidth: 1,
-    borderTopColor: "#e5e7eb",
+    borderTopColor: colors.divider,
     paddingTop: 13,
   },
-  paymentTotalLabel: { color: "#111827", fontSize: 15, fontWeight: "800" },
-  paymentTotalValue: { color: "#4338ca", fontSize: 16, fontWeight: "800" },
+  paymentTotalLabel: { color: colors.heading, fontSize: 15, fontWeight: "400" },
+  paymentTotalValue: { color: colors.primaryDark, fontSize: 18, fontWeight: "400" },
   paymentBalanceRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     borderTopWidth: 1,
-    borderTopColor: "#e5e7eb",
+    borderTopColor: colors.divider,
     paddingTop: 13,
   },
-  balanceValue: { color: "#dc2626", fontSize: 14, fontWeight: "800" },
+  balanceValue: { color: colors.dangerText, fontSize: 14, fontWeight: "400" },
   channelSection: {
     padding: 14,
     borderWidth: 1,
-    borderColor: "#9ca3af",
+    borderColor: colors.border,
     borderRadius: 14,
-    backgroundColor: "#f3f4f6",
+    backgroundColor: colors.cardSecondary,
     gap: 10,
   },
   channelSectionTitle: {
-    color: "#9ca3af",
+    color: colors.primaryDark,
     fontSize: 11,
     fontWeight: "400",
     letterSpacing: 0.8,
@@ -1235,19 +1253,19 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 12,
   },
-  channelButtonActive: { borderColor: "#2563eb", backgroundColor: "#2563eb" },
-  channelButtonInactive: { borderColor: "#9ca3af", backgroundColor: "#d1d5db" },
-  channelButtonText: { fontSize: 12, fontWeight: "700" },
-  channelButtonTextActive: { color: "#fff" },
-  channelButtonTextInactive: { color: "#111827" },
+  channelButtonActive: { borderColor: colors.primary, backgroundColor: colors.primary },
+  channelButtonInactive: { borderColor: colors.divider, backgroundColor: colors.card },
+  channelButtonText: { fontSize: 12, fontWeight: "400" },
+  channelButtonTextActive: { color: colors.white },
+  channelButtonTextInactive: { color: colors.heading },
   addRow: { minHeight: 42, flexDirection: "row", alignItems: "center", gap: 8 },
-  addRowText: { color: "#4557d9", fontSize: 13, fontWeight: "800" },
+  addRowText: { color: colors.primaryDark, fontSize: 13, fontWeight: "400" },
   noteSection: {
     padding: 14,
     borderWidth: 1,
-    borderColor: "#fcd34d",
+    borderColor: colors.border,
     borderRadius: 14,
-    backgroundColor: "#fffbeb",
+    backgroundColor: colors.cardSecondary,
     gap: 10,
   },
   noteAddButton: {
@@ -1260,20 +1278,20 @@ const styles = StyleSheet.create({
     width: 38,
     height: 38,
     borderRadius: 10,
-    backgroundColor: "#fef3c7",
+    backgroundColor: colors.primaryLight,
     alignItems: "center",
     justifyContent: "center",
   },
   noteButtonCopy: { flex: 1, gap: 2 },
-  noteAddTitle: { color: "#92400e", fontSize: 14, fontWeight: "400" },
-  noteAddHint: { color: "#b45309", fontSize: 11 },
+  noteAddTitle: { color: colors.heading, fontSize: 14, fontWeight: "400" },
+  noteAddHint: { color: colors.secondary, fontSize: 11 },
   noteHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
   noteTitle: {
-    color: "#92400e",
+    color: colors.primaryDark,
     fontSize: 13,
     fontWeight: "400",
     textTransform: "uppercase",
@@ -1282,10 +1300,10 @@ const styles = StyleSheet.create({
   noteInput: {
     minHeight: 82,
     borderWidth: 1,
-    borderColor: "#fcd34d",
+    borderColor: colors.border,
     borderRadius: 10,
-    backgroundColor: "#fff",
-    color: "#78350f",
+    backgroundColor: colors.card,
+    color: colors.heading,
     fontSize: 13,
     paddingHorizontal: 11,
     paddingTop: 11,
@@ -1296,17 +1314,17 @@ const styles = StyleSheet.create({
     minHeight: 50,
     borderRadius: 11,
     borderWidth: 1,
-    borderColor: "#4557d9",
+    borderColor: colors.primary,
     alignItems: "center",
     justifyContent: "center",
   },
-  draftText: { color: "#4557d9", fontSize: 14, fontWeight: "800" },
+  draftText: { color: colors.primaryDark, fontSize: 14, fontWeight: "400" },
   confirmButton: {
     minHeight: 52,
     borderRadius: 11,
-    backgroundColor: "#4557d9",
+    backgroundColor: colors.primary,
     alignItems: "center",
     justifyContent: "center",
   },
-  confirmText: { color: "#fff", fontSize: 15, fontWeight: "800" },
+  confirmText: { color: colors.white, fontSize: 15, fontWeight: "400" },
 });

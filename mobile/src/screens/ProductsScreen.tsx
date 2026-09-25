@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";import { ActivityIndicator, 
 import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { router } from "expo-router";
-import { useAuth } from "../auth/AuthContext";
+import { MEDIA_URL, useAuth } from "../auth/AuthContext";
 import { colors } from "../theme";
 
 type Category = { id: string; name: string; nameBn?: string | null };
@@ -13,7 +13,6 @@ type Product = {
   variantCount: number; totalStock: number; lowStockThreshold: number; buyPrice?: number;
   showOnMarketplace: boolean;
 };
-const MEDIA_URL = "https://fileserverapi.lavlokshan.com";
 const imageUrl = (value: string | null) => !value ? null : /^https?:\/\//i.test(value) ? value : `${MEDIA_URL}${value}`;
 const money = (value: number) => `৳${Number(value).toLocaleString("en-BD", { maximumFractionDigits: 2 })}`;
 

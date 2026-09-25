@@ -3,7 +3,7 @@ import { Ionicons } from "@expo/vector-icons";import * as ExpoLinking from "expo
 import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Image, Modal, Platform, Pressable, ScrollView, StyleSheet, TextInput, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useAuth } from "../auth/AuthContext";
+import { MEDIA_URL, useAuth } from "../auth/AuthContext";
 import { colors } from "../theme";
 
 export type ProductPickerResult = {
@@ -18,7 +18,6 @@ type Category = { id: string; name: string };
 type Props = { open: boolean; onClose: () => void; onSelect: (product: ProductPickerResult) => void; selectedVariantIds?: Set<string>; showSellingPrice?: boolean; showAverageCost?: boolean; onlyInStock?: boolean; showRecentlyPurchased?: boolean; title?: string };
 
 const mapProduct = (p: RawProduct): ProductPickerResult => ({ productId: p.id, variantId: p.variantId, productName: p.name, variantSku: p.sku, barcode: p.barcode ?? "", sellingPrice: Number(p.effectivePrice ?? 0), imageUrl: p.imageUrl ?? null, unitCode: p.unitCode ?? "PCS", variantValuesJson: p.variantValuesJson ?? "{}", stock: Number(p.stock ?? 0), avgLandedCost: Number(p.avgLandedCost ?? 0), marketPrice: p.marketPrice ?? null, categoryId: p.categoryId ?? "" });
-const MEDIA_URL = "https://fileserverapi.lavlokshan.com";
 const media = (value: string | null) => !value ? null : /^https?:\/\//i.test(value) ? value : `${MEDIA_URL}${value}`;
 
 export default function ProductPicker({ open, onClose, onSelect, selectedVariantIds, showSellingPrice = false, showAverageCost = true, onlyInStock = false, showRecentlyPurchased = true, title = "Choose Product" }: Props) {

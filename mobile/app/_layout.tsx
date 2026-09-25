@@ -120,6 +120,15 @@ function AppShell() {
       </Pressable>
     </Link>;
   });
+  const drawerPrimaryNavigation = tabs.map(tab => {
+    const href = tab.href;
+    const active = href === "/" ? path === "/" : path.startsWith(href);
+    const icon = `${tab.icon}${active ? "" : "-outline"}` as keyof typeof Ionicons.glyphMap;
+    return <Pressable key={tab.label} accessibilityState={{ selected: active }} onPress={() => { setDrawerOpen(false); router.push(href); }} style={({ pressed }) => [s.moreRow, active && s.activeMoreRow, pressed && s.pressed]}>
+      <Ionicons name={icon} size={19} color={active ? colors.primaryDark : colors.neutralIcon} />
+      <Text numberOfLines={1} style={[s.moreLabel, active && s.activeMoreLabel]}>{t(tab.label)}</Text>
+    </Pressable>;
+  });
   const openMoreItem = (item: MoreNavItem) => {
     setDrawerOpen(false);
     if (item.key === "categories") return router.push("/more/categories");
@@ -162,7 +171,7 @@ function AppShell() {
     </View>
     {!showSidebar ? <View style={[s.bar, { paddingBottom: Math.max(insets.bottom, 8) }]}>{mobileBottomNavigation}</View> : null}
     {!showSidebar&&<Modal visible={quickActionsOpen} transparent animationType="slide" onRequestClose={()=>setQuickActionsOpen(false)}><Pressable onPress={()=>setQuickActionsOpen(false)} style={s.quickOverlay}><Pressable onPress={event=>event.stopPropagation()} style={[s.quickSheet,{paddingBottom:Math.max(insets.bottom,16)}]}><View style={s.quickHandle}/><View style={s.quickHeader}><View><Text style={s.quickTitle}>{t("Create New")}</Text><Text style={s.quickSubtitle}>{t("Choose what you want to add")}</Text></View><Pressable onPress={()=>setQuickActionsOpen(false)} style={s.quickClose}><Ionicons name="close" size={21} color={colors.secondary}/></Pressable></View><View style={s.quickGrid}>{quickActions.filter(action=>!action.roles||action.roles.includes(role)).map(action=><Pressable key={action.key} onPress={()=>openQuickAction(action.key)} style={({pressed})=>[s.quickAction,pressed&&s.pressed]}><View style={s.quickActionIcon}><Ionicons name={action.icon} size={21} color={colors.primaryDark}/></View><View style={s.quickActionCopy}><Text style={s.quickActionLabel}>{t(action.label)}</Text><Text numberOfLines={1} style={s.quickActionHint}>{t(action.hint)}</Text></View></Pressable>)}</View></Pressable></Pressable></Modal>}
-    {!showSidebar&&<Modal visible={drawerOpen} transparent animationType="fade" onRequestClose={()=>setDrawerOpen(false)}><View style={s.drawerScene}><Pressable accessibilityLabel="Close navigation" onPress={()=>setDrawerOpen(false)} style={s.drawerDismiss}/><SafeAreaView style={s.drawer} edges={["top","bottom"]}><View style={s.drawerHeader}><Image source={require("../assets/logo.png")} resizeMode="contain" style={s.drawerLogo}/><Pressable accessibilityRole="button" accessibilityLabel="Close navigation" onPress={()=>setDrawerOpen(false)} style={s.drawerClose}><Ionicons name="close" size={23} color={colors.secondary}/></Pressable></View><View style={s.drawerTitleRow}><View><Text style={s.drawerTitle}>{t("Navigation")}</Text><Text style={s.drawerSubtitle}>{t("Manage your business")}</Text></View></View><ScrollView contentContainerStyle={s.drawerContent} showsVerticalScrollIndicator={false}>{morePanel}</ScrollView></SafeAreaView></View></Modal>}
+    {!showSidebar&&<Modal visible={drawerOpen} transparent animationType="fade" onRequestClose={()=>setDrawerOpen(false)}><View style={s.drawerScene}><Pressable accessibilityLabel="Close navigation" onPress={()=>setDrawerOpen(false)} style={s.drawerDismiss}/><SafeAreaView style={s.drawer} edges={["top","bottom"]}><View style={s.drawerHeader}><Image source={require("../assets/logo.png")} resizeMode="contain" style={s.drawerLogo}/><Pressable accessibilityRole="button" accessibilityLabel="Close navigation" onPress={()=>setDrawerOpen(false)} style={s.drawerClose}><Ionicons name="close" size={23} color={colors.secondary}/></Pressable></View><View style={s.drawerTitleRow}><View><Text style={s.drawerTitle}>{t("Navigation")}</Text><Text style={s.drawerSubtitle}>{t("Manage your business")}</Text></View></View><ScrollView contentContainerStyle={s.drawerContent} showsVerticalScrollIndicator={false}><View style={s.moreList}>{drawerPrimaryNavigation}</View>{morePanel}</ScrollView></SafeAreaView></View></Modal>}
   </SafeAreaView>;
 }
 

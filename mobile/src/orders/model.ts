@@ -12,14 +12,13 @@ export type Order = {
   items: { productName: string; variantSku: string; qty: number; availableStock: number }[];
 };
 export const queues = [
-  { key: "ALL", label: "All", color: colors.heading, bg: colors.card, hint: "Orders grouped by status, newest first in each section" },
-  { key: "UNFULFILLED", label: "New", color: colors.primaryDark, bg: colors.cardSecondary, hint: "Review and confirm new orders" },
-  { key: "PROCESSING", label: "Processing", color: colors.primary, bg: colors.primaryLight, hint: "Confirmed orders ready to prepare and hand over" },
+  { key: "UNFULFILLED", label: "New Order", color: colors.primaryDark, bg: colors.cardSecondary, hint: "Review and confirm new orders" },
   { key: "WAITING_COURIER", label: "Waiting for Courier", color: colors.warningText, bg: colors.warningBackground, hint: "Packed orders ready for courier handover" },
-  { key: "PENDING", label: "In Transit", color: colors.infoText, bg: colors.infoBackground, hint: "Track shipments and confirm delivery" },
+  { key: "PENDING", label: "Pending Delivery", color: colors.infoText, bg: colors.infoBackground, hint: "Track shipments and confirm delivery" },
   { key: "DELIVERED", label: "Delivered", color: colors.successText, bg: colors.successBackground, hint: "Completed deliveries and payment follow-up" },
   { key: "RETURNED", label: "Returned", color: colors.primaryDark, bg: colors.cardSecondary, hint: "Review returned orders" },
   { key: "CANCELLED", label: "Cancelled", color: colors.neutralIcon, bg: colors.disabled, hint: "Cancelled order history" },
+  { key: "ALL", label: "All", color: colors.heading, bg: colors.card, hint: "Orders grouped by status, newest first in each section" },
   { key: "ISSUES", label: "Issues", color: colors.dangerText, bg: colors.dangerBackground, hint: "Resolve stock shortages before confirming orders" },
 ] as const;
 export type Queue = typeof queues[number]["key"];
@@ -32,8 +31,7 @@ export const hasStockIssue = (order: Order) => order.isDraft && order.orderStatu
 export function queueFor(order: Order): Queue {
   if (order.orderStatus === "CANCELLED") return "CANCELLED";
   if (order.isDraft) return "UNFULFILLED";
-  if (order.fulfillmentStatus === "UNFULFILLED") return "PROCESSING";
-  if (order.fulfillmentStatus === "PACKED") return "WAITING_COURIER";
+  if (order.fulfillmentStatus === "UNFULFILLED" || order.fulfillmentStatus === "PACKED") return "WAITING_COURIER";
   if (order.fulfillmentStatus === "IN_TRANSIT") return "PENDING";
   return order.fulfillmentStatus;
 }

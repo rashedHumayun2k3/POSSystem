@@ -4,7 +4,7 @@ import { router } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, TextInput, useWindowDimensions, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useAuth } from "../auth/AuthContext";
+import { MEDIA_URL, useAuth } from "../auth/AuthContext";
 import { colors } from "../theme";
 
 type Tab = "selected" | "products" | "choose";
@@ -15,7 +15,6 @@ type Product = { id: string; name: string; sku: string; imageUrl: string | null;
 type Branch = { id: string; name: string; isDefault: boolean };
 type Selection = { suggestedProductId: string | null; qty: string; unitCost: string; price: string };
 
-const MEDIA_URL = "https://fileserverapi.lavlokshan.com";
 const media = (value?: string | null) => !value ? null : /^https?:\/\//i.test(value) ? value : `${MEDIA_URL}${value}`;
 const emoji = (name: string, type = "") => { const value = `${name} ${type}`.toLowerCase(); if (/phone|mobile|electronic/.test(value)) return "📱"; if (/shoe|footwear/.test(value)) return "👟"; if (/women|dress|three-piece/.test(value)) return "👗"; if (/men|shirt|fashion|cloth/.test(value)) return "👔"; if (/kid|baby|toy/.test(value)) return "👶"; if (/bag|accessor/.test(value)) return "👜"; if (/beauty|cosmetic/.test(value)) return "💄"; if (/book|stationery/.test(value)) return "📚"; if (/home|kitchen/.test(value)) return "🍽️"; return "🏷️"; };
 

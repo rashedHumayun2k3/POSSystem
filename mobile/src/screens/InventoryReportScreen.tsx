@@ -2,13 +2,12 @@ import {Ionicons} from "@expo/vector-icons";
 import {useLocalSearchParams} from "expo-router";
 import {useEffect,useMemo,useRef,useState} from "react";
 import {ActivityIndicator,Image,Pressable,RefreshControl,ScrollView,StyleSheet,TextInput,View} from "react-native";
-import {useAuth} from "../auth/AuthContext";
+import {MEDIA_URL,useAuth} from "../auth/AuthContext";
 import {useLanguage} from "../i18n/LanguageContext";
 import {Text} from "../i18n/LocalizedText";
 import {colors} from "../theme";
 import type {DatePoint,GroupBy,InventoryReport,InventoryTab,NameValue,ReportPeriod,StockStatusItem} from "../types/inventoryReport";
 
-const MEDIA_URL="https://fileserverapi.lavlokshan.com";
 const imageUrl=(value?:string|null)=>!value?null:/^https?:\/\//i.test(value)?value:`${MEDIA_URL}${value}`;
 const money=(n:number)=>`৳${Number(n||0).toLocaleString("en-BD",{maximumFractionDigits:2})}`;
 function dates(period:ReportPeriod){const current=new Date(),fmt=(d:Date)=>d.toISOString().split("T")[0],to=fmt(current);if(period==="today")return{from:to,to};const days=period==="7d"?7:period==="30d"?30:period==="3m"?90:180,from=new Date(current);from.setDate(current.getDate()-(days-1));return{from:fmt(from),to}}

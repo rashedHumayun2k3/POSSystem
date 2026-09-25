@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";import { ActivityIndicator, 
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useAuth } from "../auth/AuthContext";
+import { MEDIA_URL, useAuth } from "../auth/AuthContext";
 import { colors } from "../theme";
 
 type Category = { id: string; name: string };
@@ -12,7 +12,6 @@ type Sold = Record<string, { qty: number; amount: number }>;
 type CartItem = { product: RawProduct; qty: number; unitPrice: number };
 type Customer = { id?: string; name: string; phone: string; address?: string | null };
 type SaleReceipt = { orderId: string; customerName: string; customerPhone?: string; items: CartItem[]; total: number; note?: string };
-const MEDIA_URL = "https://fileserverapi.lavlokshan.com";
 const imageUrl = (value?: string | null) => !value ? null : /^https?:\/\//i.test(value) ? value : `${MEDIA_URL}${value}`;
 const money = (value: number) => `৳${Number(value).toLocaleString("en-BD", { maximumFractionDigits: 2 })}`;
 const today = () => { const date = new Date(); return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`; };

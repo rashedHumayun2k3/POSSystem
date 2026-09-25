@@ -31,6 +31,7 @@ import {
 
 type OrderPage = { items: Order[]; counts: Record<string, number>; totalCount: number; page: number; pageSize: number };
 type Icon = keyof typeof Ionicons.glyphMap;
+const PAGE_SIZE = 10;
 function Button({
   label,
   onPress,
@@ -168,9 +169,6 @@ function Details({ order }: { order: Order }) {
 }
 
 export default function OrdersScreen() {
-  const auth = useAuth();
-  const apiRef = useRef(auth.api);
-  apiRef.current = auth.api;
   const params = useLocalSearchParams<{ tab?: string }>();
   const activeTab: Queue = queues.some((item) => item.key === params.tab)
     ? (params.tab as Queue)
@@ -181,7 +179,6 @@ export default function OrdersScreen() {
   const [showFilters, setShowFilters] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [searchFocused, setSearchFocused] = useState(false);
-  const [selected, setSelected] = useState<Order | null>(null);
   const [contact, setContact] = useState<Order | null>(null);
   const [page, setPage] = useState(1);
   const [width, setWidth] = useState(0);
@@ -377,31 +374,16 @@ export default function OrdersScreen() {
             showsHorizontalScrollIndicator
             contentContainerStyle={s.tabs}
           >
-            {queues.map((queue) => (
+            {queues.filter((queue) => queue.key !== "ISSUES").map((queue) => (
               <Pressable
                 key={queue.key}
                 accessibilityRole="tab"
                 accessibilityState={{ selected: activeTab === queue.key }}
                 onPress={() => changeTab(queue.key)}
-                style={[
-                  s.queue,
-                  {
-                    backgroundColor: `${queue.color}0D`,
-                    borderColor:
-                      activeTab === queue.key ? queue.color : "transparent",
-                  },
-                ]}
+                style={[s.queue, activeTab === queue.key ? s.activeQueue : s.inactiveQueue]}
               >
-                <Text style={[s.queueLabel, { color: queue.color }]}>
+                <Text style={[s.queueLabel, activeTab === queue.key ? s.activeQueueLabel : s.inactiveQueueLabel]}>
                   {queue.label}
-                </Text>
-                <Text
-                  style={[
-                    s.count,
-                    { color: queue.color, backgroundColor: `${queue.color}14` },
-                  ]}
-                >
-                  {count(queue.key)}
                 </Text>
               </Pressable>
             ))}
@@ -480,7 +462,7 @@ export default function OrdersScreen() {
                         <Button
                           label="View Order"
                           primary
-                          onPress={() => setSelected(order)}
+                          onPress={() => router.push(`/orders/${order.id}`)}
                         />
                         <Button
                           label="Contact Customer"
@@ -595,32 +577,6 @@ export default function OrdersScreen() {
           </View>
         </Sheet>
       )}
-      {selected && (
-        <Sheet title={selected.orderNo} close={() => setSelected(null)}>
-          <Text style={s.small}>Sample order preview</Text>
-          <Status order={selected} />
-          <Details order={selected} />
-          <View style={s.summary}>
-            <Text style={s.name}>Total</Text>
-            <Text style={s.money}>{money(selected.totalAmount)}</Text>
-          </View>
-          {!selected.isDraft && (
-            <View style={s.summary}>
-              <Text style={s.name}>Due</Text>
-              <Text style={s.money}>{money(selected.dueAmount)}</Text>
-            </View>
-          )}
-          {hasStockIssue(selected) && (
-            <Text style={s.errorText}>
-              Stock is insufficient for this sample order.
-            </Text>
-          )}
-          <Text style={s.small}>
-            Order editing and fulfillment will be available when your business
-            is connected.
-          </Text>
-        </Sheet>
-      )}
       {contact && (
         <Sheet title="Contact Customer" close={() => setContact(null)}>
           <Text style={s.orderNo}>{contact.orderNo}</Text>
@@ -664,23 +620,20 @@ const s = StyleSheet.create({
   warningTitle: { fontSize: 12, fontWeight: "700", color: "#b91c1c" },
   panel: {
     backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: "#e8ebf1",
-    borderRadius: 14,
-    overflow: "hidden",
   },
-  tabs: { paddingHorizontal: 8, paddingVertical: 5, gap: 6 },
+  tabs: { paddingHorizontal: 12, paddingTop: 12, paddingBottom: 12, gap: 4 },
   queue: {
-    flexDirection: "row",
     alignItems: "center",
-    gap: 5,
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: "transparent",
+    justifyContent: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
   },
-  queueLabel: { fontSize: 12, fontWeight: "700" },
+  activeQueue: { backgroundColor: "#4557d9" },
+  inactiveQueue: { backgroundColor: "#f1f3f6" },
+  queueLabel: { fontSize: 12, fontWeight: "500" },
+  activeQueueLabel: { color: "#fff" },
+  inactiveQueueLabel: { color: "#5f6b7c" },
   count: {
     paddingHorizontal: 4,
     paddingVertical: 1,

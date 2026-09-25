@@ -3,7 +3,7 @@ import { Ionicons } from "@expo/vector-icons";import { router, useLocalSearchPar
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Alert, Image, Modal, Platform, Pressable, ScrollView, StyleSheet, TextInput, useWindowDimensions, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { API_URL, useAuth } from "../auth/AuthContext";
+import { API_URL, MEDIA_URL, useAuth } from "../auth/AuthContext";
 import { colors } from "../theme";
 
 type Variant = { id: string; variantValuesJson: string; sku: string; barcode: string; imageUrl: string | null; note: string | null; priceOverride: number | null; isDefault: boolean; avgLandedCost?: number; stock?: number; rowVer?: number[] };
@@ -16,7 +16,6 @@ type Adjustment = { id: string; reason: string; qty: number; note: string | null
 type PriceSlot = { id: string; label: string; price: number; reason: string | null; isActive: boolean; createdAt: string; createdByName: string; startDate: string; endDate: string | null };
 type CategoryField = { id: string; name: string; fieldType: string; optionsJson?: string | null; isVariant: boolean };
 type Tab = "info" | "variants" | "prices" | "stock" | "marketplace";
-const MEDIA_URL = "https://fileserverapi.lavlokshan.com";
 const media = (value?: string | null) => !value ? null : /^https?:\/\//i.test(value) ? value : `${MEDIA_URL}${value}`;
 const money = (value?: number | null) => `৳${Number(value ?? 0).toLocaleString("en-BD", { maximumFractionDigits: 2 })}`;
 const variantName = (variant: Variant) => { try { const values = Object.values(JSON.parse(variant.variantValuesJson || "{}") as Record<string, string>).filter(Boolean); return values.length ? values.join(" / ") : variant.sku; } catch { return variant.sku; } };
