@@ -25,6 +25,7 @@ public interface IProductService
     Task RemoveImageAsync(Guid productId, Guid imageId, Guid userId);
     Task ReorderImagesAsync(Guid productId, ReorderProductImagesRequest request, Guid userId);
     Task<List<VariantLabelData>> GetVariantLabelsAsync(Guid productId, Guid? variantId);
+    Task<Dictionary<Guid, VariantLabelData>> GetVariantLabelsByIdsAsync(IReadOnlyCollection<Guid> variantIds);
 
     Task<VariantDto> AddVariantAsync(Guid productId, CreateVariantRequest request, Guid userId);
     Task<VariantDto> UpdateVariantAsync(Guid productId, Guid variantId, UpdateVariantRequest request, Guid userId);

@@ -55,6 +55,9 @@ public class AppDbContext : DbContext
     public DbSet<PurchaseTrip> PurchaseTrips => Set<PurchaseTrip>();
     public DbSet<PurchaseItem> PurchaseItems => Set<PurchaseItem>();
     public DbSet<PurchaseTripCost> PurchaseTripCosts => Set<PurchaseTripCost>();
+    public DbSet<ShippingCompany> ShippingCompanies => Set<ShippingCompany>();
+    public DbSet<ShippingCompanyRate> ShippingCompanyRates => Set<ShippingCompanyRate>();
+    public DbSet<PurchaseShipment> PurchaseShipments => Set<PurchaseShipment>();
     public DbSet<Lot> Lots => Set<Lot>();
     public DbSet<StockMovement> StockMovements => Set<StockMovement>();
     public DbSet<VariantInventory> VariantInventories => Set<VariantInventory>();
@@ -82,6 +85,8 @@ public class AppDbContext : DbContext
     public DbSet<OrderPayment> OrderPayments => Set<OrderPayment>();
     public DbSet<CourierRemittance> CourierRemittances => Set<CourierRemittance>();
     public DbSet<ExternalOrderIntegration> ExternalOrderIntegrations => Set<ExternalOrderIntegration>();
+    public DbSet<PreOrder> PreOrders => Set<PreOrder>();
+    public DbSet<PreOrderItem> PreOrderItems => Set<PreOrderItem>();
 
     // ── Module 15 — Partnership & Capital Ledger (sub-phase 15a) ───────────
     public DbSet<Partner> Partners => Set<Partner>();
@@ -503,6 +508,7 @@ public class AppDbContext : DbContext
             e.Property(x => x.SourceType).HasMaxLength(30).IsRequired();
             e.Property(x => x.Status).HasMaxLength(20).IsRequired();
             e.Property(x => x.Note).HasMaxLength(500);
+            e.Property(x => x.ApprovalNote).HasMaxLength(500);
             e.Property(x => x.AttachmentsJson).HasColumnType("nvarchar(max)");
             e.Property(x => x.ForceCompleteReason).HasMaxLength(500);
             e.Property(x => x.BranchId).IsRequired();
@@ -587,6 +593,7 @@ public class AppDbContext : DbContext
             e.Property(x => x.Name).HasMaxLength(200).IsRequired();
             e.Property(x => x.Address).HasMaxLength(500);
             e.Property(x => x.Phone).HasMaxLength(30);
+            e.Property(x => x.Country).HasMaxLength(100);
             e.Property(x => x.Notes).HasMaxLength(1000);
         });
 
@@ -646,6 +653,61 @@ public class AppDbContext : DbContext
             e.Property(x => x.IsPostCompletion).HasDefaultValue(false);
             e.HasOne(x => x.Trip).WithMany(t => t.Costs)
                 .HasForeignKey(x => x.TripId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ShippingCompany>(e =>
+        {
+            e.ToTable("shipping_companies");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
+            e.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            e.Property(x => x.Phone).HasMaxLength(50);
+            e.Property(x => x.Address).HasMaxLength(500);
+            e.Property(x => x.LocalAddress).HasMaxLength(500);
+            e.Property(x => x.ChinaAddress).HasMaxLength(500);
+            e.Property(x => x.Notes).HasMaxLength(500);
+            e.HasIndex(x => new { x.BusinessId, x.Name }).IsUnique().HasFilter("[DeletedAt] IS NULL");
+        });
+
+        modelBuilder.Entity<ShippingCompanyRate>(e =>
+        {
+            e.ToTable("shipping_company_rates");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
+            e.Property(x => x.ShippingMethod).HasMaxLength(20).IsRequired();
+            e.Property(x => x.ChargeBasis).HasMaxLength(20).IsRequired();
+            e.Property(x => x.RateAmount).HasColumnType("DECIMAL(14,2)");
+            e.Property(x => x.CurrencyCode).HasMaxLength(3).IsRequired();
+            e.Property(x => x.MinimumCharge).HasColumnType("DECIMAL(14,2)");
+            e.HasOne(x => x.ShippingCompany).WithMany(x => x.Rates)
+                .HasForeignKey(x => x.ShippingCompanyId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(x => new { x.ShippingCompanyId, x.ShippingMethod, x.ChargeBasis })
+                .IsUnique().HasFilter("[DeletedAt] IS NULL");
+        });
+
+        modelBuilder.Entity<PurchaseShipment>(e =>
+        {
+            e.ToTable("purchase_shipments");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
+            e.Property(x => x.ShippingCompanyNameSnapshot).HasMaxLength(200).IsRequired();
+            e.Property(x => x.ShippingMethod).HasMaxLength(20).IsRequired();
+            e.Property(x => x.ChargeBasis).HasMaxLength(20).IsRequired();
+            e.Property(x => x.RateAmountSnapshot).HasColumnType("DECIMAL(14,2)");
+            e.Property(x => x.CurrencyCode).HasMaxLength(3).IsRequired();
+            e.Property(x => x.BillableQuantity).HasColumnType("DECIMAL(14,3)");
+            e.Property(x => x.CalculatedCost).HasColumnType("DECIMAL(14,2)");
+            e.Property(x => x.TrackingNumber).HasMaxLength(100);
+            e.Property(x => x.Note).HasMaxLength(500);
+            e.HasOne(x => x.Trip).WithMany(x => x.Shipments)
+                .HasForeignKey(x => x.TripId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.ShippingCompany).WithMany()
+                .HasForeignKey(x => x.ShippingCompanyId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.ShippingCompanyRate).WithMany()
+                .HasForeignKey(x => x.ShippingCompanyRateId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne(x => x.PurchaseTripCost).WithMany()
+                .HasForeignKey(x => x.PurchaseTripCostId).OnDelete(DeleteBehavior.NoAction);
+            e.HasIndex(x => x.TripId).IsUnique().HasFilter("[DeletedAt] IS NULL");
         });
 
         // ── Lot ─────────────────────────────────────────────────────────────
@@ -1374,6 +1436,46 @@ public class AppDbContext : DbContext
                 .HasForeignKey(x => x.ReviewId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne(x => x.RepliedByUser).WithMany()
                 .HasForeignKey(x => x.RepliedByUserId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // ── Pre-orders ──────────────────────────────────────────────────────
+        modelBuilder.Entity<PreOrder>(e =>
+        {
+            e.ToTable("pre_orders");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
+            e.Property(x => x.PreOrderNo).HasMaxLength(40).IsRequired();
+            e.Property(x => x.Source).HasMaxLength(20).IsRequired();
+            e.Property(x => x.Status).HasMaxLength(30).IsRequired();
+            e.Property(x => x.CustomerName).HasMaxLength(200);
+            e.Property(x => x.CustomerPhone).HasMaxLength(30);
+            e.Property(x => x.CustomerEmail).HasMaxLength(255);
+            e.Property(x => x.CustomerReference).HasMaxLength(200);
+            e.Property(x => x.CustomerNote).HasMaxLength(2000);
+            e.Property(x => x.StaffNote).HasMaxLength(2000);
+            e.Property(x => x.CancellationReason).HasMaxLength(500);
+            e.HasIndex(x => new { x.BusinessId, x.PreOrderNo }).IsUnique();
+            e.HasIndex(x => new { x.BusinessId, x.BranchId, x.Status, x.RequestedAt });
+            e.HasOne(x => x.Business).WithMany().HasForeignKey(x => x.BusinessId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.Branch).WithMany().HasForeignKey(x => x.BranchId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.CreatedByUser).WithMany().HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<PreOrderItem>(e =>
+        {
+            e.ToTable("pre_order_items");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
+            e.Property(x => x.QuantityRequested).HasColumnType("DECIMAL(18,3)");
+            e.Property(x => x.QuantityReserved).HasColumnType("DECIMAL(18,3)");
+            e.Property(x => x.QuantityFulfilled).HasColumnType("DECIMAL(18,3)");
+            e.Property(x => x.UnitPriceSnapshot).HasColumnType("DECIMAL(18,2)");
+            e.Property(x => x.ProductNameSnapshot).HasMaxLength(300).IsRequired();
+            e.Property(x => x.VariantNameSnapshot).HasMaxLength(300).IsRequired();
+            e.HasOne(x => x.PreOrder).WithMany(x => x.Items).HasForeignKey(x => x.PreOrderId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.Product).WithMany().HasForeignKey(x => x.ProductId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.Variant).WithMany().HasForeignKey(x => x.VariantId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.Business).WithMany().HasForeignKey(x => x.BusinessId).OnDelete(DeleteBehavior.Restrict);
         });
 
         // ── Feedback ────────────────────────────────────────────────────────

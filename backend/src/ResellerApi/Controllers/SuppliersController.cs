@@ -24,9 +24,10 @@ public class SuppliersController : ControllerBase
     public async Task<IActionResult> List(
         [FromQuery] string? search,
         [FromQuery] int? limit,
-        [FromQuery] string? sort)
+        [FromQuery] string? sort,
+        [FromQuery] string? country)
     {
-        return Ok(await _svc.ListAsync(search, limit, sort));
+        return Ok(await _svc.ListAsync(search, limit, sort, country));
     }
 
     [HttpGet("{id:guid}")]

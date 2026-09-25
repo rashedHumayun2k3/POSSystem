@@ -707,6 +707,25 @@ public class ProductService : IProductService
         }).ToList();
     }
 
+    public async Task<Dictionary<Guid, VariantLabelData>> GetVariantLabelsByIdsAsync(IReadOnlyCollection<Guid> variantIds)
+    {
+        if (variantIds.Count == 0) return new Dictionary<Guid, VariantLabelData>();
+
+        var variants = await _db.ProductVariants
+            .AsNoTracking()
+            .Include(v => v.Product)
+            .Where(v => variantIds.Contains(v.Id) && v.DeletedAt == null && v.Product.Status == "ACTIVE")
+            .ToListAsync();
+
+        return variants.ToDictionary(v => v.Id, v =>
+        {
+            var vals = System.Text.Json.JsonSerializer
+                .Deserialize<Dictionary<string, string>>(v.VariantValuesJson ?? "{}") ?? new();
+            var label = string.Join(" / ", vals.Values.Where(x => !string.IsNullOrWhiteSpace(x)));
+            return new VariantLabelData(v.Product.Name, label, v.Barcode, v.Sku, v.PriceOverride ?? v.Product.SellingPrice);
+        });
+    }
+
     public async Task ArchiveAsync(Guid id, Guid userId)
     {
         var product = await _db.Products.FirstOrDefaultAsync(p => p.Id == id)

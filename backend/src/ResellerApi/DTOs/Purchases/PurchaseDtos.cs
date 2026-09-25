@@ -66,6 +66,7 @@ public record CreateReceiveSessionRequest(
 );
 
 public record RejectSessionRequest(string? Reason);
+public record ApprovePurchaseRequest(string? Note);
 
 // ── Close-trip request (replaces the old CompleteAsync per-item flow) ─────────
 
@@ -173,6 +174,7 @@ public record PurchaseTripDetailDto(
     string SourceType,
     string Status,
     string? Note,
+    string? ApprovalNote,
     DateTime? ExpectedDeliveryDate,
     string? SupplierPoRef,
     DateTime CreatedAt,
@@ -181,7 +183,8 @@ public record PurchaseTripDetailDto(
     List<PurchaseItemDto> Items,
     List<PurchaseTripCostDto> Costs,
     List<PurchaseReceiveSessionDto> Sessions,
-    List<PurchaseReceiveAttachmentDto> Attachments
+    List<PurchaseReceiveAttachmentDto> Attachments,
+    PurchaseShipmentDto? Shipment
 );
 
 public record LandedCostPreviewDto(

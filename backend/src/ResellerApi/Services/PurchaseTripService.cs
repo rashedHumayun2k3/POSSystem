@@ -77,6 +77,7 @@ public class PurchaseTripService : IPurchaseTripService
             .AsNoTracking()
             .Include(t => t.Items)
             .Include(t => t.Costs)
+            .Include(t => t.Shipments)
             .AsQueryable();
 
         if (!string.IsNullOrWhiteSpace(status))
@@ -285,6 +286,69 @@ public class PurchaseTripService : IPurchaseTripService
         await _db.SaveChangesAsync();
     }
 
+    public async Task<PurchaseShipmentDto?> GetShipmentAsync(Guid tripId)
+    {
+        var tripExists = await _db.PurchaseTrips.AsNoTracking().AnyAsync(t => t.Id == tripId);
+        if (!tripExists) throw new KeyNotFoundException("Purchase trip not found.");
+        var shipment = await _db.PurchaseShipments.AsNoTracking().FirstOrDefaultAsync(x => x.TripId == tripId);
+        return shipment == null ? null : MapShipment(shipment);
+    }
+
+    public async Task<PurchaseShipmentDto> SaveShipmentAsync(Guid tripId, SavePurchaseShipmentRequest request, Guid userId)
+    {
+        var trip = await _db.PurchaseTrips.FirstOrDefaultAsync(t => t.Id == tripId)
+            ?? throw new KeyNotFoundException("Purchase trip not found.");
+        if (trip.Status != "DRAFT" && trip.Status != "RECEIVING")
+            throw new InvalidOperationException("Shipping can only be changed for DRAFT or RECEIVING purchases.");
+        if (request.BillableQuantity <= 0) throw new ArgumentException("Billable weight must be greater than zero.");
+
+        var method = request.ShippingMethod.Trim().ToUpperInvariant();
+        if (method is not ("AIR" or "SEA")) throw new ArgumentException("Shipping method must be AIR or SEA.");
+        var company = await _db.ShippingCompanies.Include(x => x.Rates)
+            .FirstOrDefaultAsync(x => x.Id == request.ShippingCompanyId && x.IsActive)
+            ?? throw new KeyNotFoundException("Shipping company not found.");
+        var rate = company.Rates.FirstOrDefault(x => x.DeletedAt == null && x.IsActive && x.ShippingMethod == method && x.ChargeBasis == "PER_KG")
+            ?? throw new InvalidOperationException($"{company.Name} does not have an active {method} rate.");
+        var amount = Math.Round(Math.Max(request.BillableQuantity * rate.RateAmount, rate.MinimumCharge ?? 0), 2);
+        var shipment = await _db.PurchaseShipments.Include(x => x.PurchaseTripCost).FirstOrDefaultAsync(x => x.TripId == tripId);
+        if (shipment == null)
+        {
+            var cost = new PurchaseTripCost { TripId = tripId, CostType = "SHIPPING_INTL", Amount = amount, IsPostCompletion = false };
+            shipment = new PurchaseShipment { TripId = tripId, ShippingCompanyId = company.Id, PurchaseTripCost = cost };
+            _db.PurchaseShipments.Add(shipment);
+        }
+        shipment.ShippingCompanyId = company.Id;
+        shipment.ShippingCompanyRateId = rate.Id;
+        shipment.ShippingCompanyNameSnapshot = company.Name;
+        shipment.ShippingMethod = method;
+        shipment.ChargeBasis = rate.ChargeBasis;
+        shipment.RateAmountSnapshot = rate.RateAmount;
+        shipment.CurrencyCode = rate.CurrencyCode;
+        shipment.BillableQuantity = request.BillableQuantity;
+        shipment.CalculatedCost = amount;
+        shipment.TrackingNumber = string.IsNullOrWhiteSpace(request.TrackingNumber) ? null : request.TrackingNumber.Trim();
+        shipment.Note = string.IsNullOrWhiteSpace(request.Note) ? null : request.Note.Trim();
+        shipment.PurchaseTripCost.Amount = amount;
+        shipment.PurchaseTripCost.Note = $"{company.Name} · {method} · {request.BillableQuantity:0.###} kg × ৳{rate.RateAmount:0.##}";
+        await _db.SaveChangesAsync();
+        await _log.LogAsync(_business.CurrentBusinessId, userId, "UPDATE", "PurchaseShipment", shipment.Id);
+        return MapShipment(shipment);
+    }
+
+    public async Task RemoveShipmentAsync(Guid tripId, Guid userId)
+    {
+        var trip = await _db.PurchaseTrips.FirstOrDefaultAsync(t => t.Id == tripId)
+            ?? throw new KeyNotFoundException("Purchase trip not found.");
+        if (trip.Status != "DRAFT" && trip.Status != "RECEIVING")
+            throw new InvalidOperationException("Shipping can only be removed from DRAFT or RECEIVING purchases.");
+        var shipment = await _db.PurchaseShipments.Include(x => x.PurchaseTripCost).FirstOrDefaultAsync(x => x.TripId == tripId)
+            ?? throw new KeyNotFoundException("Purchase shipping not found.");
+        shipment.DeletedAt = DateTime.UtcNow;
+        shipment.PurchaseTripCost.DeletedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+        await _log.LogAsync(_business.CurrentBusinessId, userId, "DELETE", "PurchaseShipment", shipment.Id);
+    }
+
     // ── Trip lifecycle ────────────────────────────────────────────────────────
 
     public async Task<PurchaseTripDetailDto> SubmitForApprovalAsync(Guid tripId, Guid userId)
@@ -299,7 +363,7 @@ public class PurchaseTripService : IPurchaseTripService
         return await GetAsync(trip.Id);
     }
 
-    public async Task<PurchaseTripDetailDto> ApproveAsync(Guid tripId, Guid userId)
+    public async Task<PurchaseTripDetailDto> ApproveAsync(Guid tripId, string? note, Guid userId)
     {
         var trip = await _db.PurchaseTrips.FirstOrDefaultAsync(t => t.Id == tripId)
             ?? throw new KeyNotFoundException("Purchase trip not found.");
@@ -307,6 +371,7 @@ public class PurchaseTripService : IPurchaseTripService
             throw new InvalidOperationException("Only PENDING_APPROVAL trips can be approved.");
         trip.Status = "RECEIVING";
         trip.ApprovedBy = userId;
+        trip.ApprovalNote = string.IsNullOrWhiteSpace(note) ? null : note.Trim();
         await _db.SaveChangesAsync();
         await _log.LogAsync(_business.CurrentBusinessId, userId, "UPDATE", "PurchaseTrip", trip.Id);
         return await GetAsync(trip.Id);
@@ -754,13 +819,14 @@ public class PurchaseTripService : IPurchaseTripService
     private sealed record VariantReturnInfo(Guid VariantId, Guid ReturnId, string SupplierReturnNo, string Status, decimal QtyReturned);
 
     private static PurchaseTripDetailDto MapDetail(PurchaseTrip t, Dictionary<Guid, VariantReturnInfo>? returnsByVariant = null) => new(
-        t.Id, t.TripNo, t.SourceType, t.Status, t.Note,
+        t.Id, t.TripNo, t.SourceType, t.Status, t.Note, t.ApprovalNote,
         t.ExpectedDeliveryDate, t.SupplierPoRef,
         t.CreatedAt, t.CompletedAt, t.ForceCompleteReason,
         t.Items.Where(i => i.DeletedAt == null).Select(i => MapItem(i, returnsByVariant)).ToList(),
         t.Costs.Where(c => c.DeletedAt == null).Select(MapCost).ToList(),
         t.Sessions.Where(s => s.DeletedAt == null).OrderBy(s => s.ReceivedAt).Select(MapSession).ToList(),
-        DeserializeAttachments(t.AttachmentsJson)
+        DeserializeAttachments(t.AttachmentsJson),
+        t.Shipments.Where(s => s.DeletedAt == null).Select(MapShipment).FirstOrDefault()
     );
 
     private static PurchaseItemDto MapItem(PurchaseItem i, Dictionary<Guid, VariantReturnInfo>? returnsByVariant = null)
@@ -784,6 +850,12 @@ public class PurchaseTripService : IPurchaseTripService
 
     private static PurchaseTripCostDto MapCost(PurchaseTripCost c) => new(
         c.Id, c.CostType, c.Amount, c.Note, c.PhotoUrl, c.PaidBy, c.IsPostCompletion
+    );
+
+    private static PurchaseShipmentDto MapShipment(PurchaseShipment s) => new(
+        s.Id, s.ShippingCompanyId, s.ShippingCompanyNameSnapshot, s.ShippingMethod,
+        s.ChargeBasis, s.RateAmountSnapshot, s.CurrencyCode, s.BillableQuantity,
+        s.CalculatedCost, s.TrackingNumber, s.Note
     );
 
     private static PurchaseReceiveSessionDto MapSession(PurchaseReceiveSession s) => new(

@@ -20,13 +20,16 @@ public class SuppliersService : ISuppliersService
         _log = log;
     }
 
-    public async Task<List<SupplierDto>> ListAsync(string? search, int? limit, string? sort)
+    public async Task<List<SupplierDto>> ListAsync(string? search, int? limit, string? sort, string? country)
     {
         var q = _db.Suppliers.AsNoTracking().AsQueryable();
 
         if (!string.IsNullOrWhiteSpace(search))
             q = q.Where(s => s.Name.Contains(search) ||
                               (s.Phone != null && s.Phone.Contains(search)));
+
+        if (!string.IsNullOrWhiteSpace(country))
+            q = q.Where(s => s.Country == country);
 
         q = sort == "recent"
             ? q.OrderByDescending(s => s.LastUsedAt).ThenBy(s => s.Name)
@@ -36,7 +39,7 @@ public class SuppliersService : ISuppliersService
             q = q.Take(limit.Value);
 
         return await q.Select(s => new SupplierDto(
-            s.Id, s.Name, s.Address, s.Phone, s.Notes, s.UsageCount, s.LastUsedAt
+            s.Id, s.Name, s.Address, s.Phone, s.Country, s.Notes, s.UsageCount, s.LastUsedAt
         )).ToListAsync();
     }
 
@@ -44,7 +47,7 @@ public class SuppliersService : ISuppliersService
     {
         var s = await _db.Suppliers.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id)
             ?? throw new KeyNotFoundException("Supplier not found.");
-        return new SupplierDto(s.Id, s.Name, s.Address, s.Phone, s.Notes, s.UsageCount, s.LastUsedAt);
+        return new SupplierDto(s.Id, s.Name, s.Address, s.Phone, s.Country, s.Notes, s.UsageCount, s.LastUsedAt);
     }
 
     public async Task<SupplierDto> CreateAsync(CreateSupplierRequest request, Guid userId)
@@ -58,12 +61,13 @@ public class SuppliersService : ISuppliersService
             Name = request.Name.Trim(),
             Address = request.Address?.Trim(),
             Phone = request.Phone?.Trim(),
+            Country = request.Country?.Trim(),
             Notes = request.Notes?.Trim()
         };
         _db.Suppliers.Add(supplier);
         await _db.SaveChangesAsync();
         await _log.LogAsync(_business.CurrentBusinessId, userId, "CREATE", "Supplier", supplier.Id);
-        return new SupplierDto(supplier.Id, supplier.Name, supplier.Address, supplier.Phone, supplier.Notes, supplier.UsageCount, supplier.LastUsedAt);
+        return new SupplierDto(supplier.Id, supplier.Name, supplier.Address, supplier.Phone, supplier.Country, supplier.Notes, supplier.UsageCount, supplier.LastUsedAt);
     }
 
     public async Task<SupplierDto> UpdateAsync(Guid id, UpdateSupplierRequest request, Guid userId)
@@ -77,10 +81,11 @@ public class SuppliersService : ISuppliersService
         supplier.Name = request.Name.Trim();
         supplier.Address = request.Address?.Trim();
         supplier.Phone = request.Phone?.Trim();
+        supplier.Country = request.Country?.Trim();
         supplier.Notes = request.Notes?.Trim();
         await _db.SaveChangesAsync();
         await _log.LogAsync(_business.CurrentBusinessId, userId, "UPDATE", "Supplier", supplier.Id);
-        return new SupplierDto(supplier.Id, supplier.Name, supplier.Address, supplier.Phone, supplier.Notes, supplier.UsageCount, supplier.LastUsedAt);
+        return new SupplierDto(supplier.Id, supplier.Name, supplier.Address, supplier.Phone, supplier.Country, supplier.Notes, supplier.UsageCount, supplier.LastUsedAt);
     }
 
     public async Task DeleteAsync(Guid id, Guid userId)

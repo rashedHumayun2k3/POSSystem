@@ -92,6 +92,27 @@ public class PurchaseTripsController : ControllerBase
         return NoContent();
     }
 
+    [HttpGet("{id:guid}/shipment")]
+    [Authorize(Roles = Roles.Owner)]
+    public async Task<IActionResult> GetShipment(Guid id)
+    {
+        var shipment = await _svc.GetShipmentAsync(id);
+        return shipment == null ? NoContent() : Ok(shipment);
+    }
+
+    [HttpPut("{id:guid}/shipment")]
+    [Authorize(Roles = Roles.Owner)]
+    public async Task<IActionResult> SaveShipment(Guid id, [FromBody] SavePurchaseShipmentRequest request)
+        => Ok(await _svc.SaveShipmentAsync(id, request, _user.UserId));
+
+    [HttpDelete("{id:guid}/shipment")]
+    [Authorize(Roles = Roles.Owner)]
+    public async Task<IActionResult> RemoveShipment(Guid id)
+    {
+        await _svc.RemoveShipmentAsync(id, _user.UserId);
+        return NoContent();
+    }
+
     // ── Trip approval lifecycle ───────────────────────────────────────────────
 
     [HttpPost("{id:guid}/submit")]
@@ -101,8 +122,8 @@ public class PurchaseTripsController : ControllerBase
 
     [HttpPost("{id:guid}/approve")]
     [Authorize(Roles = Roles.OwnerOrManager)]
-    public async Task<IActionResult> Approve(Guid id)
-        => Ok(await _svc.ApproveAsync(id, _user.UserId));
+    public async Task<IActionResult> Approve(Guid id, [FromBody] ApprovePurchaseRequest? request)
+        => Ok(await _svc.ApproveAsync(id, request?.Note, _user.UserId));
 
     [HttpPost("{id:guid}/cancel")]
     [Authorize(Roles = Roles.Owner)]

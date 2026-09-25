@@ -1,5 +1,31 @@
 namespace ResellerApi.DTOs.Catalog;
 
+public record BarcodeLabelBatchItemRequest(Guid VariantId, int Quantity);
+
+public record A4BarcodeTemplateRequest(
+    decimal LabelWidth,
+    decimal LabelHeight,
+    int Columns,
+    int Rows,
+    decimal HorizontalGap,
+    decimal VerticalGap,
+    decimal MarginTop,
+    decimal MarginRight,
+    decimal MarginBottom,
+    decimal MarginLeft
+);
+
+public record RollBarcodeSizeRequest(decimal Width, decimal Height);
+
+public record BarcodeLabelBatchRequest(
+    string Mode,
+    List<BarcodeLabelBatchItemRequest> Items,
+    A4BarcodeTemplateRequest? A4,
+    RollBarcodeSizeRequest? Roll,
+    int StartPosition = 1,
+    string? Email = null
+);
+
 public record ActiveCategoryDto(Guid Id, string Name);
 
 // One bucket in the product sales graph — PeriodStart is a day (7d/30d ranges) or the start of a

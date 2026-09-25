@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using ResellerApi.Data;
 
@@ -11,9 +12,11 @@ using ResellerApi.Data;
 namespace ResellerApi.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260925013848_AddShippingCompanyAddresses")]
+    partial class AddShippingCompanyAddresses
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -3639,10 +3642,6 @@ namespace ResellerApi.Data.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasDefaultValueSql("NEWSEQUENTIALID()");
 
-                    b.Property<string>("ApprovalNote")
-                        .HasMaxLength(500)
-                        .HasColumnType("nvarchar(500)");
-
                     b.Property<Guid?>("ApprovedBy")
                         .HasColumnType("uniqueidentifier");
 
@@ -4423,10 +4422,6 @@ namespace ResellerApi.Data.Migrations
 
                     b.Property<Guid>("BusinessId")
                         .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("Country")
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");

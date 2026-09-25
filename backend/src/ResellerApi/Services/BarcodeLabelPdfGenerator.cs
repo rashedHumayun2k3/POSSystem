@@ -5,6 +5,7 @@ using SkiaSharp;
 using ZXing;
 using ZXing.Common;
 using ZXing.SkiaSharp;
+using ResellerApi.DTOs.Catalog;
 
 namespace ResellerApi.Services;
 
@@ -15,6 +16,8 @@ public record VariantLabelData(
     string Sku,
     decimal Price
 );
+
+public record BarcodeLabelPrintItem(VariantLabelData Label, int Quantity);
 
 public static class BarcodeLabelPdfGenerator
 {
@@ -127,5 +130,118 @@ public static class BarcodeLabelPdfGenerator
                 });
             }
         }).GeneratePdf();
+    }
+
+    public static byte[] GenerateBatch(List<BarcodeLabelPrintItem> items, BarcodeLabelBatchRequest request)
+    {
+        var expanded = items.SelectMany(item => Enumerable.Repeat(item.Label, item.Quantity)).ToList();
+
+        return string.Equals(request.Mode, "ROLL", StringComparison.OrdinalIgnoreCase)
+            ? GenerateRoll(expanded, request.Roll!)
+            : GenerateA4(expanded, request.A4!, request.StartPosition);
+    }
+
+    private static byte[] GenerateA4(List<VariantLabelData> labels, A4BarcodeTemplateRequest template, int startPosition)
+    {
+        var perPage = template.Columns * template.Rows;
+        var cells = Enumerable.Repeat<VariantLabelData?>(null, startPosition - 1)
+            .Concat(labels.Cast<VariantLabelData?>())
+            .ToList();
+        var pageCount = (int)Math.Ceiling(cells.Count / (double)perPage);
+
+        return Document.Create(container =>
+        {
+            for (var pageIndex = 0; pageIndex < pageCount; pageIndex++)
+            {
+                var pageCells = cells.Skip(pageIndex * perPage).Take(perPage).ToList();
+                while (pageCells.Count < perPage) pageCells.Add(null);
+
+                container.Page(page =>
+                {
+                    // PageSizes.A4 is stored in rounded PDF points and can be fractionally narrower
+                    // than 210 mm. Exact millimetres are required because valid sticker templates
+                    // may intentionally consume the full physical width.
+                    page.Size(210, 297, Unit.Millimetre);
+                    page.MarginTop((float)template.MarginTop, Unit.Millimetre);
+                    page.MarginRight((float)template.MarginRight, Unit.Millimetre);
+                    page.MarginBottom((float)template.MarginBottom, Unit.Millimetre);
+                    page.MarginLeft((float)template.MarginLeft, Unit.Millimetre);
+                    page.DefaultTextStyle(x => x.FontFamily(Fonts.Arial).FontSize(7));
+
+                    page.Content().Table(table =>
+                    {
+                        var tableColumnCount = template.Columns * 2 - 1;
+                        table.ColumnsDefinition(columns =>
+                        {
+                            for (var column = 0; column < template.Columns; column++)
+                            {
+                                columns.ConstantColumn((float)template.LabelWidth, Unit.Millimetre);
+                                if (column < template.Columns - 1)
+                                    columns.ConstantColumn((float)template.HorizontalGap, Unit.Millimetre);
+                            }
+                        });
+
+                        for (var row = 0; row < template.Rows; row++)
+                        {
+                            for (var column = 0; column < template.Columns; column++)
+                            {
+                                var label = pageCells[row * template.Columns + column];
+                                table.Cell()
+                                    .Width((float)template.LabelWidth, Unit.Millimetre)
+                                    .Height((float)template.LabelHeight, Unit.Millimetre)
+                                    .Element(cell => ComposeLabel(cell, label));
+
+                                if (column < template.Columns - 1)
+                                    table.Cell()
+                                        .Width((float)template.HorizontalGap, Unit.Millimetre)
+                                        .Height((float)template.LabelHeight, Unit.Millimetre);
+                            }
+
+                            if (row < template.Rows - 1)
+                                table.Cell()
+                                    .ColumnSpan((uint)tableColumnCount)
+                                    .Height((float)template.VerticalGap, Unit.Millimetre);
+                        }
+                    });
+                });
+            }
+        }).GeneratePdf();
+    }
+
+    private static byte[] GenerateRoll(List<VariantLabelData> labels, RollBarcodeSizeRequest size)
+    {
+        return Document.Create(container =>
+        {
+            foreach (var label in labels)
+            {
+                container.Page(page =>
+                {
+                    page.Size((float)size.Width, (float)size.Height, Unit.Millimetre);
+                    page.Margin(0);
+                    page.DefaultTextStyle(x => x.FontFamily(Fonts.Arial).FontSize(7));
+                    page.Content().Element(cell => ComposeLabel(cell, label));
+                });
+            }
+        }).GeneratePdf();
+    }
+
+    private static void ComposeLabel(IContainer container, VariantLabelData? label)
+    {
+        if (label is null) return;
+
+        container
+            .Padding(4)
+            .AlignCenter()
+            .AlignMiddle()
+            .Column(column =>
+            {
+                column.Spacing(1);
+                column.Item().AlignCenter().Text(label.ProductName).Bold().FontSize(7).ClampLines(2, "…");
+                if (!string.IsNullOrWhiteSpace(label.VariantLabel))
+                    column.Item().AlignCenter().Text(label.VariantLabel).FontSize(5.5f).FontColor(Colors.Grey.Darken2).ClampLines(1, "…");
+                column.Item().MaxHeight(12, Unit.Millimetre).PaddingHorizontal(2).Image(RenderBarcode(label.Barcode)).FitArea();
+                column.Item().AlignCenter().Text(label.Barcode).FontFamily(Fonts.CourierNew).FontSize(5.5f);
+                column.Item().AlignCenter().Text($"৳{label.Price:N2}").Bold().FontSize(8);
+            });
     }
 }

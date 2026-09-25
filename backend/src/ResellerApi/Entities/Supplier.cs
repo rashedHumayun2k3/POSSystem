@@ -7,6 +7,7 @@ public class Supplier : BusinessScopedEntity
     public string Name { get; set; } = null!;
     public string? Address { get; set; }
     public string? Phone { get; set; }
+    public string? Country { get; set; }
     public string? Notes { get; set; }
     public DateTime? LastUsedAt { get; set; }
     public int UsageCount { get; set; }

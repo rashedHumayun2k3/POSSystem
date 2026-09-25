@@ -5,6 +5,7 @@ using ResellerApi.DTOs.ClientPage;
 using ResellerApi.Infrastructure;
 using ResellerApi.Services;
 using ResellerApi.Services.Interfaces;
+using System.Net.Mail;
 
 namespace ResellerApi.Controllers;
 
@@ -21,8 +22,9 @@ public class ProductsController : ControllerBase
     private readonly IProductReviewService _reviewSvc;
     private readonly ICurrentUserService _user;
     private readonly IBusinessContext _business;
+    private readonly IEmailSender _emailSender;
 
-    public ProductsController(IProductService svc, IPriceHistoryService priceSvc, IPriceSlotService slotSvc, IOrderService orderSvc, IStockAdjustmentService stockAdjSvc, IProductReviewService reviewSvc, ICurrentUserService user, IBusinessContext business)
+    public ProductsController(IProductService svc, IPriceHistoryService priceSvc, IPriceSlotService slotSvc, IOrderService orderSvc, IStockAdjustmentService stockAdjSvc, IProductReviewService reviewSvc, ICurrentUserService user, IBusinessContext business, IEmailSender emailSender)
     {
         _svc = svc;
         _priceSvc = priceSvc;
@@ -32,6 +34,7 @@ public class ProductsController : ControllerBase
         _reviewSvc = reviewSvc;
         _user = user;
         _business = business;
+        _emailSender = emailSender;
     }
 
     [HttpGet]
@@ -125,6 +128,122 @@ public class ProductsController : ControllerBase
         var pdf = BarcodeLabelPdfGenerator.Generate(labels, qty);
         return File(pdf, "application/pdf", $"labels-{id}.pdf");
     }
+
+    [HttpPost("barcode-labels/batch")]
+    [Authorize(Roles = Roles.OwnerManagerWarehouse)]
+    public async Task<IActionResult> BarcodeLabelBatch([FromBody] BarcodeLabelBatchRequest request)
+    {
+        var result = await CreateBarcodeLabelBatchAsync(request);
+        if (result.Error is not null) return BadRequest(new { message = result.Error });
+        return File(result.Pdf!, "application/pdf", BarcodeLabelFileName());
+    }
+
+    [HttpPost("barcode-labels/batch/send")]
+    [Authorize(Roles = Roles.OwnerManagerWarehouse)]
+    public async Task<IActionResult> SendBarcodeLabelBatch([FromBody] BarcodeLabelBatchRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.Email) || !MailAddress.TryCreate(request.Email.Trim(), out var recipient))
+            return BadRequest(new { message = "Enter a valid recipient email address." });
+
+        var result = await CreateBarcodeLabelBatchAsync(request);
+        if (result.Error is not null) return BadRequest(new { message = result.Error });
+
+        var fileName = BarcodeLabelFileName();
+        try
+        {
+            await _emailSender.SendEmailWithAttachmentAsync(
+                recipient.Address,
+                "Product barcode labels",
+                "<p>Your print-ready product barcode labels are attached.</p><p>Print at <strong>100% / Actual Size</strong> without Fit to Page scaling. Match the printer paper size to the PDF page size.</p>",
+                result.Pdf!,
+                fileName,
+                "application/pdf");
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { message = $"Could not send barcode labels: {ex.Message}" });
+        }
+
+        return Ok(new { message = $"Barcode PDF sent to {recipient.Address}." });
+    }
+
+    private async Task<(byte[]? Pdf, string? Error)> CreateBarcodeLabelBatchAsync(BarcodeLabelBatchRequest request)
+    {
+        var validationError = ValidateBarcodeLabelBatch(request);
+        if (validationError is not null) return (null, validationError);
+
+        var requestedIds = request.Items.Select(item => item.VariantId).ToList();
+        var labels = await _svc.GetVariantLabelsByIdsAsync(requestedIds);
+        if (labels.Count != requestedIds.Count)
+            return (null, "One or more products are unavailable or do not belong to this business.");
+
+        var printItems = new List<BarcodeLabelPrintItem>(request.Items.Count);
+        foreach (var item in request.Items)
+        {
+            var label = labels[item.VariantId];
+            var barcodeError = ValidateStoredBarcode(label.Barcode);
+            if (barcodeError is not null) return (null, $"{label.ProductName}: {barcodeError}");
+            printItems.Add(new BarcodeLabelPrintItem(label, item.Quantity));
+        }
+
+        try
+        {
+            return (BarcodeLabelPdfGenerator.GenerateBatch(printItems, request), null);
+        }
+        catch (Exception ex)
+        {
+            return (null, $"Could not create the barcode PDF: {ex.Message}");
+        }
+    }
+
+    private static string? ValidateBarcodeLabelBatch(BarcodeLabelBatchRequest request)
+    {
+        if (request.Items is null || request.Items.Count == 0) return "Select at least one product.";
+        if (request.Items.Count != request.Items.Select(item => item.VariantId).Distinct().Count()) return "Each product variant can only appear once.";
+        if (request.Items.Any(item => item.VariantId == Guid.Empty || item.Quantity is < 1 or > 500)) return "Each label quantity must be between 1 and 500.";
+        if (request.Items.Sum(item => item.Quantity) > 1000) return "A batch can contain at most 1000 labels.";
+
+        if (string.Equals(request.Mode, "A4", StringComparison.OrdinalIgnoreCase))
+        {
+            if (request.A4 is null) return "A4 template settings are required.";
+            var a4 = request.A4;
+            if (a4.LabelWidth <= 0 || a4.LabelHeight <= 0 || a4.Columns is < 1 or > 12 || a4.Rows is < 1 or > 30)
+                return "A4 label dimensions, rows, and columns are invalid.";
+            if (new[] { a4.HorizontalGap, a4.VerticalGap, a4.MarginTop, a4.MarginRight, a4.MarginBottom, a4.MarginLeft }.Any(value => value < 0))
+                return "A4 gaps and margins cannot be negative.";
+            var usedWidth = a4.MarginLeft + a4.MarginRight + a4.Columns * a4.LabelWidth + (a4.Columns - 1) * a4.HorizontalGap;
+            var usedHeight = a4.MarginTop + a4.MarginBottom + a4.Rows * a4.LabelHeight + (a4.Rows - 1) * a4.VerticalGap;
+            if (usedWidth > 210 || usedHeight > 297) return "The configured labels do not fit on an A4 page.";
+            var positions = a4.Columns * a4.Rows;
+            if (request.StartPosition < 1 || request.StartPosition > positions) return $"Start position must be between 1 and {positions}.";
+            return null;
+        }
+
+        if (string.Equals(request.Mode, "ROLL", StringComparison.OrdinalIgnoreCase))
+        {
+            if (request.Roll is null) return "Label roll size is required.";
+            if (request.Roll.Width is < 20 or > 150 || request.Roll.Height is < 15 or > 150)
+                return "Roll width must be 20-150 mm and height must be 15-150 mm.";
+            return null;
+        }
+
+        return "Print mode must be A4 or ROLL.";
+    }
+
+    private static string? ValidateStoredBarcode(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return "The product has no stored barcode.";
+        if (value.Length > 80 || value.Any(character => character < 32 || character > 126)) return "The barcode cannot be encoded as Code 128.";
+        if (value.Length == 13 && value.All(char.IsDigit))
+        {
+            var sum = value.Take(12).Select((character, index) => (character - '0') * (index % 2 == 0 ? 1 : 3)).Sum();
+            var expected = (10 - sum % 10) % 10;
+            if (value[12] - '0' != expected) return "The 13-digit barcode has an invalid EAN-13 check digit.";
+        }
+        return null;
+    }
+
+    private static string BarcodeLabelFileName() => $"barcode-labels-{DateTime.UtcNow:yyyy-MM-dd}.pdf";
 
     [HttpPost]
     [Authorize(Roles = "OWNER")]

@@ -15,11 +15,13 @@ public class PurchaseTrip : BusinessScopedEntity, IBranchScoped
     public string AttachmentsJson { get; set; } = "[]";
     public Guid CreatedBy { get; set; }
     public Guid? ApprovedBy { get; set; }
+    public string? ApprovalNote { get; set; }
     public DateTime? CompletedAt { get; set; }
     public string? ForceCompleteReason { get; set; }
 
     public User CreatedByUser { get; set; } = null!;
     public ICollection<PurchaseItem> Items { get; set; } = new List<PurchaseItem>();
     public ICollection<PurchaseTripCost> Costs { get; set; } = new List<PurchaseTripCost>();
+    public ICollection<PurchaseShipment> Shipments { get; set; } = new List<PurchaseShipment>();
     public ICollection<PurchaseReceiveSession> Sessions { get; set; } = new List<PurchaseReceiveSession>();
 }
