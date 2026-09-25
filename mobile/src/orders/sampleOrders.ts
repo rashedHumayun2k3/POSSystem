@@ -27,3 +27,4 @@ export const sampleOrders: Order[] = Array.from({ length: 30 }, (_, index) => {
     items: [{ productName: products[index % products.length], variantSku: `SKU-${index % 4 + 1}`, qty: index % 3 + 1, availableStock: index === 1 || index === 10 ? 0 : 15 }],
   };
 });
+

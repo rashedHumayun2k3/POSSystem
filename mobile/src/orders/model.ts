@@ -1,3 +1,5 @@
+import { colors } from "../theme";
+
 // Same list contract and queue rules as frontend/src/components/orders/OrderManagement.tsx.
 export type Order = {
   id: string; orderNo: string; channel: string; customerName: string;
@@ -10,15 +12,15 @@ export type Order = {
   items: { productName: string; variantSku: string; qty: number; availableStock: number }[];
 };
 export const queues = [
-  { key: "ALL", label: "All", color: "#334155", bg: "#ffffff", hint: "Orders grouped by status, newest first in each section" },
-  { key: "UNFULFILLED", label: "New", color: "#1d4ed8", bg: "#f8fafc", hint: "Review and confirm new orders" },
-  { key: "PROCESSING", label: "Processing", color: "#6d28d9", bg: "#f5f3ff", hint: "Confirmed orders ready to prepare and hand over" },
-  { key: "WAITING_COURIER", label: "Waiting for Courier", color: "#92400e", bg: "#fffbeb", hint: "Packed orders ready for courier handover" },
-  { key: "PENDING", label: "In Transit", color: "#155e75", bg: "#ecfeff", hint: "Track shipments and confirm delivery" },
-  { key: "DELIVERED", label: "Delivered", color: "#047857", bg: "#ecfdf5", hint: "Completed deliveries and payment follow-up" },
-  { key: "RETURNED", label: "Returned", color: "#9a3412", bg: "#fff7ed", hint: "Review returned orders" },
-  { key: "CANCELLED", label: "Cancelled", color: "#52525b", bg: "#f1f5f9", hint: "Cancelled order history" },
-  { key: "ISSUES", label: "Issues", color: "#b91c1c", bg: "#fef2f2", hint: "Resolve stock shortages before confirming orders" },
+  { key: "ALL", label: "All", color: colors.heading, bg: colors.card, hint: "Orders grouped by status, newest first in each section" },
+  { key: "UNFULFILLED", label: "New", color: colors.primaryDark, bg: colors.cardSecondary, hint: "Review and confirm new orders" },
+  { key: "PROCESSING", label: "Processing", color: colors.primary, bg: colors.primaryLight, hint: "Confirmed orders ready to prepare and hand over" },
+  { key: "WAITING_COURIER", label: "Waiting for Courier", color: colors.warningText, bg: colors.warningBackground, hint: "Packed orders ready for courier handover" },
+  { key: "PENDING", label: "In Transit", color: colors.infoText, bg: colors.infoBackground, hint: "Track shipments and confirm delivery" },
+  { key: "DELIVERED", label: "Delivered", color: colors.successText, bg: colors.successBackground, hint: "Completed deliveries and payment follow-up" },
+  { key: "RETURNED", label: "Returned", color: colors.primaryDark, bg: colors.cardSecondary, hint: "Review returned orders" },
+  { key: "CANCELLED", label: "Cancelled", color: colors.neutralIcon, bg: colors.disabled, hint: "Cancelled order history" },
+  { key: "ISSUES", label: "Issues", color: colors.dangerText, bg: colors.dangerBackground, hint: "Resolve stock shortages before confirming orders" },
 ] as const;
 export type Queue = typeof queues[number]["key"];
 export const emptyFilters = { from: "", to: "", customer: "", product: "", channel: "" };
@@ -63,3 +65,4 @@ export function groupOrders(orders: Order[], queue: Queue) {
 export function validDate(value: string) {
   return !value || /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
 }
+

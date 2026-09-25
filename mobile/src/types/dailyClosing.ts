@@ -1,0 +1,5 @@
+export type NameValue={name:string;value:number};
+export type DailyClosingSoldProduct={productName:string;variantLabel?:string|null;sku:string;qty:number;revenue:number;profit:number};
+export type DailyClosingLowStock={productName:string;variantLabel?:string|null;sku:string;quantity:number;reorderLevel:number};
+export type DailyClosingPurchaseItem={productName:string;variantLabel?:string|null;sku:string;qty:number;totalCost:number};
+export type DailyClosingReport={date:string;dayName:string;businessName:string;branchName:string;isAllBranches:boolean;totalSales:number;netSales:number;totalProfit:number;netProfit:number;totalDue:number;totalPaid:number;totalDiscount:number;totalExpenses:number;averageOrderValue:number;dueCollection:number;newDueCreated:number;totalOutstandingDue:number;ordersReceived:number;ordersDelivered:number;ordersPending:number;ordersReturned:number;ordersCancelled:number;purchaseTotal:number;purchaseQty:number;topSellingProduct?:string|null;paymentMethods:NameValue[];soldProducts:DailyClosingSoldProduct[];lowStockProducts:DailyClosingLowStock[];purchaseItems:DailyClosingPurchaseItem[]};

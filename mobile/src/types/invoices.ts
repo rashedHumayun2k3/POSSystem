@@ -1,0 +1,5 @@
+export type InvoiceListItem={id:string;orderNo:string;channel:string;customerName:string;businessDate:string;totalAmount:number;totalPaid:number;dueAmount:number};
+export type InvoiceListResponse={items:InvoiceListItem[];totalCount:number;page:number;pageSize:number;summary:{date:string;total:number;paid:number;due:number}};
+export type MobileInvoiceItem={itemId:string;description:string;variant:string;sku:string;qty:string;unitPrice:string;discount:string;totalPrice:string};
+export type MobileInvoice={documentNumber:string;invoiceDate:string;orderDate:string;sellerName:string;sellerAddress:string|null;sellerPhone:string|null;sellerEmail:string|null;sellerWebsite:string|null;logo:string|null;contactLink:string|null;customerAddress:string|null;customerPhone:string|null;currency:string;paymentMethods:string;items:MobileInvoiceItem[];subtotal:string;discount:string;shipping:string;total:string;paid:string;due:string;credit:string|null};
+export type InvoicePreview={orderNo:string;customerName:string;pages:string[];invoice:MobileInvoice};
