@@ -23,6 +23,7 @@ import {
   ChevronRightIcon,
   MagnifyingGlassIcon,
   XMarkIcon,
+  QrCodeIcon,
 } from "@heroicons/react/24/outline";
 import { useLanguage } from "@/i18n/LanguageContext";
 
@@ -43,6 +44,7 @@ export default function MorePage() {
     { href: "/more/purchases", labelKey: "more.purchases", Icon: TruckIcon, descKey: "more.purchasesDesc", keywords: ["purchase", "purchases", "buying", "buy", "supplier purchase", "purchase order", "purchase trip", "lot", "landed cost", "kena", "mal kena", "ক্রয়", "মাল কেনা", "সাপ্লায়ার থেকে কেনা"] },
     { href: "/more/supplier-returns", labelKey: "more.supplierReturns", Icon: ArrowUturnLeftIcon, descKey: "more.supplierReturnsDesc", keywords: ["return", "supplier return", "return supplier", "damaged goods", "supplier refund", "debit note", "product return", "mal ferot", "ferot dao", "ফেরত", "সাপ্লায়ার ফেরত", "ড্যামেজ প্রোডাক্ট"] },
     { href: "/more/storeroom", labelKey: "more.storeroom", Icon: ArchiveBoxIcon, descKey: "more.storeroomDesc", keywords: ["store", "storeroom", "warehouse", "godown", "gudam", "cartons", "boxes", "labels", "storage", "mal rakha", "গুদাম", "স্টোর", "মাল রাখার জায়গা"] },
+    { href: "/more/barcodes", labelKey: "more.barcodes", Icon: QrCodeIcon, descKey: "more.barcodesDesc", keywords: ["barcode", "bar code", "label", "sticker", "print", "printer", "product label", "বারকোড", "লেবেল", "স্টিকার", "প্রিন্ট"] },
     { href: "/more/deliveries", labelKey: "more.deliveries", Icon: TruckIcon, descKey: "more.deliveriesDesc", keywords: ["delivery", "deliveries", "courier", "parcel", "COD", "shipment", "pending delivery", "order delivery", "deliveryman", "pathano", "ডেলিভারি", "পার্সেল", "মাল পাঠানো"] },
     { href: "/more/expenses", labelKey: "more.expenses", Icon: BanknotesIcon, descKey: "more.expensesDesc", keywords: ["expense", "expenses", "cost", "petty cash", "business cost", "kharoch", "bill", "খরচ", "ব্যয়", "দোকানের খরচ"] },
     { href: "/more/baki", labelKey: "more.baki", Icon: ScaleIcon, descKey: "more.bakiDesc", keywords: ["baki", "credit", "due", "customer due", "supplier payable", "receivable", "outstanding", "khata", "বাকি", "দেনা", "পাওনা", "বাকি হিসাব", "ক্রেডিট"] },
@@ -54,11 +56,11 @@ export default function MorePage() {
   ];
 
   const managerLinks = [
-    ...ownerLinks.filter(({ href }) => ["/more/purchases", "/more/supplier-returns", "/more/deliveries", "/more/expenses", "/more/reports", "/more/customers", "/more/settings", "/more/faq", "/more/feedback"].includes(href)),
+    ...ownerLinks.filter(({ href }) => ["/more/purchases", "/more/supplier-returns", "/more/barcodes", "/more/deliveries", "/more/expenses", "/more/reports", "/more/customers", "/more/settings", "/more/faq", "/more/feedback"].includes(href)),
   ];
 
   const warehouseLinks = [
-    ...ownerLinks.filter(({ href }) => ["/more/purchases", "/more/storeroom", "/more/settings", "/more/faq", "/more/feedback"].includes(href)),
+    ...ownerLinks.filter(({ href }) => ["/more/purchases", "/more/storeroom", "/more/barcodes", "/more/settings", "/more/faq", "/more/feedback"].includes(href)),
   ];
 
   const staffLinks = [

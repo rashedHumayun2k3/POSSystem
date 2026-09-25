@@ -366,3 +366,36 @@ export const downloadBarcodeLabels = async (
     a.click();
   }
 };
+
+export type BarcodeLabelBatchPayload = {
+  mode: 'A4' | 'ROLL';
+  items: Array<{ variantId: string; quantity: number }>;
+  a4?: {
+    labelWidth: number; labelHeight: number; columns: number; rows: number;
+    horizontalGap: number; verticalGap: number;
+    marginTop: number; marginRight: number; marginBottom: number; marginLeft: number;
+  };
+  roll?: { width: number; height: number };
+  startPosition: number;
+  email?: string;
+};
+
+export const createBarcodeLabelBatchPdf = async (payload: BarcodeLabelBatchPayload): Promise<Blob> => {
+  try {
+    const response = await api.post('/products/barcode-labels/batch', payload, { responseType: 'blob' });
+    return new Blob([response.data], { type: 'application/pdf' });
+  } catch (error) {
+    const data = (error as { response?: { data?: unknown } })?.response?.data;
+    if (data instanceof Blob) {
+      let parsed: { message?: string } | null = null;
+      try { parsed = JSON.parse(await data.text()) as { message?: string }; } catch { /* non-JSON error body */ }
+      if (parsed?.message) throw new Error(parsed.message);
+    }
+    throw error;
+  }
+};
+
+export const sendBarcodeLabelBatchPdf = async (payload: BarcodeLabelBatchPayload, email: string): Promise<string> => {
+  const { data } = await api.post('/products/barcode-labels/batch/send', { ...payload, email });
+  return data.message;
+};

@@ -1130,8 +1130,6 @@ function VariantsTab({
   onSelectForStock: (v: Variant) => void;
   t: (key: string) => string;
 }) {
-  const [labelQty, setLabelQty] = useState(1);
-  const [printingAll, setPrintingAll] = useState(false);
   const [printingId, setPrintingId] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [newName, setNewName] = useState('');
@@ -1249,40 +1247,13 @@ function VariantsTab({
     splitMutation.mutate();
   };
 
-  const handlePrintAll = async () => {
-    setPrintingAll(true);
-    try { await downloadBarcodeLabels(productId, labelQty); } finally { setPrintingAll(false); }
-  };
-
   const handlePrintOne = async (variantId: string) => {
     setPrintingId(variantId);
-    try { await downloadBarcodeLabels(productId, labelQty, variantId); } finally { setPrintingId(null); }
+    try { await downloadBarcodeLabels(productId, 1, variantId); } finally { setPrintingId(null); }
   };
 
   return (
     <div className="space-y-3">
-      {/* Print labels toolbar */}
-      {isOwner && (
-        <div className="flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-xl px-3 py-2">
-          <span className="text-xs text-gray-500 shrink-0">Qty per label</span>
-          <input
-            type="number"
-            min={1}
-            max={500}
-            value={labelQty}
-            onChange={(e) => setLabelQty(Math.max(1, parseInt(e.target.value) || 1))}
-            className="w-16 border border-gray-200 rounded-lg px-2 py-1 text-xs text-center"
-          />
-          <button
-            onClick={handlePrintAll}
-            disabled={printingAll}
-            className="ml-auto text-xs font-medium text-indigo-600 border border-indigo-200 px-3 py-1.5 rounded-lg disabled:opacity-50"
-          >
-            {printingAll ? 'Generating…' : '🖨 Print All Labels'}
-          </button>
-        </div>
-      )}
-
       {variants.map((v) => {
         const vals = JSON.parse(v.variantValuesJson || '{}') as Record<string, string>;
         const label = Object.values(vals).filter(Boolean).join(' / ');

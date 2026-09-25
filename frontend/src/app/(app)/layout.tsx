@@ -51,6 +51,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     "/more":             t("nav.more"),
     "/more/purchases":   t("more.purchases"),
     "/more/categories":  t("more.categories"),
+    "/more/barcodes":    t("barcodes.title"),
     "/more/expenses":    t("more.expenses"),
     "/more/deliveries":  t("more.deliveries"),
     "/more/baki":        t("more.baki"),
