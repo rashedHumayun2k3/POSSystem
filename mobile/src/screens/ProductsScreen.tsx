@@ -13,6 +13,8 @@ type Product = {
   variantCount: number; totalStock: number; lowStockThreshold: number; buyPrice?: number;
   showOnMarketplace: boolean;
 };
+type ProductOfferSource = { variants: { id: string }[] };
+type ProductOfferSlot = { label: string; isActive: boolean };
 const imageUrl = (value: string | null) => !value ? null : /^https?:\/\//i.test(value) ? value : `${MEDIA_URL}${value}`;
 const money = (value: number) => `৳${Number(value).toLocaleString("en-BD", { maximumFractionDigits: 2 })}`;
 
@@ -21,6 +23,7 @@ export default function ProductsScreen() {
   const apiRef = useRef(auth.api); apiRef.current = auth.api;
   const [categories, setCategories] = useState<Category[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [offerPercentages, setOfferPercentages] = useState<Record<string, number>>({});
   const [category, setCategory] = useState("ALL");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -31,7 +34,6 @@ export default function ProductsScreen() {
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState("");
   const canSeeCosts = ["OWNER", "MANAGER"].includes(auth.session?.user.role ?? "OWNER");
-  const isOwner = (auth.session?.user.role ?? "OWNER") === "OWNER";
 
   useEffect(() => {
     let active = true;
@@ -46,7 +48,19 @@ export default function ProductsScreen() {
       const query = new URLSearchParams({ status: "ACTIVE" });
       if (category !== "ALL") query.set("categoryId", category);
       if (search.trim()) query.set("q", search.trim());
-      apiRef.current<Product[]>(`/products?${query}`).then(value => { if (active) setProducts(value); }).catch(e => { if (active) setError(e.message); }).finally(() => { if (active) setLoading(false); });
+      apiRef.current<Product[]>(`/products?${query}`).then(async value => {
+        if (!active) return;
+        setProducts(value);
+        const offers = await Promise.all(value.map(async product => {
+          try {
+            const detail = await apiRef.current<ProductOfferSource>(`/products/${product.id}`);
+            const slots = (await Promise.all(detail.variants.map(variant => apiRef.current<ProductOfferSlot[]>(`/products/variants/${variant.id}/slots`)))).flat();
+            const percentages = slots.filter(slot => slot.isActive && slot.label !== "Original Price").map(slot => Number(slot.label.match(/(\d+(?:\.\d+)?)%/)?.[1] ?? 0));
+            return [product.id, Math.max(0, ...percentages)] as const;
+          } catch { return [product.id, 0] as const; }
+        }));
+        if (active) setOfferPercentages(Object.fromEntries(offers));
+      }).catch(e => { if (active) setError(e.message); }).finally(() => { if (active) setLoading(false); });
     }, 300);
     return () => { active = false; clearTimeout(timer); };
   }, [category, search, reload, auth.session?.businessId, auth.session?.branchId]);
@@ -63,7 +77,6 @@ export default function ProductsScreen() {
 
   return <View style={s.root}>
     <View style={s.header}>
-      <View style={s.titleRow}><Text accessibilityRole="header" style={s.title}>Products</Text>{isOwner && <View style={s.headerButtons}><Pressable style={s.secondaryButton}><Ionicons name="add" size={17} color={colors.primaryDark} /><Text style={s.secondaryText}>New Purchase</Text></Pressable><Pressable style={s.primaryButton}><Ionicons name="add" size={17} color={colors.white} /><Text style={s.primaryText}>New Product</Text></Pressable></View>}</View>
       <View style={s.searchRow}><View style={s.searchBox}><TextInput accessibilityLabel="Search products" value={search} onChangeText={setSearch} placeholder="Name, SKU, or barcode..." placeholderTextColor={colors.muted} autoCapitalize="none" style={s.searchInput} />{!!search && <Pressable accessibilityLabel="Clear search" onPress={() => setSearch("")}><Ionicons name="close-circle" size={19} color={colors.muted} /></Pressable>}<Ionicons name="search-outline" size={18} color={colors.muted} /></View><Pressable accessibilityRole="button" accessibilityLabel="Scan barcode" onPress={() => { setScanError(""); setScanner(true); }} style={s.scanButton}><Ionicons name="qr-code-outline" size={18} color={colors.white} /><Text style={s.scanText}>Scan</Text></Pressable></View>
     </View>
     <View style={s.categoryBar}><ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.categories}>{[{ id: "ALL", name: "All" }, ...categories].map(item => <Pressable key={item.id} accessibilityState={{ selected: category === item.id }} onPress={() => setCategory(item.id)} style={[s.chip, category === item.id && s.activeChip]}><Text style={[s.chipText, category === item.id && s.activeChipText]}>{item.name}</Text></Pressable>)}</ScrollView></View>
@@ -71,7 +84,7 @@ export default function ProductsScreen() {
       {!!error && <View style={s.empty}><Ionicons name="warning-outline" size={36} color={colors.danger} /><Text style={s.error}>{error}</Text><Pressable style={s.primaryButton} onPress={() => setReload(v => v + 1)}><Text style={s.primaryText}>Try again</Text></Pressable></View>}
       {loading && !products.length && <View style={s.empty}><ActivityIndicator color={colors.primary} /><Text style={s.helper}>Loading products…</Text></View>}
       {!loading && !error && !products.length && <View style={s.empty}><Ionicons name="cube-outline" size={48} color={colors.muted} /><Text style={s.helper}>No products found</Text></View>}
-      {!error && products.map(product => <ProductCard key={product.id} product={product} canSeeCosts={canSeeCosts} />)}
+      {!error && products.map(product => <ProductCard key={product.id} product={product} offerPercent={offerPercentages[product.id]} canSeeCosts={canSeeCosts} />)}
     </ScrollView>
     <Modal visible={scanner} transparent animationType="fade" onRequestClose={() => setScanner(false)}>
       <View style={s.overlay}><SafeAreaView style={s.modal}><View style={s.modalHeader}><Text style={s.modalTitle}>Scan barcode</Text><Pressable accessibilityLabel="Close scanner" onPress={() => setScanner(false)}><Ionicons name="close" size={24} color={colors.heading} /></Pressable></View><Text style={s.helper}>Scan with a USB/Bluetooth scanner or enter the barcode.</Text><TextInput autoFocus accessibilityLabel="Barcode" value={barcode} onChangeText={setBarcode} onSubmitEditing={() => void lookupBarcode()} placeholder="Enter barcode" placeholderTextColor={colors.muted} keyboardType="number-pad" style={s.barcodeInput} />{!!scanError && <Text style={s.error}>{scanError}</Text>}<Pressable disabled={scanning || !barcode.trim()} onPress={() => void lookupBarcode()} style={[s.lookup, (scanning || !barcode.trim()) && s.disabled]}>{scanning ? <ActivityIndicator color={colors.white} /> : <Text style={s.primaryText}>Find product</Text>}</Pressable></SafeAreaView></View>
@@ -79,15 +92,16 @@ export default function ProductsScreen() {
   </View>;
 }
 
-function ProductCard({ product, canSeeCosts }: { product: Product; canSeeCosts: boolean }) {
+function ProductCard({ product, offerPercent, canSeeCosts }: { product: Product; offerPercent?: number; canSeeCosts: boolean }) {
   const out = product.totalStock <= 0;
   const low = !out && product.totalStock < product.lowStockThreshold;
-  const discounted = product.marketPrice != null && product.marketPrice > product.sellingPrice;
-  const discount = discounted ? Math.round(((product.marketPrice! - product.sellingPrice) / product.marketPrice!) * 100) : 0;
+  const discount = Math.round(Number(offerPercent ?? 0));
+  const discounted = discount > 0;
+  const hasMarketComparison = product.marketPrice != null && product.marketPrice > product.sellingPrice;
   const source = imageUrl(product.imageUrl);
   const name = product.name.replace(/\s*\(\s*\d+%\s*off\s*\)\s*$/i, "").trim();
   return <Pressable onPress={() => router.push({ pathname: "/products/[id]", params: { id: product.id } })} style={({ pressed }) => [s.card, out && s.outCard, low && s.lowCard, pressed && { opacity: .8 }]}>
-    <View style={s.cardTop}>{source ? <Image source={{ uri: source }} resizeMode="cover" style={s.productImage} /> : <View style={s.productImage}><Ionicons name="cube-outline" size={25} color={colors.muted} /></View>}<View style={s.copy}><View style={s.nameRow}><Text numberOfLines={1} style={s.productName}>{name}</Text><Text style={[s.status, product.status === "ACTIVE" ? s.activeStatus : s.archivedStatus]}>{product.status === "ACTIVE" ? "Active" : "Archived"}</Text></View><Text style={s.meta}>{product.sku} · {product.categoryName}</Text><View style={s.priceRow}><Text style={s.priceLabel}>Selling Price</Text><Text style={s.price}>{money(product.sellingPrice)}</Text>{discounted && <><Text style={s.oldPrice}>{money(product.marketPrice!)}</Text><Text style={s.discount}>{discount}% off</Text></>}</View>{(out || low) && <Text style={[s.stockMessage, out ? s.outText : s.lowText]}>{out ? "Out of stock — add more stock" : "Low stock — add more stock"}</Text>}</View></View>
+    <View style={s.cardTop}>{source ? <Image source={{ uri: source }} resizeMode="cover" style={s.productImage} /> : <View style={s.productImage}><Ionicons name="cube-outline" size={25} color={colors.muted} /></View>}<View style={s.copy}><View style={s.nameRow}><Text numberOfLines={1} style={s.productName}>{name}</Text>{discounted && <Text style={[s.status, { color: colors.white, backgroundColor: colors.primary }]}>Offer {discount}%</Text>}</View><Text style={s.meta}>{product.sku} · {product.categoryName}</Text><View style={s.priceRow}><Text style={s.priceLabel}>Selling Price</Text><Text style={s.price}>{money(product.sellingPrice)}</Text>{hasMarketComparison && <Text style={s.oldPrice}>{money(product.marketPrice!)}</Text>}</View>{(out || low) && <Text style={[s.stockMessage, out ? s.outText : s.lowText]}>{out ? "Out of stock — add more stock" : "Low stock — add more stock"}</Text>}</View></View>
     <View style={s.tags}>{canSeeCosts && product.buyPrice != null && <Tag icon="wallet-outline" text={`Buy: ${money(product.buyPrice)}`} />}<Tag icon="cube-outline" text={`${product.variantCount} ${product.variantCount === 1 ? "variant" : "variants"} · ${product.totalStock} ${product.unitCode}`} /><Tag accent={product.showOnMarketplace} icon={product.showOnMarketplace ? "bag-check-outline" : "bag-remove-outline"} text={product.showOnMarketplace ? "On marketplace" : "Not on marketplace"} /></View>
   </Pressable>;
 }

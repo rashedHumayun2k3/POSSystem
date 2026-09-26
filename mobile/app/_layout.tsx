@@ -5,11 +5,12 @@ import { useState } from "react";
 import { Stack, Link, usePathname, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
-import { Image, Modal, Platform, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from "react-native";
+import { Image, Modal, Platform, Pressable, ScrollView, StyleSheet, TextInput, useWindowDimensions, View } from "react-native";
 import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import AppHeader from "../src/components/AppHeader";
 import { AuthProvider, useAuth } from "../src/auth/AuthContext";import { LanguageProvider, useLanguage } from "../src/i18n/LanguageContext";
 import LoginScreen from "../src/auth/LoginScreen";
+import OnboardingScreen from "../src/screens/OnboardingScreen";
 import { ActivityIndicator } from "react-native";
 
 const APP_BACKGROUND = colors.background;
@@ -95,9 +96,12 @@ function AppShell() {
   const [quickActionsOpen, setQuickActionsOpen] = useState(false);
   const [reportsOpen, setReportsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [menuSearch, setMenuSearch] = useState("");
   const role = (auth.session?.user.role || "STAFF").toUpperCase();
+  const currentBusiness = auth.session?.businesses.find(business => business.id === auth.session?.businessId);
   if (!auth.ready) return <View style={[s.shell, { justifyContent: "center" }]}><ActivityIndicator color={colors.primary} /></View>;
   if (!auth.session?.branchId) return <SafeAreaView style={s.shell}><StatusBar style="dark" /><LoginScreen /></SafeAreaView>;
+  if (role === "OWNER" && currentBusiness?.onboardingCompleted === false) return <SafeAreaView style={s.shell}><StatusBar style="dark" /><OnboardingScreen /></SafeAreaView>;
   const mobileTab = (tab: typeof tabs[number]) => {
     const href = tab.href;
     const active = href === "/" ? path === "/" : path.startsWith(href);
@@ -131,6 +135,7 @@ function AppShell() {
   });
   const openMoreItem = (item: MoreNavItem) => {
     setDrawerOpen(false);
+    setMenuSearch("");
     if (item.key === "categories") return router.push("/more/categories");
     if (item.key === "quick-add") return router.push("/more/catalog-templates");
     if (item.key === "purchases") return router.push("/more/purchases");
@@ -146,6 +151,13 @@ function AppShell() {
     <Text numberOfLines={1} style={[s.moreLabel, nested && s.nestedLabel,active&&s.activeMoreLabel]}>{t(item.label)}</Text>
   </Pressable>;});
   const visibleMoreItems = moreItems.filter(item => !item.roles || item.roles.includes(role));
+  const menuQuery = menuSearch.trim().toLocaleLowerCase();
+  const menuMatches = (label: string, key = "") => !menuQuery || `${t(label)} ${label} ${key}`.toLocaleLowerCase().includes(menuQuery);
+  const drawerTabs = tabs.filter(tab => menuMatches(tab.label, tab.href));
+  const drawerReports = reportItems.filter(item => menuMatches(item.label, item.key));
+  const drawerSettings = (role === "OWNER" ? [...basicSettings, ...ownerSettings] : basicSettings).filter(item => menuMatches(item.label, item.key));
+  const drawerMoreItems = visibleMoreItems.filter(item => menuMatches(item.label, item.key) || (item.key === "reports" && drawerReports.length > 0) || (item.key === "settings" && drawerSettings.length > 0));
+  const drawerHasResults = drawerTabs.length > 0 || drawerMoreItems.length > 0;
   const morePanel = <View style={s.moreList}>
     {visibleMoreItems.map(item => {
       if (item.key === "reports") return <View key={item.key}>
@@ -162,6 +174,19 @@ function AppShell() {
       return moreRows([item]);
     })}
   </View>;
+  const drawerMorePanel = <View style={s.moreList}>
+    {drawerMoreItems.map(item => {
+      if (item.key === "reports") return <View key={item.key}>
+        <Pressable disabled={!!menuQuery} onPress={() => setReportsOpen(value => !value)} style={({ pressed }) => [s.moreRow,path.startsWith("/more/reports")&&s.activeMoreRow, pressed && s.pressed]}><Ionicons name={item.icon} size={19} color={path.startsWith("/more/reports")?colors.primaryDark:colors.neutralIcon} /><Text style={[s.moreLabel,path.startsWith("/more/reports")&&s.activeMoreLabel]}>{t(item.label)}</Text><Ionicons name={(menuQuery||reportsOpen) ? "chevron-down" : "chevron-forward"} size={14} color={path.startsWith("/more/reports")?colors.primaryDark:colors.muted} /></Pressable>
+        {(!!menuQuery||reportsOpen) && <View style={s.nestedList}>{moreRows(drawerReports, true)}</View>}
+      </View>;
+      if (item.key === "settings") return <View key={item.key}>
+        <Pressable disabled={!!menuQuery} onPress={() => setSettingsOpen(value => !value)} style={({ pressed }) => [s.moreRow,path.startsWith("/more/settings")&&s.activeMoreRow, pressed && s.pressed]}><Ionicons name={item.icon} size={19} color={path.startsWith("/more/settings")?colors.primaryDark:colors.neutralIcon} /><Text style={[s.moreLabel,path.startsWith("/more/settings")&&s.activeMoreLabel]}>{t(item.label)}</Text><Ionicons name={(menuQuery||settingsOpen) ? "chevron-down" : "chevron-forward"} size={14} color={path.startsWith("/more/settings")?colors.primaryDark:colors.muted} /></Pressable>
+        {(!!menuQuery||settingsOpen) && <View style={s.nestedList}>{moreRows(drawerSettings, true)}</View>}
+      </View>;
+      return moreRows([item]);
+    })}
+  </View>;
   return <SafeAreaView style={s.shell} edges={["top", "left", "right"]}>
     <StatusBar style="dark" />
     <AppHeader onMenuPress={() => setDrawerOpen(true)} />
@@ -171,7 +196,7 @@ function AppShell() {
     </View>
     {!showSidebar ? <View style={[s.bar, { paddingBottom: Math.max(insets.bottom, 8) }]}>{mobileBottomNavigation}</View> : null}
     {!showSidebar&&<Modal visible={quickActionsOpen} transparent animationType="slide" onRequestClose={()=>setQuickActionsOpen(false)}><Pressable onPress={()=>setQuickActionsOpen(false)} style={s.quickOverlay}><Pressable onPress={event=>event.stopPropagation()} style={[s.quickSheet,{paddingBottom:Math.max(insets.bottom,16)}]}><View style={s.quickHandle}/><View style={s.quickHeader}><View><Text style={s.quickTitle}>{t("Create New")}</Text><Text style={s.quickSubtitle}>{t("Choose what you want to add")}</Text></View><Pressable onPress={()=>setQuickActionsOpen(false)} style={s.quickClose}><Ionicons name="close" size={21} color={colors.secondary}/></Pressable></View><View style={s.quickGrid}>{quickActions.filter(action=>!action.roles||action.roles.includes(role)).map(action=><Pressable key={action.key} onPress={()=>openQuickAction(action.key)} style={({pressed})=>[s.quickAction,pressed&&s.pressed]}><View style={s.quickActionIcon}><Ionicons name={action.icon} size={21} color={colors.primaryDark}/></View><View style={s.quickActionCopy}><Text style={s.quickActionLabel}>{t(action.label)}</Text><Text numberOfLines={1} style={s.quickActionHint}>{t(action.hint)}</Text></View></Pressable>)}</View></Pressable></Pressable></Modal>}
-    {!showSidebar&&<Modal visible={drawerOpen} transparent animationType="fade" onRequestClose={()=>setDrawerOpen(false)}><View style={s.drawerScene}><Pressable accessibilityLabel="Close navigation" onPress={()=>setDrawerOpen(false)} style={s.drawerDismiss}/><SafeAreaView style={s.drawer} edges={["top","bottom"]}><View style={s.drawerHeader}><Image source={require("../assets/logo.png")} resizeMode="contain" style={s.drawerLogo}/><Pressable accessibilityRole="button" accessibilityLabel="Close navigation" onPress={()=>setDrawerOpen(false)} style={s.drawerClose}><Ionicons name="close" size={23} color={colors.secondary}/></Pressable></View><View style={s.drawerTitleRow}><View><Text style={s.drawerTitle}>{t("Navigation")}</Text><Text style={s.drawerSubtitle}>{t("Manage your business")}</Text></View></View><ScrollView contentContainerStyle={s.drawerContent} showsVerticalScrollIndicator={false}><View style={s.moreList}>{drawerPrimaryNavigation}</View>{morePanel}</ScrollView></SafeAreaView></View></Modal>}
+    {!showSidebar&&<Modal visible={drawerOpen} transparent animationType="fade" onRequestClose={()=>setDrawerOpen(false)}><View style={s.drawerScene}><Pressable accessibilityLabel="Close navigation" onPress={()=>setDrawerOpen(false)} style={s.drawerDismiss}/><SafeAreaView style={s.drawer} edges={["top","bottom"]}><View style={s.drawerHeader}><Image source={require("../assets/logo.png")} resizeMode="contain" style={s.drawerLogo}/><Pressable accessibilityRole="button" accessibilityLabel="Close navigation" onPress={()=>setDrawerOpen(false)} style={s.drawerClose}><Ionicons name="close" size={23} color={colors.secondary}/></Pressable></View><View style={s.drawerSearch}><Ionicons name="search-outline" size={19} color={colors.muted}/><TextInput autoCapitalize="none" autoCorrect={false} accessibilityLabel={t("more.searchMenu")} placeholder={t("more.searchMenu")} placeholderTextColor={colors.muted} value={menuSearch} onChangeText={setMenuSearch} style={s.drawerSearchInput}/>{!!menuSearch&&<Pressable accessibilityLabel={t("more.clearSearch")} onPress={()=>setMenuSearch("")} style={s.drawerSearchClear}><Ionicons name="close" size={18} color={colors.secondary}/></Pressable>}</View><ScrollView contentContainerStyle={s.drawerContent} showsVerticalScrollIndicator={false}>{!drawerHasResults?<View style={s.drawerEmpty}><Ionicons name="search-outline" size={27} color={colors.muted}/><Text style={s.drawerEmptyText}>{t("more.noSearchResults")}</Text></View>:<><View style={s.moreList}>{drawerTabs.map(tab => { const href=tab.href,active=href==="/"?path==="/":path.startsWith(href),icon=`${tab.icon}${active?"":"-outline"}` as keyof typeof Ionicons.glyphMap; return <Pressable key={tab.label} accessibilityState={{selected:active}} onPress={()=>{setDrawerOpen(false);setMenuSearch("");router.push(href)}} style={({pressed})=>[s.moreRow,active&&s.activeMoreRow,pressed&&s.pressed]}><Ionicons name={icon} size={19} color={active?colors.primaryDark:colors.neutralIcon}/><Text numberOfLines={1} style={[s.moreLabel,active&&s.activeMoreLabel]}>{t(tab.label)}</Text></Pressable>})}</View>{drawerMorePanel}</>}</ScrollView></SafeAreaView></View></Modal>}
   </SafeAreaView>;
 }
 
@@ -216,9 +241,11 @@ const s = StyleSheet.create({
   drawerHeader: { minHeight: 58, flexDirection: "row", alignItems: "center", gap: 10, borderBottomWidth: 1, borderBottomColor: colors.divider, paddingHorizontal: 14 },
   drawerLogo: { width: 142, height: 42 },
   drawerClose: { marginLeft: "auto", width: 38, height: 38, alignItems: "center", justifyContent: "center", borderRadius: 10, backgroundColor: colors.cardSecondary },
-  drawerTitleRow: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 7 },
-  drawerTitle: { color: colors.heading, fontSize: 17, fontWeight: "800" },
-  drawerSubtitle: { color: colors.muted, fontSize: 10, marginTop: 3 },
+  drawerSearch: { minHeight: 48, marginHorizontal: 12, marginTop: 14, marginBottom: 6, paddingHorizontal: 13, borderRadius: 15, borderWidth: 1, borderColor: colors.divider, backgroundColor: colors.white, flexDirection: "row", alignItems: "center", gap: 9 },
+  drawerSearchInput: { flex: 1, minWidth: 0, color: colors.heading, fontSize: 14, outlineStyle: "none" } as any,
+  drawerSearchClear: { width: 32, height: 32, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: colors.disabled },
+  drawerEmpty: { paddingVertical: 48, paddingHorizontal: 20, alignItems: "center", gap: 9 },
+  drawerEmptyText: { color: colors.muted, fontSize: 13, textAlign: "center" },
   drawerContent: { paddingHorizontal: 10, paddingBottom: 24 },
   quickOverlay: { flex: 1, justifyContent: "flex-end", backgroundColor: colors.overlay },
   quickSheet: { width: "100%", borderTopLeftRadius: 20, borderTopRightRadius: 20, backgroundColor: colors.white, paddingHorizontal: 14, paddingTop: 9 },

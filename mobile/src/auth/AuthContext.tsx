@@ -5,7 +5,7 @@ import * as SecureStore from "expo-secure-store";
 export const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://127.0.0.1:5018/api/v1";
 export const HUB_URL = process.env.EXPO_PUBLIC_HUB_URL ?? "http://127.0.0.1:5018/hubs/live";
 export const MEDIA_URL = process.env.EXPO_PUBLIC_MEDIA_URL ?? "http://127.0.0.1:5090";
-type Business = { id: string; name: string; salesChannels?: string[]; shopType?: "BIG_SUPERSHOP" | "SMALL_SHOWROOM" | "HAWKER_SHOP" | null };
+type Business = { id: string; name: string; businessTypes?: string[]; salesChannels?: string[]; shopType?: "BIG_SUPERSHOP" | "SMALL_SHOWROOM" | "HAWKER_SHOP" | null; onboardingCompleted?: boolean };
 export type Branch = { id: string; name: string };
 type Session = { accessToken: string; refreshToken: string; user: { id?: string; name: string; phone?: string; email?: string | null; role?: string; canAccessPos?: boolean; photoUrl?: string | null }; businesses: Business[]; businessId?: string; branchId?: string; branchName?: string };
 export type SignupDetails = { email: string; name: string; phone: string; password: string; businessName: string; country?: string };
@@ -47,6 +47,7 @@ const Context = createContext<{
   chooseBusiness: (id: string) => Promise<Branch[]>;
   chooseBranch: (branch: Branch) => Promise<void>;
   updateCurrentBusinessSalesChannels: (salesChannels: string[], shopType: Business["shopType"]) => Promise<void>;
+  completeCurrentBusinessOnboarding: (businessTypes: string[]) => Promise<void>;
   api: <T>(path: string, options?: RequestInit) => Promise<T>;
 } | null>(null);
 
@@ -116,6 +117,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     chooseBusiness,
     chooseBranch: async branch => { if (current.current) await update({ ...current.current, branchId: branch.id, branchName: branch.name }); },
     updateCurrentBusinessSalesChannels: async (salesChannels, shopType) => { if (current.current?.businessId) await update({ ...current.current, businesses: current.current.businesses.map(business => business.id === current.current?.businessId ? { ...business, salesChannels, shopType } : business) }); },
+    completeCurrentBusinessOnboarding: async businessTypes => { if (current.current?.businessId) await update({ ...current.current, businesses: current.current.businesses.map(business => business.id === current.current?.businessId ? { ...business, businessTypes, onboardingCompleted: true } : business) }); },
   }}>{children}</Context.Provider>;
 }
 export function useAuth() { const value = useContext(Context); if (!value) throw new Error("AuthProvider missing"); return value; }

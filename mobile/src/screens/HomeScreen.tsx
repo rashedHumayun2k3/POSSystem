@@ -49,10 +49,10 @@ export default function HomeScreen() {
   const actions: { label: string; icon: Icon; color: string; press?: () => void }[] = [
     { label: "New Order", icon: "clipboard-outline", color: colors.primary, press: () => router.push("/orders/new") },
     { label: "New Sale", icon: "cart-outline", color: colors.primary, press: () => router.push("/sale") },
-    { label: "Sales Record", icon: "cash-outline", color: colors.primary },
-    { label: "New Purchase", icon: "car-outline", color: colors.primary },
-    { label: "Add Expense", icon: "logo-usd", color: colors.primary },
-    { label: "Customers", icon: "people-outline", color: colors.primary },
+    { label: "Sales Record", icon: "cash-outline", color: colors.primary, press: () => router.push("/more/reports/sales") },
+    { label: "New Purchase", icon: "car-outline", color: colors.primary, press: () => router.push("/more/purchases/new") },
+    { label: "Add Expense", icon: "logo-usd", color: colors.primary, press: () => router.push("/more/expenses/new") },
+    { label: "Customers", icon: "people-outline", color: colors.primary, press: () => router.push("/more/customers") },
   ];
   return <ScrollView style={s.root} contentContainerStyle={s.content} refreshControl={<RefreshControl refreshing={loading} onRefresh={refresh} />}>
     <View style={s.welcome}><Text style={s.welcomeText}>Welcome back, {auth.session?.user.name}</Text><View style={s.businessRow}><Text numberOfLines={1} style={s.business}>{business?.name ?? "LavLokshan"}</Text><Text style={s.date}>{date}</Text></View></View>
