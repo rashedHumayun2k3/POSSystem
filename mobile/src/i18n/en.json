@@ -1,5 +1,7 @@
 {
   "nav": {
+    "preOrders": "Pre-orders",
+    "posLabel": "POS",
     "home": "Home",
     "orders": "Orders",
     "salesRecord": "Sales Record",

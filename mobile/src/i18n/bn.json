@@ -1,5 +1,7 @@
 {
   "nav": {
+    "preOrders": "প্রি-অর্ডার",
+    "posLabel": "বিক্রি",
     "home": "হোম",
     "orders": "অর্ডার",
     "salesRecord": "বিক্রয় রেকর্ড",

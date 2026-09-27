@@ -106,11 +106,11 @@ public class PreOrdersController : ControllerBase
                 if (order.Status != "IN_PROGRESS") return BadRequest(new { message = "Start review before recording contact." });
                 break;
             case "RESOLVE":
-                if (order.Status != "IN_PROGRESS") return BadRequest(new { message = "Start review before resolving." });
                 if (request.Outcome is not ("PURCHASED" or "NOTIFIED" or "DECLINED" or "UNAVAILABLE"))
                     return BadRequest(new { message = "Choose a resolution outcome." });
                 order.Status = "RESOLVED";
                 order.ResolutionOutcome = request.Outcome;
+                order.StaffNote = Clean(request.Note);
                 order.CompletedAt = DateTime.UtcNow;
                 break;
             default: return BadRequest(new { message = "Unknown workflow action." });

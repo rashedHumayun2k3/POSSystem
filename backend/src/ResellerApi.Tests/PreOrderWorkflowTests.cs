@@ -29,7 +29,11 @@ public class PreOrderWorkflowTests
         var context=new DefaultHttpContext {User=new ClaimsPrincipal(new ClaimsIdentity(new[]{new Claim(ClaimTypes.NameIdentifier,order.CreatedByUserId.ToString()),new Claim(ClaimTypes.Name,"Test Admin")},"test"))};
         var controller=new PreOrdersController(db,biz,new CurrentUserService(new HttpContextAccessor{HttpContext=context})){ControllerContext=new ControllerContext{HttpContext=context}};
         Assert.Equal("NEW",order.Status);
-        Assert.IsType<BadRequestObjectResult>(await controller.UpdateWorkflow(order.Id,new("RESOLVE",null,null,null,"PURCHASED")));
+        var direct=new PreOrder {BusinessId=biz.CurrentBusinessId,PreOrderNo="DIRECT",CreatedByUserId=order.CreatedByUserId};
+        db.PreOrders.Add(direct);await db.SaveChangesAsync();
+        Assert.IsType<OkObjectResult>(await controller.UpdateWorkflow(direct.Id,new("RESOLVE","Purchased today",null,null,"PURCHASED")));
+        Assert.Equal("RESOLVED",direct.Status);Assert.Equal("Purchased today",direct.StaffNote);
+        Assert.IsType<BadRequestObjectResult>(await controller.UpdateWorkflow(order.Id,new("RESOLVE",null,null,null,null)));
         Assert.IsType<OkObjectResult>(await controller.UpdateWorkflow(order.Id,new("START_REVIEW",null,null,null,null)));
         Assert.Equal("IN_PROGRESS",order.Status);
         Assert.IsType<BadRequestObjectResult>(await controller.UpdateWorkflow(order.Id,new("RESOLVE",null,null,null,null)));

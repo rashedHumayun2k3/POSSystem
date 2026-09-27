@@ -45,7 +45,12 @@ export default function HomeScreen() {
   if (loading && !data) return <View style={s.state}><ActivityIndicator color={colors.primary} size="large" /><Text style={s.muted}>Loading dashboard…</Text></View>;
   if (error || !data) return <View style={s.state}><Ionicons name="warning-outline" size={36} color={colors.danger} /><Text style={s.heading}>Could not load dashboard</Text><Text style={s.muted}>{error}</Text><Pressable style={s.retry} onPress={refresh}><Text style={s.retryText}>Try again</Text></Pressable></View>;
 
-  const salesDetail = data.salesChangePercent === null ? `Yesterday: ${cash(data.yesterdaySales)}` : data.salesChangePercent === 0 ? "Same as yesterday" : `${Math.abs(data.salesChangePercent)}% ${data.salesChangePercent > 0 ? "more" : "less"} than yesterday`;
+  const salesChange = typeof data.salesChangePercent === "number" && Number.isFinite(data.salesChangePercent) ? data.salesChangePercent : null;
+  const salesDetail = salesChange === null
+    ? typeof data.yesterdaySales === "number" && Number.isFinite(data.yesterdaySales)
+      ? `Yesterday: ${cash(data.yesterdaySales)}`
+      : "Comparison unavailable"
+    : salesChange === 0 ? "Same as yesterday" : `${Math.abs(salesChange)}% ${salesChange > 0 ? "more" : "less"} than yesterday`;
   const actions: { label: string; icon: Icon; color: string; press?: () => void }[] = [
     { label: "New Order", icon: "clipboard-outline", color: colors.primary, press: () => router.push("/orders/new") },
     { label: "New Sale", icon: "cart-outline", color: colors.primary, press: () => router.push("/sale") },
