@@ -7,7 +7,7 @@ public class PreOrder : BusinessScopedEntity, IBranchScoped
     public Guid? BranchId { get; set; }
     public string PreOrderNo { get; set; } = null!;
     public string Source { get; set; } = "POS";
-    public string Status { get; set; } = "WAITING_STOCK";
+    public string Status { get; set; } = "NEW";
     public string? CustomerName { get; set; }
     public string? CustomerPhone { get; set; }
     public string? CustomerEmail { get; set; }
@@ -20,6 +20,9 @@ public class PreOrder : BusinessScopedEntity, IBranchScoped
     public Guid CreatedByUserId { get; set; }
     public DateTime? CompletedAt { get; set; }
     public DateTime? CancelledAt { get; set; }
+    public string? PurchaseReference { get; set; }
+    public string? ResolutionOutcome { get; set; }
+    public string ActivityJson { get; set; } = "[]";
     public string? CancellationReason { get; set; }
     public Branch? Branch { get; set; }
     public User CreatedByUser { get; set; } = null!;

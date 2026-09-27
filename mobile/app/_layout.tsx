@@ -1,3 +1,4 @@
+import SupplierPicker from "../src/components/SupplierPicker";
 import { Text } from "../src/i18n/LocalizedText";
 import { colors } from "../src/theme";
 import * as ExpoLinking from "expo-linking";
@@ -32,7 +33,7 @@ const quickActions: QuickAction[] = [
   { key: "purchase", label: "Add Purchase", hint: "Start purchase order", icon: "bag-add-outline", roles: ["OWNER", "MANAGER", "WAREHOUSE"] },
   { key: "expense", label: "Add Expense", hint: "Record business cost", icon: "wallet-outline", roles: ["OWNER", "MANAGER"] },
   { key: "customer", label: "Add Customer", hint: "Through a new order", icon: "person-add-outline" },
-  { key: "supplier", label: "Add Supplier", hint: "Through a purchase", icon: "business-outline", roles: ["OWNER", "MANAGER", "WAREHOUSE"] },
+  { key: "supplier", label: "Add Supplier", hint: "Create supplier contact", icon: "business-outline", roles: ["OWNER", "MANAGER", "WAREHOUSE"] },
   { key: "category", label: "Add Category", hint: "Organize products", icon: "pricetag-outline", roles: ["OWNER"] },
 ];
 const moreItems: MoreNavItem[] = [
@@ -94,6 +95,7 @@ function AppShell() {
   const showSidebar = width >= 768;
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [quickActionsOpen, setQuickActionsOpen] = useState(false);
+  const [supplierFormOpen, setSupplierFormOpen] = useState(false);
   const [reportsOpen, setReportsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [menuSearch, setMenuSearch] = useState("");
@@ -143,7 +145,7 @@ function AppShell() {
     if (webPath) return openEnvironmentPath(webPath);
     return item.route ? router.push(item.route) : router.push({ pathname: "/more", params: { focus: item.key } });
   };
-  const openQuickAction=(key:string)=>{setQuickActionsOpen(false);if(key==="pre-order")return openEnvironmentPath("/more/pre-orders");if(key==="sale")return router.push("/sale");if(key==="order"||key==="customer")return router.push("/orders/new");if(key==="purchase"||key==="supplier")return router.push("/more/purchases/new");if(key==="category")return router.push({pathname:"/more/categories",params:{new:"1"}});if(key==="product")return openEnvironmentPath("/products/new");if(key==="expense")return openEnvironmentPath("/more/expenses/new")};
+  const openQuickAction=(key:string)=>{setQuickActionsOpen(false);if(key==="pre-order")return openEnvironmentPath("/more/pre-orders");if(key==="sale")return router.push("/sale");if(key==="order"||key==="customer")return router.push("/orders/new");if(key==="supplier")return setSupplierFormOpen(true);if(key==="purchase")return router.push("/more/purchases/new");if(key==="category")return router.push({pathname:"/more/categories",params:{new:"1"}});if(key==="product")return openEnvironmentPath("/products/new");if(key==="expense")return openEnvironmentPath("/more/expenses/new")};
   const itemPath = (item: MoreNavItem) => item.key === "categories" ? "/more/categories" : item.key === "quick-add" ? "/more/catalog-templates" : item.key === "purchases" ? "/more/purchases" : frontendPaths[item.key] ?? item.route;
   const itemActive = (item: MoreNavItem) => { const target = itemPath(item); return !!target && (target === "/" ? path === "/" : path === target || path.startsWith(`${target}/`)); };
   const moreRows = (entries: MoreNavItem[], nested = false) => entries.map(item => { const active=itemActive(item); return <Pressable key={item.key} accessibilityState={{selected:active}} onPress={() => openMoreItem(item)} style={({ pressed }) => [s.moreRow, nested && s.nestedRow, active&&s.activeMoreRow, pressed && s.pressed]}>
@@ -197,6 +199,7 @@ function AppShell() {
     {!showSidebar ? <View style={[s.bar, { paddingBottom: Math.max(insets.bottom, 8) }]}>{mobileBottomNavigation}</View> : null}
     {!showSidebar&&<Modal visible={quickActionsOpen} transparent animationType="slide" onRequestClose={()=>setQuickActionsOpen(false)}><Pressable onPress={()=>setQuickActionsOpen(false)} style={s.quickOverlay}><Pressable onPress={event=>event.stopPropagation()} style={[s.quickSheet,{paddingBottom:Math.max(insets.bottom,16)}]}><View style={s.quickHandle}/><View style={s.quickHeader}><View><Text style={s.quickTitle}>{t("Create New")}</Text><Text style={s.quickSubtitle}>{t("Choose what you want to add")}</Text></View><Pressable onPress={()=>setQuickActionsOpen(false)} style={s.quickClose}><Ionicons name="close" size={21} color={colors.secondary}/></Pressable></View><View style={s.quickGrid}>{quickActions.filter(action=>!action.roles||action.roles.includes(role)).map(action=><Pressable key={action.key} onPress={()=>openQuickAction(action.key)} style={({pressed})=>[s.quickAction,pressed&&s.pressed]}><View style={s.quickActionIcon}><Ionicons name={action.icon} size={21} color={colors.primaryDark}/></View><View style={s.quickActionCopy}><Text style={s.quickActionLabel}>{t(action.label)}</Text><Text numberOfLines={1} style={s.quickActionHint}>{t(action.hint)}</Text></View></Pressable>)}</View></Pressable></Pressable></Modal>}
     {!showSidebar&&<Modal visible={drawerOpen} transparent animationType="fade" onRequestClose={()=>setDrawerOpen(false)}><View style={s.drawerScene}><Pressable accessibilityLabel="Close navigation" onPress={()=>setDrawerOpen(false)} style={s.drawerDismiss}/><SafeAreaView style={s.drawer} edges={["top","bottom"]}><View style={s.drawerHeader}><Image source={require("../assets/logo.png")} resizeMode="contain" style={s.drawerLogo}/><Pressable accessibilityRole="button" accessibilityLabel="Close navigation" onPress={()=>setDrawerOpen(false)} style={s.drawerClose}><Ionicons name="close" size={23} color={colors.secondary}/></Pressable></View><View style={s.drawerSearch}><Ionicons name="search-outline" size={19} color={colors.muted}/><TextInput autoCapitalize="none" autoCorrect={false} accessibilityLabel={t("more.searchMenu")} placeholder={t("more.searchMenu")} placeholderTextColor={colors.muted} value={menuSearch} onChangeText={setMenuSearch} style={s.drawerSearchInput}/>{!!menuSearch&&<Pressable accessibilityLabel={t("more.clearSearch")} onPress={()=>setMenuSearch("")} style={s.drawerSearchClear}><Ionicons name="close" size={18} color={colors.secondary}/></Pressable>}</View><ScrollView contentContainerStyle={s.drawerContent} showsVerticalScrollIndicator={false}>{!drawerHasResults?<View style={s.drawerEmpty}><Ionicons name="search-outline" size={27} color={colors.muted}/><Text style={s.drawerEmptyText}>{t("more.noSearchResults")}</Text></View>:<><View style={s.moreList}>{drawerTabs.map(tab => { const href=tab.href,active=href==="/"?path==="/":path.startsWith(href),icon=`${tab.icon}${active?"":"-outline"}` as keyof typeof Ionicons.glyphMap; return <Pressable key={tab.label} accessibilityState={{selected:active}} onPress={()=>{setDrawerOpen(false);setMenuSearch("");router.push(href)}} style={({pressed})=>[s.moreRow,active&&s.activeMoreRow,pressed&&s.pressed]}><Ionicons name={icon} size={19} color={active?colors.primaryDark:colors.neutralIcon}/><Text numberOfLines={1} style={[s.moreLabel,active&&s.activeMoreLabel]}>{t(tab.label)}</Text></Pressable>})}</View>{drawerMorePanel}</>}</ScrollView></SafeAreaView></View></Modal>}
+  {supplierFormOpen&&<SupplierPicker open createOnly onClose={()=>setSupplierFormOpen(false)} onSelect={()=>setSupplierFormOpen(false)}/>}
   </SafeAreaView>;
 }
 

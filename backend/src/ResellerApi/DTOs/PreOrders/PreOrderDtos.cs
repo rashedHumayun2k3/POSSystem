@@ -13,3 +13,5 @@ public sealed record CreatePreOrderRequest(
     DateTime? ExpectedDate,
     DateTime? PickupDeadline);
 public sealed record CancelPreOrderRequest(string Reason);
+
+public sealed record UpdatePreOrderRequest(string Action, string? Note, DateTime? ExpectedDate, string? PurchaseReference, string? Outcome);

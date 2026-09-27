@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using ResellerApi.Data;
 
@@ -11,9 +12,11 @@ using ResellerApi.Data;
 namespace ResellerApi.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260927042251_CreateMissingPreOrderTables")]
+    partial class CreateMissingPreOrderTables
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -2679,10 +2682,6 @@ namespace ResellerApi.Data.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasDefaultValueSql("NEWSEQUENTIALID()");
 
-                    b.Property<string>("ActivityJson")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
                     b.Property<Guid?>("BranchId")
                         .HasColumnType("uniqueidentifier");
 
@@ -2739,14 +2738,8 @@ namespace ResellerApi.Data.Migrations
                         .HasMaxLength(40)
                         .HasColumnType("nvarchar(40)");
 
-                    b.Property<string>("PurchaseReference")
-                        .HasColumnType("nvarchar(max)");
-
                     b.Property<DateTime>("RequestedAt")
                         .HasColumnType("datetime2");
-
-                    b.Property<string>("ResolutionOutcome")
-                        .HasColumnType("nvarchar(max)");
 
                     b.Property<byte[]>("RowVer")
                         .IsConcurrencyToken()
