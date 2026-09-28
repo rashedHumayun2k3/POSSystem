@@ -22,6 +22,7 @@ const items: MenuItem[] = [
   { key: "purchases", title: "Purchases", description: "Lots & landed cost", icon: "cart-outline", roles: ["OWNER", "MANAGER", "WAREHOUSE"], webPath: "/more/purchases" },
   { key: "supplier-returns", title: "Supplier Returns", description: "Return or write off damaged goods", icon: "return-down-back-outline", roles: ["OWNER", "MANAGER"], webPath: "/more/supplier-returns" },
   { key: "storeroom", title: "Storeroom", description: "Cartons & labeling", icon: "archive-outline", roles: ["OWNER", "WAREHOUSE"], webPath: "/more/storeroom" },
+  { key: "barcodes", title: "Print Barcodes", description: "Product barcode labels and sticker printing", icon: "barcode-outline", roles: ["OWNER", "MANAGER", "WAREHOUSE"], webPath: "/more/barcodes" },
   { key: "deliveries", title: "Deliveries", description: "Courier board", icon: "car-outline", roles: ["OWNER", "MANAGER", "STAFF"], webPath: "/more/deliveries" },
   { key: "expenses", title: "Expenses", description: "Costs & petty cash", icon: "wallet-outline", roles: ["OWNER", "MANAGER"], webPath: "/more/expenses" },
   { key: "reports", title: "Reports", description: "P&L, demand, couriers", icon: "bar-chart-outline", roles: ["OWNER", "MANAGER"], webPath: "/more/reports" },
@@ -105,6 +106,7 @@ export default function MoreScreen() {
     if (item.key === "categories") return router.push("/more/categories");
     if (item.key === "catalog-templates") return router.push("/more/catalog-templates");
     if (item.key === "purchases") return router.push("/more/purchases");
+    if (item.key === "barcodes") return router.push("/more/barcodes");
     if (item.key === "deliveries") return router.push("/more/deliveries");
     if (item.key === "expenses") return router.push("/more/expenses");
     if (item.key === "customers") return router.push("/more/customers");
