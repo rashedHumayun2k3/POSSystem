@@ -41,7 +41,7 @@ public class ProductService : IProductService
             ? _priceSlots.CreateSlotAsync(variantId, new CreateSlotRequest("Original Price", price, null), userId)
             : Task.CompletedTask;
 
-    public async Task<List<ProductSummaryDto>> ListAsync(string? status, Guid? categoryId, string? q)
+    public async Task<List<ProductSummaryDto>> ListAsync(string? status, Guid? categoryId, string? q, int? skip = null, int? take = null)
     {
         var query = _db.Products
             .AsNoTracking()
@@ -56,13 +56,36 @@ public class ProductService : IProductService
         if (!string.IsNullOrWhiteSpace(q))
             query = query.Where(p => p.Name.Contains(q) || p.Sku.Contains(q));
 
-        var products = await query.OrderBy(p => p.Name).ToListAsync();
+        query = query.OrderBy(p => p.Name).ThenBy(p => p.Id);
+        if (take.HasValue)
+            query = query.Skip(Math.Max(0, skip ?? 0)).Take(Math.Clamp(take.Value, 1, 100));
+        var products = await query.ToListAsync();
 
-        var variantIds = products.SelectMany(p => p.Variants).Select(v => v.Id);
+        var variantIds = products.SelectMany(p => p.Variants).Select(v => v.Id).ToList();
         var inv = await LoadInventoryAsync(variantIds);
         var orderStats = await LoadOrderStatsAsync(products.Select(p => p.Id));
 
-        return products.Select(p => MapSummary(p, inv, orderStats)).ToList();
+        var offerByVariant = new Dictionary<Guid, decimal>();
+        if (variantIds.Any())
+        {
+            var slots = await _db.PriceSlots.AsNoTracking()
+                .Where(slot => variantIds.Contains(slot.VariantId))
+                .Select(slot => new { slot.VariantId, slot.Label, slot.IsActive, slot.StartDate, slot.EndDate })
+                .ToListAsync();
+            var now = DateTime.UtcNow;
+            foreach (var group in slots.GroupBy(slot => slot.VariantId))
+            {
+                var activeSlot = group.FirstOrDefault(slot => slot.IsActive && slot.StartDate <= now && (slot.EndDate == null || slot.EndDate >= now))
+                    ?? group.Where(slot => slot.StartDate <= now && (slot.EndDate == null || slot.EndDate >= now))
+                        .OrderByDescending(slot => slot.StartDate).FirstOrDefault();
+                if (activeSlot is null || activeSlot.Label == "Original Price") continue;
+                var match = System.Text.RegularExpressions.Regex.Match(activeSlot.Label, @"(\d+(?:\.\d+)?)%");
+                if (match.Success && decimal.TryParse(match.Groups[1].Value, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var percent))
+                    offerByVariant[group.Key] = Math.Max(offerByVariant.GetValueOrDefault(group.Key), percent);
+            }
+        }
+
+        return products.Select(p => MapSummary(p, inv, orderStats, offerByVariant)).ToList();
     }
 
     // Backs the "My Added Products" tab on the catalog-templates page — every product under a
@@ -432,6 +455,17 @@ public class ProductService : IProductService
 
         var productName = request.Name.Trim();
         if (productName.Length == 0) throw new ArgumentException("Product name is required.");
+
+        var normalizedProductName = productName.ToLower();
+        var existingProduct = await _db.Products
+            .AsNoTracking()
+            .Where(p => p.CategoryId == request.CategoryId
+                && p.Status == "ACTIVE"
+                && p.Name.ToLower() == normalizedProductName)
+            .Select(p => new { p.Name, p.Sku })
+            .FirstOrDefaultAsync();
+        if (existingProduct is not null)
+            throw new ArgumentException($"A product named '{existingProduct.Name}' already exists in this category (SKU: {existingProduct.Sku}). Open the existing product instead.");
 
         SuggestedProduct? suggestedProduct = null;
         if (request.SuggestedProductId.HasValue)
@@ -1128,7 +1162,8 @@ public class ProductService : IProductService
     private static ProductSummaryDto MapSummary(
         Product p,
         Dictionary<Guid, decimal> inv,
-        Dictionary<Guid, (int OrderCount, decimal QtySold, decimal RawProfit)> orderStats)
+        Dictionary<Guid, (int OrderCount, decimal QtySold, decimal RawProfit)> orderStats,
+        Dictionary<Guid, decimal>? offerByVariant = null)
     {
         var defaultVariant = p.Variants.FirstOrDefault(v => v.IsDefault) ?? p.Variants.FirstOrDefault();
         var stats = orderStats.TryGetValue(p.Id, out var s) ? s : (OrderCount: 0, QtySold: 0m, RawProfit: 0m);
@@ -1143,7 +1178,8 @@ public class ProductService : IProductService
             p.AverageRating, p.ReviewCount,
             stats.OrderCount, totalProfit,
             p.ShowOnMarketplace,
-            p.WholesaleMinQty, p.WholesaleUnitPrice
+            p.WholesaleMinQty, p.WholesaleUnitPrice,
+            p.Variants.Select(v => offerByVariant?.GetValueOrDefault(v.Id) ?? 0m).DefaultIfEmpty(0m).Max()
         );
     }
 }

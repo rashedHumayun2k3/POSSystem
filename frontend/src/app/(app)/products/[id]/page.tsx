@@ -556,7 +556,7 @@ function InfoTab({
     if (!file) return;
     setUploadingImage(true);
     try {
-      const url = await uploadImage(file);
+      const url = await uploadImage(file, { maxWidth: 400 });
       await imageMutation.mutateAsync(url);
     } catch {
       useToastStore.getState().show(t('products.imageUploadFailed'), 'error');
@@ -3830,7 +3830,7 @@ function ProductGalleryEditor({ product, t }: { product: ProductDetail; t: (key:
     setUploading(true);
     try {
       for (const file of selectedFiles) {
-        const url = await uploadImage(file);
+        const url = await uploadImage(file, { maxWidth: 400 });
         await addMutation.mutateAsync(url);
       }
     } catch (err) {

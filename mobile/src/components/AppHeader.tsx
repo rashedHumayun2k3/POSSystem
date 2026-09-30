@@ -1,3 +1,5 @@
+import {router} from "expo-router";
+import UserAvatar from "./UserAvatar";
 import { Text } from "../i18n/LocalizedText";
 import { colors } from "../theme";import { Image, Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -16,8 +18,8 @@ export default function AppHeader({ onMenuPress }: { onMenuPress?: () => void })
       <View accessibilityLabel="Online" style={s.online} />
       <Pressable onPress={toggleLang} accessibilityRole="button" accessibilityLabel={t("Switch language")} style={s.language}><Text style={s.languageText}>{lang==="bn"?"EN":"বাং"}</Text></Pressable>
       <Pressable accessibilityRole="button" accessibilityLabel={t("Notifications")} style={s.icon}><Ionicons name="notifications-outline" size={24} color={colors.secondary} /></Pressable>
-      <Pressable accessibilityRole="button" accessibilityLabel="Profile" onLongPress={() => void auth.logout()}>
-        {photo ? <Image source={{ uri: photo }} style={s.avatarImage} /> : <View style={s.avatar}><Text style={s.avatarText}>{auth.session?.user.name.charAt(0).toUpperCase()}</Text></View>}
+      <Pressable accessibilityRole="button" accessibilityLabel={t("profile.title")} onPress={() => router.push("/profile")}>
+        <UserAvatar name={auth.session?.user.name??""} photoUrl={photo}/>
       </Pressable>
     </View>
   </View>;

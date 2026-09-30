@@ -26,7 +26,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   try {
     const response = await fetch(`${API_URL}${path}`, { ...options, signal: options.signal ?? controller.signal });
     const body = await response.json().catch(() => ({}));
-    if (!response.ok) throw Object.assign(new Error(body.message || (response.status === 401 ? "Your session expired. Please sign in again." : `Request failed (${response.status}).`)), { status: response.status });
+    if (!response.ok) throw Object.assign(new Error(body.message || (response.status === 401 ? "Your session expired. Please sign in again." : `Request failed (${response.status}).`)), { status: response.status, data: body });
     return body;
   } catch (error) {
     if (error instanceof TypeError || (error as Error).name === "AbortError") throw new Error("Cannot reach the server. Check your internet connection and try again.");
@@ -44,6 +44,7 @@ const Context = createContext<{
   completePasswordReset: (email: string, newPassword: string) => Promise<void>;
   findEmail: (phone: string, shopName: string) => Promise<{ found: boolean; maskedEmail: string | null }>;
   logout: () => Promise<void>;
+  updateUserPhoto: (photoUrl: string) => Promise<void>;
   chooseBusiness: (id: string) => Promise<Branch[]>;
   chooseBranch: (branch: Branch) => Promise<void>;
   updateCurrentBusinessSalesChannels: (salesChannels: string[], shopType: Business["shopType"]) => Promise<void>;
@@ -114,6 +115,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     completePasswordReset: async (email, newPassword) => { await request("/auth/forgot-password/complete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: email.trim(), newPassword }) }); },
     findEmail: async (phone, shopName) => request("/auth/forgot-password/find-email", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ phone: phone.trim(), shopName: shopName.trim() }) }),
     logout: async () => { const previous = current.current; await update(null); if (previous) request("/auth/logout", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${previous.accessToken}` }, body: JSON.stringify({ refreshToken: previous.refreshToken }) }).catch(() => {}); },
+    updateUserPhoto: async photoUrl => { if(current.current) await update({...current.current,user:{...current.current.user,photoUrl}}); },
     chooseBusiness,
     chooseBranch: async branch => { if (current.current) await update({ ...current.current, branchId: branch.id, branchName: branch.name }); },
     updateCurrentBusinessSalesChannels: async (salesChannels, shopType) => { if (current.current?.businessId) await update({ ...current.current, businesses: current.current.businesses.map(business => business.id === current.current?.businessId ? { ...business, salesChannels, shopType } : business) }); },

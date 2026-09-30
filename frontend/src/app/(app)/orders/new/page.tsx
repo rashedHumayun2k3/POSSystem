@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createOrder as createOrderApi, updateOrder as updateOrderApi, getOrder, listCouriers } from "@/lib/ordersApi";
 import { useAuthStore } from "@/store/authStore";
 import AppHeader from "@/components/layout/AppHeader";
@@ -94,6 +94,7 @@ function courierButtonClass(name: string, active: boolean): string {
 // ── Main component ─────────────────────────────────────────────────────────
 export default function NewOrderPage() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const searchParams = useSearchParams();
   const isOwner = useAuthStore((s) => s.isOwner());
   const { t } = useLanguage();
@@ -312,7 +313,10 @@ export default function NewOrderPage() {
           unitPrice: l.unitPrice,
         })),
       }),
-    onSuccess: (order) => router.push(`/orders/${order.id}`),
+    onSuccess: (order) => {
+      void queryClient.invalidateQueries({ queryKey: ["orders"] });
+      router.push(`/orders/${order.id}`);
+    },
     onError: (err: unknown) => {
       const data = (err as { response?: { data?: { items?: string[]; message?: string } } })?.response?.data;
       const message = data?.items?.length

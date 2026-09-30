@@ -92,7 +92,8 @@ public record ProductSummaryDto(
     decimal TotalProfit,           // OWNER only
     bool ShowOnMarketplace,
     decimal? WholesaleMinQty,      // both null = no wholesale tier for this product
-    decimal? WholesaleUnitPrice
+    decimal? WholesaleUnitPrice,
+    decimal ActiveOfferPercent = 0
 );
 
 public record ProductMarketplaceDetailDto(Guid Id, string Section, string Label, string Value, int SortOrder);

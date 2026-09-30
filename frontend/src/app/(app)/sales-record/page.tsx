@@ -28,6 +28,8 @@ const CHANNEL_ICONS: Record<string, string> = {
 };
 
 type ChannelFilter = "" | "SHOP" | "ONLINE";
+const resolveDateParam = (value: string | null) =>
+  value === "today" ? new Date().toISOString().slice(0, 10) : value ?? "";
 
 export default function SalesRecordPage() {
   const { t, lang } = useLanguage();
@@ -36,8 +38,8 @@ export default function SalesRecordPage() {
   const [search, setSearch] = useState("");
   const [channelFilter, setChannelFilter] = useState<ChannelFilter>(initialChannel === "SHOP" || initialChannel === "ONLINE" ? initialChannel : "");
   const [collapsedDates, setCollapsedDates] = useState<Set<string>>(new Set());
-  const [fromDate, setFromDate] = useState(searchParams.get("from") ?? "");
-  const [toDate, setToDate] = useState(searchParams.get("to") ?? "");
+  const [fromDate, setFromDate] = useState(() => resolveDateParam(searchParams.get("from")));
+  const [toDate, setToDate] = useState(() => resolveDateParam(searchParams.get("to")));
   const currentBranchId = useAuthStore((s) => s.currentBranchId);
 
   // A completed sale = money actually recorded as received (PaymentStatus PAID), not just

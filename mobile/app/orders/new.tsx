@@ -1,26 +1,26 @@
 import { Text } from "../../src/i18n/LocalizedText";
-import { colors } from "../../src/theme";import { useState } from "react";
+import { useAuth } from "../../src/auth/AuthContext";
+import { colors } from "../../src/theme";
+import { useEffect, useState } from "react";
 import { router } from "expo-router";
 import {
-  Modal,
+  ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
   TextInput,
-  useWindowDimensions,
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import ProductPicker, {
   type ProductPickerResult,
 } from "../../src/components/ProductPicker";
+import OrderCustomerPicker, {
+  type OrderCustomer,
+} from "../../src/components/OrderCustomerPicker";
 
 type CartItem = ProductPickerResult & { quantity: number; unitPrice: string };
-
-const customers = [
-  { id: "1", name: "Rahim Ahmed", phone: "01700000001", address: "Dhaka" },
-  { id: "2", name: "Karim Hasan", phone: "01800000002", address: "Chattogram" },
-];
+type OrderBranch = { id: string; name: string; isActive: boolean };
 const channels = [
   "📘 Facebook",
   "💬 WhatsApp",
@@ -32,8 +32,27 @@ const channels = [
 ] as const;
 
 export default function NewOrderScreen() {
-  const { width } = useWindowDimensions();
-  const isDesktop = width >= 768;
+  const auth = useAuth();
+  const [branches, setBranches] = useState<OrderBranch[]>([]);
+  const [branchesLoading, setBranchesLoading] = useState(true);
+  const [branchesError, setBranchesError] = useState("");
+  const [branchReload, setBranchReload] = useState(0);
+  const [orderBranchId, setOrderBranchId] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    setBranchesLoading(true);
+    setBranchesError("");
+    auth.api<OrderBranch[]>("/branches").then(rows => {
+      if (!active) return;
+      const activeBranches = (rows || []).filter(branch => branch.isActive);
+      setBranches(activeBranches);
+      setOrderBranchId(current => current && activeBranches.some(branch => branch.id === current)
+        ? current
+        : activeBranches.length === 1 ? activeBranches[0].id : null);
+    }).catch(error => { if (active) setBranchesError((error as Error).message || "Could not load branches."); })
+      .finally(() => { if (active) setBranchesLoading(false); });
+    return () => { active = false; };
+  }, [auth.session?.businessId, branchReload]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const productAdded = cart.length > 0;
   const orderTotal = cart.reduce(
@@ -42,16 +61,9 @@ export default function NewOrderScreen() {
   );
   const [productPickerOpen, setProductPickerOpen] = useState(false);
   const [customerOpen, setCustomerOpen] = useState(false);
-  const [customerSearch, setCustomerSearch] = useState("");
-  const [showNewCustomerForm, setShowNewCustomerForm] = useState(false);
-  const [customer, setCustomer] = useState<(typeof customers)[number] | null>(
-    null,
-  );
-  const [newCustomer, setNewCustomer] = useState({
-    name: "",
-    phone: "",
-    address: "",
-  });
+  const [customer, setCustomer] = useState<OrderCustomer | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
   const customerAdded = customer !== null;
   const [deliveryZone, setDeliveryZone] = useState<"inside" | "outside">(
     "outside",
@@ -63,13 +75,6 @@ export default function NewOrderScreen() {
   const [channel, setChannel] =
     useState<(typeof channels)[number]>("📘 Facebook");
   const [noteOpen, setNoteOpen] = useState(false);
-  const customerMatches = customerSearch.trim()
-    ? customers.filter((customer) =>
-        (customer.name + customer.phone)
-          .toLowerCase()
-          .includes(customerSearch.trim().toLowerCase()),
-      )
-    : [];
   const payableTotal = Math.max(
     orderTotal + (Number(deliveryCharge) || 0) - (Number(discount) || 0),
     0,
@@ -78,14 +83,61 @@ export default function NewOrderScreen() {
     payableTotal - (Number(advancePayment) || 0),
     0,
   );
-  const closeCustomerPicker = () => {
-    setCustomerOpen(false);
-    setCustomerSearch("");
-    setShowNewCustomerForm(false);
-    setNewCustomer({ name: "", phone: "", address: "" });
+  const submitOrder = async (isDraft: boolean) => {
+    if (submitting) return;
+    if (!orderBranchId) { setSubmitError("Choose a branch before creating this order."); return; }
+    if (!cart.length) { setSubmitError("Add at least one product before saving the order."); return; }
+    if (!customer?.phone?.trim()) { setSubmitError("A customer phone number is required."); return; }
+    if (!customer.address?.trim()) { setSubmitError("A delivery address is required."); return; }
+    const invalidItem = cart.find(item => !Number.isFinite(Number(item.unitPrice)) || Number(item.unitPrice) < 0 || item.quantity < 1);
+    if (invalidItem) { setSubmitError(`Check the price and quantity for ${invalidItem.productName}.`); return; }
+    setSubmitting(true);
+    setSubmitError("");
+    try {
+      const channelCode = ({
+        "📘 Facebook": "FACEBOOK", "💬 WhatsApp": "WHATSAPP", "📷 Instagram": "INSTAGRAM",
+        "📞 Phone": "PHONE", "🏪 Shop": "SHOP", "🌐 MyWebsite": "MYWEBSITE", Other: "OTHER",
+      } as const)[channel];
+      const advance = Math.min(Math.max(Number(advancePayment) || 0, 0), payableTotal);
+      const order = await auth.api<{ id: string }>("/orders", {
+        method: "POST",
+        body: JSON.stringify({
+          channel: channelCode,
+          customerPhone: customer.phone.trim(),
+          customerName: customer.name.trim(),
+          customerAddress: customer.address.trim(),
+          branchId: orderBranchId,
+          isDraft,
+          items: cart.map(item => ({ variantId: item.variantId, qty: item.quantity, unitPrice: Number(item.unitPrice) || 0 })),
+          discountType: Number(discount) > 0 ? "FIXED" : undefined,
+          discountValue: Number(discount) > 0 ? Number(discount) : undefined,
+          deliveryChargeCustomer: Number(deliveryCharge) || 0,
+          advancePaid: advance,
+          advancePaymentMethod: advance > 0 ? "CASH" : undefined,
+        }),
+      });
+      router.replace(`/orders/${order.id}`);
+    } catch (error) {
+      setSubmitError((error as Error).message || "Could not save the order. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
+  if (branchesLoading) return <View style={styles.branchState}><ActivityIndicator color={colors.primary}/><Text style={styles.branchHint}>Loading branches…</Text></View>;
+  if (branchesError || !branches.length) return <ScrollView style={styles.screen} contentContainerStyle={styles.branchContent}>
+    <View style={styles.titleRow}><Pressable accessibilityRole="button" accessibilityLabel="Back to orders" onPress={() => router.back()} style={styles.backButton}><Ionicons name="arrow-back" size={21} color={colors.heading}/></Pressable><Text style={styles.title}>New Online Order</Text></View>
+    <Text style={styles.branchHint}>{branchesError || "No active branch is available for this order."}</Text>
+    {branchesError ? <Pressable onPress={() => setBranchReload(value => value + 1)} style={styles.branchRetry}><Text style={styles.branchRetryText}>Try again</Text></Pressable> : null}
+  </ScrollView>;
+  if (branches.length > 1 && !orderBranchId) return <ScrollView style={styles.screen} contentContainerStyle={styles.branchContent}>
+    <View style={styles.titleRow}><Pressable accessibilityRole="button" accessibilityLabel="Back to orders" onPress={() => router.back()} style={styles.backButton}><Ionicons name="arrow-back" size={21} color={colors.heading}/></Pressable><View style={styles.titleCopy}><Text style={styles.title}>New Online Order</Text></View></View>
+    <View style={styles.branchIntro}><Text style={styles.branchQuestion}>Which branch is this order for?</Text><Text style={styles.branchHint}>Products and stock will be shown for this branch — even if you switch branches later, this order stays pinned to your choice here.</Text></View>
+    <View style={styles.branchOptions}>{branches.map(branch => <Pressable key={branch.id} accessibilityRole="button" onPress={() => setOrderBranchId(branch.id)} style={[styles.branchOption, branch.id === auth.session?.branchId && styles.branchOptionCurrent]}><Text style={styles.branchName}>{branch.name}</Text>{branch.id === auth.session?.branchId && <Text style={styles.branchCurrentLabel}>Currently viewing branch</Text>}</Pressable>)}</View>
+  </ScrollView>;
+
   return (
+    <>
     <ScrollView
       style={styles.screen}
       contentContainerStyle={styles.content}
@@ -107,6 +159,8 @@ export default function NewOrderScreen() {
           </Text>
         </View>
       </View>
+
+      <View style={styles.pinnedBranch}><Text style={styles.pinnedBranchLabel}>Order for branch</Text><Text style={styles.pinnedBranchName}>{branches.find(branch => branch.id === orderBranchId)?.name ?? ""}</Text></View>
 
       <View style={styles.section}>
         <View style={styles.sectionHeader}>
@@ -271,173 +325,11 @@ export default function NewOrderScreen() {
               </Pressable>
             )}
           </View>
-          {customerOpen && (
-            <Modal
-              transparent
-              visible
-              animationType="fade"
-              onRequestClose={closeCustomerPicker}
-            >
-              <View
-                style={[
-                  styles.modalBackdrop,
-                  isDesktop
-                    ? styles.desktopModalBackdrop
-                    : styles.mobileModalBackdrop,
-                ]}
-              >
-                <View
-                  style={[
-                    styles.customerModal,
-                    isDesktop
-                      ? styles.desktopCustomerModal
-                      : styles.mobileCustomerModal,
-                  ]}
-                >
-                  <View style={styles.modalHeader}>
-                    <Text style={styles.sectionTitle}>Select Customer</Text>
-                    <Pressable
-                      accessibilityLabel="Close customer popup"
-                      onPress={closeCustomerPicker}
-                    >
-                      <Ionicons name="close" size={23} color={colors.secondary} />
-                    </Pressable>
-                  </View>
-                  {!showNewCustomerForm ? (
-                    <>
-                      <View style={styles.customerResults}>
-                        {customerMatches.map((customer) => (
-                          <Pressable
-                            key={customer.id}
-                            onPress={() => {
-                              setCustomer(customer);
-                              closeCustomerPicker();
-                            }}
-                            style={styles.customerResult}
-                          >
-                            <Ionicons
-                              name="person-circle-outline"
-                              size={26}
-                              color={colors.primaryDark}
-                            />
-                            <View>
-                              <Text style={styles.customerName}>
-                                {customer.name}
-                              </Text>
-                              <Text style={styles.emptyText}>
-                                {customer.phone}
-                              </Text>
-                            </View>
-                          </Pressable>
-                        ))}
-                      </View>
-                      <TextInput
-                        accessibilityLabel="Search customers"
-                        placeholder="Search by phone or name"
-                        placeholderTextColor={colors.muted}
-                        value={customerSearch}
-                        onChangeText={setCustomerSearch}
-                        style={styles.input}
-                      />
-                      <Pressable
-                        accessibilityRole="button"
-                        onPress={() => setShowNewCustomerForm(true)}
-                        style={styles.addNewCustomerButton}
-                      >
-                        <Ionicons
-                          name="person-add-outline"
-                          size={19}
-                          color={colors.primaryDark}
-                        />
-                        <Text style={styles.addNewCustomerText}>
-                          Add New Customer
-                        </Text>
-                      </Pressable>
-                    </>
-                  ) : (
-                    <>
-                      <Text style={styles.newCustomerLabel}>
-                        New customer details
-                      </Text>
-                      <TextInput
-                        accessibilityLabel="Customer phone"
-                        placeholder="Phone number"
-                        placeholderTextColor={colors.muted}
-                        keyboardType="phone-pad"
-                        value={newCustomer.phone}
-                        onChangeText={(phone) =>
-                          setNewCustomer((value) => ({ ...value, phone }))
-                        }
-                        style={styles.input}
-                      />
-                      <TextInput
-                        accessibilityLabel="Customer name"
-                        placeholder="Customer name"
-                        placeholderTextColor={colors.muted}
-                        value={newCustomer.name}
-                        onChangeText={(name) =>
-                          setNewCustomer((value) => ({ ...value, name }))
-                        }
-                        style={styles.input}
-                      />
-                      <TextInput
-                        accessibilityLabel="Delivery address"
-                        placeholder="Delivery address"
-                        placeholderTextColor={colors.muted}
-                        multiline
-                        value={newCustomer.address}
-                        onChangeText={(address) =>
-                          setNewCustomer((value) => ({ ...value, address }))
-                        }
-                        style={[styles.input, styles.addressInput]}
-                      />
-                      <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel="Save customer"
-                        disabled={
-                          !newCustomer.name.trim() ||
-                          !newCustomer.phone.trim() ||
-                          !newCustomer.address.trim()
-                        }
-                        onPress={() => {
-                          setCustomer({
-                            id: "new",
-                            name: newCustomer.name.trim(),
-                            phone: newCustomer.phone.trim(),
-                            address: newCustomer.address.trim(),
-                          });
-                          closeCustomerPicker();
-                        }}
-                        style={[
-                          styles.inlineButton,
-                          (!newCustomer.name.trim() ||
-                            !newCustomer.phone.trim() ||
-                            !newCustomer.address.trim()) &&
-                            styles.disabledButton,
-                        ]}
-                      >
-                        <Text style={styles.inlineButtonText}>
-                          Save customer
-                        </Text>
-                      </Pressable>
-                      <Pressable
-                        accessibilityRole="button"
-                        onPress={() => {
-                          setShowNewCustomerForm(false);
-                          setNewCustomer({ name: "", phone: "", address: "" });
-                        }}
-                        style={styles.cancelNewCustomerButton}
-                      >
-                        <Text style={styles.cancelNewCustomerText}>
-                          Back to customer search
-                        </Text>
-                      </Pressable>
-                    </>
-                  )}
-                </View>
-              </View>
-            </Modal>
-          )}
+          <OrderCustomerPicker
+            visible={customerOpen}
+            onClose={() => setCustomerOpen(false)}
+            onSelect={(selected) => { setCustomer(selected); setCustomerOpen(false); setSubmitError(""); }}
+          />
           {customer && (
             <View style={styles.customerSummary}>
               <View style={styles.customerTopRow}>
@@ -477,9 +369,9 @@ export default function NewOrderScreen() {
                 </Text>
                 <TextInput
                   accessibilityLabel="Delivery address"
-                  placeholder="Enter delivery address"
+                  placeholder="Customer address"
                   placeholderTextColor={colors.muted}
-                  value={customer.address}
+                  value={customer.address ?? ""}
                   onChangeText={(address) =>
                     setCustomer({ ...customer, address })
                   }
@@ -724,22 +616,29 @@ export default function NewOrderScreen() {
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Save order as draft"
+            disabled={submitting}
+            onPress={() => void submitOrder(true)}
             style={styles.draftButton}
           >
-            <Text style={styles.draftText}>Save as draft</Text>
+            {submitting ? <ActivityIndicator color={colors.primaryDark} /> : <Text style={styles.draftText}>Save as draft</Text>}
           </Pressable>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Confirm order"
-            style={styles.confirmButton}
+            disabled={submitting}
+            onPress={() => void submitOrder(false)}
+            style={[styles.confirmButton, submitting && styles.disabledButton]}
           >
-            <Text style={styles.confirmText}>Confirm order</Text>
+            {submitting ? <ActivityIndicator color={colors.white} /> : <Text style={styles.confirmText}>Confirm order</Text>}
           </Pressable>
         </View>
       )}
-      <ProductPicker
+      {!!submitError && <Text style={styles.submitError}>{submitError}</Text>}
+    </ScrollView>
+    <ProductPicker
         open={productPickerOpen}
         onClose={() => setProductPickerOpen(false)}
+        branchId={orderBranchId ?? undefined}
         onSelect={(selected) => {
           setCart((items) => {
             const existing = items.find((item) => item.variantId === selected.variantId);
@@ -761,13 +660,29 @@ export default function NewOrderScreen() {
           });
         }}
       />
-    </ScrollView>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
+  keyboardAvoider: { flex: 1 },
   screen: { flex: 1, backgroundColor: colors.white },
   content: { flexGrow: 1, width: "100%", maxWidth: 760, alignSelf: "center", backgroundColor: colors.white, padding: 16, paddingBottom: 48, gap: 16 },
+  branchContent: { flexGrow: 1, width: "100%", maxWidth: 760, alignSelf: "center", padding: 16, paddingBottom: 32, gap: 18, backgroundColor: colors.white },
+  branchState: { flex: 1, alignItems: "center", justifyContent: "center", gap: 10, backgroundColor: colors.white },
+  branchIntro: { gap: 8, paddingTop: 8 },
+  branchQuestion: { color: colors.heading, fontSize: 20, fontWeight: "700" },
+  branchHint: { color: colors.secondary, fontSize: 13, lineHeight: 20 },
+  branchOptions: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  branchOption: { width: "48%", minHeight: 82, justifyContent: "center", gap: 5, borderWidth: 2, borderColor: colors.divider, borderRadius: 15, backgroundColor: colors.cardSecondary, padding: 14 },
+  branchOptionCurrent: { borderColor: colors.primary, backgroundColor: colors.primaryLight },
+  branchName: { color: colors.heading, fontSize: 14, fontWeight: "700" },
+  branchCurrentLabel: { color: colors.primaryDark, fontSize: 10, fontWeight: "600" },
+  branchRetry: { alignSelf: "flex-start", minHeight: 42, justifyContent: "center", borderRadius: 10, backgroundColor: colors.primary, paddingHorizontal: 16 },
+  branchRetryText: { color: colors.white, fontSize: 13, fontWeight: "700" },
+  pinnedBranch: { minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10, borderRadius: 12, backgroundColor: colors.heading, paddingHorizontal: 14 },
+  pinnedBranchLabel: { color: colors.white, opacity: 0.72, fontSize: 11, fontWeight: "600" },
+  pinnedBranchName: { color: colors.white, fontSize: 13, fontWeight: "700" },
   titleRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -1002,6 +917,8 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   mobileCustomerModal: {
+    minHeight: "85%",
+    height: "88%",
     maxHeight: "90%",
     borderTopLeftRadius: 18,
     borderTopRightRadius: 18,
@@ -1019,12 +936,15 @@ const styles = StyleSheet.create({
   },
   modalHeader: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
+    gap: 8,
     paddingBottom: 8,
     borderBottomWidth: 1,
     borderBottomColor: colors.divider,
   },
+  modalHeaderTitle: { flex: 1 },
+  headerNewCustomerButton: { minHeight: 36, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, borderRadius: 9, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.primaryLight, paddingHorizontal: 9 },
+  headerNewCustomerText: { color: colors.primaryDark, fontSize: 11, fontWeight: "600" },
   newCustomerLabel: {
     color: colors.primaryDark,
     fontSize: 13,
@@ -1039,19 +959,11 @@ const styles = StyleSheet.create({
     borderRadius: 9,
     backgroundColor: colors.cardSecondary,
   },
-  customerResults: { gap: 7 },
-  addNewCustomerButton: {
-    minHeight: 46,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 10,
-    backgroundColor: colors.primaryLight,
-  },
-  addNewCustomerText: { color: colors.primaryDark, fontSize: 13, fontWeight: "400" },
+  customerResults: { flex: 1, minHeight: 0 },
+  customerResultList: { gap: 7, paddingBottom: 10 },
+  customerLoader: { paddingVertical: 12 },
+  customerError: { color: colors.dangerText, fontSize: 12, paddingVertical: 4 },
+  submitError: { color: colors.dangerText, fontSize: 13, textAlign: "center", paddingHorizontal: 16, paddingBottom: 8 },
   cancelNewCustomerButton: {
     minHeight: 42,
     alignItems: "center",

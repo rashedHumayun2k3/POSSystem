@@ -41,9 +41,11 @@ public class ProductsController : ControllerBase
     public async Task<IActionResult> List(
         [FromQuery] string? status,
         [FromQuery] Guid? categoryId,
-        [FromQuery] string? q)
+        [FromQuery] string? q,
+        [FromQuery] int? skip = null,
+        [FromQuery] int? take = null)
     {
-        var products = await _svc.ListAsync(status, categoryId, q);
+        var products = await _svc.ListAsync(status, categoryId, q, skip, take);
         if (!_user.CanSeeCosts)
         {
             return Ok(products.Select(p => new
@@ -52,7 +54,7 @@ public class ProductsController : ControllerBase
                 p.SellingPrice, p.MarketPrice, p.MarketplacePrice, p.Status,
                 p.CategoryName, p.VariantCount, p.TotalStock,
                 p.AverageRating, p.ReviewCount, p.ShowOnMarketplace, p.OrderCount,
-                p.WholesaleMinQty, p.WholesaleUnitPrice
+                p.WholesaleMinQty, p.WholesaleUnitPrice, p.ActiveOfferPercent
                 // BuyPrice/TotalProfit deliberately omitted — STAFF must never see cost/profit (rule GTR-10)
             }));
         }

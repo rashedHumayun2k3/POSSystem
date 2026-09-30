@@ -2,16 +2,18 @@
   "expo": {
     "name": "LavLokshan",
     "slug": "lavlokshan-mobile",
+    "icon": "./assets/app-icon.png",
     "scheme": "lavlokshan",
     "web": { "bundler": "metro" },
-    "version": "0.1.0",
+    "version": "0.1.3",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "splash": {
       "backgroundColor": "#f7f8fc"
     },
     "android": {
-      "package": "com.lavlokshan.mobile"
+      "package": "com.lavlokshan.mobile",
+      "versionCode": 4
     },
     "ios": {
       "bundleIdentifier": "com.lavlokshan.mobile"

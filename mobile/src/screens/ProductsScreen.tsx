@@ -11,10 +11,9 @@ type Product = {
   id: string; name: string; sku: string; imageUrl: string | null; unitCode: string;
   sellingPrice: number; marketPrice: number | null; status: string; categoryName: string;
   variantCount: number; totalStock: number; lowStockThreshold: number; buyPrice?: number;
-  showOnMarketplace: boolean;
+  showOnMarketplace: boolean; activeOfferPercent?: number;
 };
-type ProductOfferSource = { variants: { id: string }[] };
-type ProductOfferSlot = { label: string; isActive: boolean };
+const PAGE_SIZE = 20;
 const imageUrl = (value: string | null) => !value ? null : /^https?:\/\//i.test(value) ? value : `${MEDIA_URL}${value}`;
 const money = (value: number) => `৳${Number(value).toLocaleString("en-BD", { maximumFractionDigits: 2 })}`;
 
@@ -23,10 +22,11 @@ export default function ProductsScreen() {
   const apiRef = useRef(auth.api); apiRef.current = auth.api;
   const [categories, setCategories] = useState<Category[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
-  const [offerPercentages, setOfferPercentages] = useState<Record<string, number>>({});
   const [category, setCategory] = useState("ALL");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
   const [error, setError] = useState("");
   const [reload, setReload] = useState(0);
   const [scanner, setScanner] = useState(false);
@@ -44,26 +44,30 @@ export default function ProductsScreen() {
   useEffect(() => {
     let active = true;
     const timer = setTimeout(() => {
-      setLoading(true); setError("");
-      const query = new URLSearchParams({ status: "ACTIVE" });
+      setLoading(true); setError(""); setProducts([]); setHasMore(false);
+      const query = new URLSearchParams({ status: "ACTIVE", skip: "0", take: String(PAGE_SIZE) });
       if (category !== "ALL") query.set("categoryId", category);
       if (search.trim()) query.set("q", search.trim());
-      apiRef.current<Product[]>(`/products?${query}`).then(async value => {
-        if (!active) return;
-        setProducts(value);
-        const offers = await Promise.all(value.map(async product => {
-          try {
-            const detail = await apiRef.current<ProductOfferSource>(`/products/${product.id}`);
-            const slots = (await Promise.all(detail.variants.map(variant => apiRef.current<ProductOfferSlot[]>(`/products/variants/${variant.id}/slots`)))).flat();
-            const percentages = slots.filter(slot => slot.isActive && slot.label !== "Original Price").map(slot => Number(slot.label.match(/(\d+(?:\.\d+)?)%/)?.[1] ?? 0));
-            return [product.id, Math.max(0, ...percentages)] as const;
-          } catch { return [product.id, 0] as const; }
-        }));
-        if (active) setOfferPercentages(Object.fromEntries(offers));
+      apiRef.current<Product[]>(`/products?${query}`).then(value => {
+        if (active) { setProducts(value); setHasMore(value.length === PAGE_SIZE); }
       }).catch(e => { if (active) setError(e.message); }).finally(() => { if (active) setLoading(false); });
-    }, 300);
+    }, search.trim() ? 250 : 0);
     return () => { active = false; clearTimeout(timer); };
   }, [category, search, reload, auth.session?.businessId, auth.session?.branchId]);
+
+  const loadMore = async () => {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      const query = new URLSearchParams({ status: "ACTIVE", skip: String(products.length), take: String(PAGE_SIZE) });
+      if (category !== "ALL") query.set("categoryId", category);
+      if (search.trim()) query.set("q", search.trim());
+      const next = await apiRef.current<Product[]>(`/products?${query}`);
+      setProducts(current => [...current, ...next]);
+      setHasMore(next.length === PAGE_SIZE);
+    } catch (e) { setError((e as Error).message); }
+    finally { setLoadingMore(false); }
+  };
 
   const lookupBarcode = async () => {
     if (!barcode.trim()) return;
@@ -84,7 +88,8 @@ export default function ProductsScreen() {
       {!!error && <View style={s.empty}><Ionicons name="warning-outline" size={36} color={colors.danger} /><Text style={s.error}>{error}</Text><Pressable style={s.primaryButton} onPress={() => setReload(v => v + 1)}><Text style={s.primaryText}>Try again</Text></Pressable></View>}
       {loading && !products.length && <View style={s.empty}><ActivityIndicator color={colors.primary} /><Text style={s.helper}>Loading products…</Text></View>}
       {!loading && !error && !products.length && <View style={s.empty}><Ionicons name="cube-outline" size={48} color={colors.muted} /><Text style={s.helper}>No products found</Text></View>}
-      {!error && products.map(product => <ProductCard key={product.id} product={product} offerPercent={offerPercentages[product.id]} canSeeCosts={canSeeCosts} />)}
+      {!error && products.map(product => <ProductCard key={product.id} product={product} offerPercent={product.activeOfferPercent} canSeeCosts={canSeeCosts} />)}
+      {!loading && !error && hasMore && <Pressable accessibilityRole="button" disabled={loadingMore} onPress={() => void loadMore()} style={s.loadMore}><Text style={s.loadMoreText}>{loadingMore ? "Loading…" : "Load more products"}</Text><Text style={s.loadMoreCount}>Showing {products.length} products</Text></Pressable>}
     </ScrollView>
     <Modal visible={scanner} transparent animationType="fade" onRequestClose={() => setScanner(false)}>
       <View style={s.overlay}><SafeAreaView style={s.modal}><View style={s.modalHeader}><Text style={s.modalTitle}>Scan barcode</Text><Pressable accessibilityLabel="Close scanner" onPress={() => setScanner(false)}><Ionicons name="close" size={24} color={colors.heading} /></Pressable></View><Text style={s.helper}>Scan with a USB/Bluetooth scanner or enter the barcode.</Text><TextInput autoFocus accessibilityLabel="Barcode" value={barcode} onChangeText={setBarcode} onSubmitEditing={() => void lookupBarcode()} placeholder="Enter barcode" placeholderTextColor={colors.muted} keyboardType="number-pad" style={s.barcodeInput} />{!!scanError && <Text style={s.error}>{scanError}</Text>}<Pressable disabled={scanning || !barcode.trim()} onPress={() => void lookupBarcode()} style={[s.lookup, (scanning || !barcode.trim()) && s.disabled]}>{scanning ? <ActivityIndicator color={colors.white} /> : <Text style={s.primaryText}>Find product</Text>}</Pressable></SafeAreaView></View>
@@ -108,5 +113,5 @@ function ProductCard({ product, offerPercent, canSeeCosts }: { product: Product;
 function Tag({ icon, text, accent }: { icon: keyof typeof Ionicons.glyphMap; text: string; accent?: boolean }) { return <View style={[s.tag, accent && s.accentTag]}><Ionicons name={icon} size={13} color={accent ? colors.primaryDark : colors.secondary} /><Text style={[s.tagText, accent && s.accentTagText]}>{text}</Text></View>; }
 
 const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.background }, header: { backgroundColor: colors.white, borderBottomWidth: 1, borderBottomColor: colors.divider, paddingHorizontal: 16, paddingVertical: 12, gap: 12 }, titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 }, title: { color: colors.heading, fontSize: 18, fontWeight: "600" }, headerButtons: { flexDirection: "row", gap: 8 }, primaryButton: { minHeight: 36, borderRadius: 10, paddingHorizontal: 11, backgroundColor: colors.primary, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 3 }, primaryText: { color: colors.white, fontSize: 12, fontWeight: "600" }, secondaryButton: { minHeight: 36, borderRadius: 10, paddingHorizontal: 10, backgroundColor: colors.cardSecondary, borderWidth: 1, borderColor: colors.secondaryBorder, flexDirection: "row", alignItems: "center", gap: 3 }, secondaryText: { color: colors.primaryDark, fontSize: 12, fontWeight: "600" }, searchRow: { flexDirection: "row", gap: 8 }, searchBox: { flex: 1, minHeight: 43, borderRadius: 12, borderWidth: 1, borderColor: colors.divider, backgroundColor: colors.disabled, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 7 }, searchInput: { flex: 1, minWidth: 0, color: colors.heading, fontSize: 13, outlineStyle: "none" } as any, scanButton: { minHeight: 43, borderRadius: 12, paddingHorizontal: 12, backgroundColor: colors.primary, flexDirection: "row", alignItems: "center", gap: 6 }, scanText: { color: colors.white, fontSize: 12, fontWeight: "600" }, categoryBar: { backgroundColor: colors.white, borderBottomWidth: 1, borderBottomColor: colors.divider }, categories: { paddingHorizontal: 16, paddingVertical: 9, gap: 8 }, chip: { borderRadius: 18, paddingHorizontal: 13, paddingVertical: 7, backgroundColor: colors.disabled }, activeChip: { backgroundColor: colors.primary }, chipText: { color: colors.secondary, fontSize: 12, fontWeight: "500" }, activeChipText: { color: colors.white }, list: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 28, gap: 20 }, card: { overflow: "hidden", backgroundColor: colors.white, borderRadius: 12, borderLeftWidth: 1, borderWidth: 1, borderColor: colors.border, borderLeftColor: colors.border, shadowColor: colors.primary, shadowOpacity: .12, shadowRadius: 7, shadowOffset: { width: 0, height: 2 }, elevation: 2 }, outCard: { borderLeftWidth: 4, borderLeftColor: colors.danger }, lowCard: { borderLeftWidth: 4, borderLeftColor: colors.warning }, cardTop: { padding: 12, flexDirection: "row", gap: 12 }, productImage: { width: 60, height: 60, borderRadius: 10, backgroundColor: colors.disabled, alignItems: "center", justifyContent: "center" }, copy: { flex: 1, minWidth: 0 }, nameRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 }, productName: { flex: 1, color: colors.heading, fontSize: 15, fontWeight: "500" }, status: { paddingHorizontal: 7, paddingVertical: 3, borderRadius: 12, overflow: "hidden", fontSize: 11, fontWeight: "500" }, activeStatus: { color: colors.successText, backgroundColor: colors.successBackground }, archivedStatus: { color: colors.neutralIcon, backgroundColor: colors.disabled }, meta: { color: colors.muted, fontSize: 12, marginTop: 3 }, priceRow: { marginTop: 5, flexDirection: "row", flexWrap: "wrap", alignItems: "baseline", gap: 6 }, priceLabel: { color: colors.secondary, fontSize: 10, fontWeight: "500" }, price: { color: colors.heading, fontSize: 18, fontWeight: "700" }, oldPrice: { color: colors.muted, fontSize: 12, textDecorationLine: "line-through" }, discount: { color: colors.success, fontSize: 12, fontWeight: "500" }, stockMessage: { fontSize: 12, fontWeight: "500", marginTop: 4 }, outText: { color: colors.danger }, lowText: { color: colors.warningText }, tags: { paddingHorizontal: 12, paddingBottom: 12, flexDirection: "row", flexWrap: "wrap", gap: 6 }, tag: { minHeight: 27, borderRadius: 8, paddingHorizontal: 8, backgroundColor: colors.disabled, flexDirection: "row", alignItems: "center", gap: 4 }, tagText: { color: colors.secondary, fontSize: 11 }, accentTag: { backgroundColor: colors.primaryLight }, accentTagText: { color: colors.primaryDark }, empty: { minHeight: 240, alignItems: "center", justifyContent: "center", gap: 12, padding: 20 }, helper: { color: colors.secondary, fontSize: 13, textAlign: "center" }, error: { color: colors.dangerText, fontSize: 12, lineHeight: 18, textAlign: "center" }, overlay: { flex: 1, backgroundColor: colors.overlay, alignItems: "center", justifyContent: "center", padding: 16 }, modal: { width: "100%", maxWidth: 420, backgroundColor: colors.white, borderRadius: 18, padding: 18, gap: 14 }, modalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, modalTitle: { color: colors.heading, fontSize: 18, fontWeight: "700" }, barcodeInput: { minHeight: 48, borderRadius: 12, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 14, color: colors.heading, fontSize: 15 }, lookup: { minHeight: 48, borderRadius: 12, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" }, disabled: { opacity: .45 }
+  root: { flex: 1, backgroundColor: colors.background }, header: { backgroundColor: colors.white, borderBottomWidth: 1, borderBottomColor: colors.divider, paddingHorizontal: 16, paddingVertical: 12, gap: 12 }, titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 }, title: { color: colors.heading, fontSize: 18, fontWeight: "600" }, headerButtons: { flexDirection: "row", gap: 8 }, primaryButton: { minHeight: 36, borderRadius: 10, paddingHorizontal: 11, backgroundColor: colors.primary, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 3 }, primaryText: { color: colors.white, fontSize: 12, fontWeight: "600" }, secondaryButton: { minHeight: 36, borderRadius: 10, paddingHorizontal: 10, backgroundColor: colors.cardSecondary, borderWidth: 1, borderColor: colors.secondaryBorder, flexDirection: "row", alignItems: "center", gap: 3 }, secondaryText: { color: colors.primaryDark, fontSize: 12, fontWeight: "600" }, searchRow: { flexDirection: "row", gap: 8 }, searchBox: { flex: 1, minHeight: 43, borderRadius: 12, borderWidth: 1, borderColor: colors.divider, backgroundColor: colors.disabled, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 7 }, searchInput: { flex: 1, minWidth: 0, color: colors.heading, fontSize: 13, outlineStyle: "none" } as any, scanButton: { minHeight: 43, borderRadius: 12, paddingHorizontal: 12, backgroundColor: colors.primary, flexDirection: "row", alignItems: "center", gap: 6 }, scanText: { color: colors.white, fontSize: 12, fontWeight: "600" }, categoryBar: { backgroundColor: colors.white, borderBottomWidth: 1, borderBottomColor: colors.divider }, categories: { paddingHorizontal: 16, paddingVertical: 9, gap: 8 }, chip: { borderRadius: 18, paddingHorizontal: 13, paddingVertical: 7, backgroundColor: colors.disabled }, activeChip: { backgroundColor: colors.primary }, chipText: { color: colors.secondary, fontSize: 12, fontWeight: "500" }, activeChipText: { color: colors.white }, list: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 28, gap: 20 }, card: { overflow: "hidden", backgroundColor: colors.white, borderRadius: 12, borderLeftWidth: 1, borderWidth: 1, borderColor: colors.border, borderLeftColor: colors.border, shadowColor: colors.primary, shadowOpacity: .12, shadowRadius: 7, shadowOffset: { width: 0, height: 2 }, elevation: 2 }, outCard: { borderLeftWidth: 4, borderLeftColor: colors.danger }, lowCard: { borderLeftWidth: 4, borderLeftColor: colors.warning }, cardTop: { padding: 12, flexDirection: "row", gap: 12 }, productImage: { width: 60, height: 60, borderRadius: 10, backgroundColor: colors.disabled, alignItems: "center", justifyContent: "center" }, copy: { flex: 1, minWidth: 0 }, nameRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 }, productName: { flex: 1, color: colors.heading, fontSize: 15, fontWeight: "500" }, status: { paddingHorizontal: 7, paddingVertical: 3, borderRadius: 12, overflow: "hidden", fontSize: 11, fontWeight: "500" }, activeStatus: { color: colors.successText, backgroundColor: colors.successBackground }, archivedStatus: { color: colors.neutralIcon, backgroundColor: colors.disabled }, meta: { color: colors.muted, fontSize: 12, marginTop: 3 }, priceRow: { marginTop: 5, flexDirection: "row", flexWrap: "wrap", alignItems: "baseline", gap: 6 }, priceLabel: { color: colors.secondary, fontSize: 10, fontWeight: "500" }, price: { color: colors.heading, fontSize: 18, fontWeight: "700" }, oldPrice: { color: colors.muted, fontSize: 12, textDecorationLine: "line-through" }, discount: { color: colors.success, fontSize: 12, fontWeight: "500" }, stockMessage: { fontSize: 12, fontWeight: "500", marginTop: 4 }, outText: { color: colors.danger }, lowText: { color: colors.warningText }, tags: { paddingHorizontal: 12, paddingBottom: 12, flexDirection: "row", flexWrap: "wrap", gap: 6 }, tag: { minHeight: 27, borderRadius: 8, paddingHorizontal: 8, backgroundColor: colors.disabled, flexDirection: "row", alignItems: "center", gap: 4 }, tagText: { color: colors.secondary, fontSize: 11 }, accentTag: { backgroundColor: colors.primaryLight }, accentTagText: { color: colors.primaryDark }, loadMore: { minHeight: 46, alignItems: "center", justifyContent: "center", gap: 2, borderWidth: 1, borderColor: colors.secondaryBorder, borderRadius: 11, backgroundColor: colors.white }, loadMoreText: { color: colors.primaryDark, fontSize: 13, fontWeight: "700" }, loadMoreCount: { color: colors.muted, fontSize: 10 }, empty: { minHeight: 240, alignItems: "center", justifyContent: "center", gap: 12, padding: 20 }, helper: { color: colors.secondary, fontSize: 13, textAlign: "center" }, error: { color: colors.dangerText, fontSize: 12, lineHeight: 18, textAlign: "center" }, overlay: { flex: 1, backgroundColor: colors.overlay, alignItems: "center", justifyContent: "center", padding: 16 }, modal: { width: "100%", maxWidth: 420, backgroundColor: colors.white, borderRadius: 18, padding: 18, gap: 14 }, modalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, modalTitle: { color: colors.heading, fontSize: 18, fontWeight: "700" }, barcodeInput: { minHeight: 48, borderRadius: 12, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 14, color: colors.heading, fontSize: 15 }, lookup: { minHeight: 48, borderRadius: 12, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" }, disabled: { opacity: .45 }
 });
