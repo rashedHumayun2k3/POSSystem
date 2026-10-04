@@ -262,12 +262,16 @@ public class ProductService : IProductService
 
     public async Task<ProductImageDto> AddImageAsync(Guid productId, AddProductImageRequest request, Guid userId)
     {
-        var productExists = await _db.Products.AnyAsync(p => p.Id == productId);
-        if (!productExists) throw new KeyNotFoundException("Product not found.");
+        var product = await _db.Products.AsNoTracking()
+            .Where(p => p.Id == productId)
+            .Select(p => new { p.ImageUrl })
+            .FirstOrDefaultAsync()
+            ?? throw new KeyNotFoundException("Product not found.");
 
-        var count = await _db.ProductImages.CountAsync(i => i.ProductId == productId);
-        if (count >= MaxProductImages)
-            throw new ArgumentException($"A product can have at most {MaxProductImages} gallery photos.");
+        var count = await _db.ProductImages.CountAsync(i => i.ProductId == productId && i.DeletedAt == null);
+        var totalImages = count + (string.IsNullOrWhiteSpace(product.ImageUrl) ? 0 : 1);
+        if (totalImages >= MaxProductImages)
+            throw new ArgumentException($"A product can have at most {MaxProductImages} images, including its primary image.");
 
         var image = new ProductImage
         {
@@ -295,7 +299,7 @@ public class ProductService : IProductService
 
     public async Task ReorderImagesAsync(Guid productId, ReorderProductImagesRequest request, Guid userId)
     {
-        var images = await _db.ProductImages.Where(i => i.ProductId == productId).ToListAsync();
+        var images = await _db.ProductImages.Where(i => i.ProductId == productId && i.DeletedAt == null).ToListAsync();
         if (request.ImageIdsInOrder.Count != images.Count || images.Any(i => !request.ImageIdsInOrder.Contains(i.Id)))
             throw new ArgumentException("The image list doesn't match this product's current gallery.");
 
@@ -674,6 +678,13 @@ public class ProductService : IProductService
         // Optimistic concurrency check
         if (!product.RowVer.SequenceEqual(request.RowVer))
             throw new DbUpdateConcurrencyException();
+
+        if (string.IsNullOrWhiteSpace(product.ImageUrl) && !string.IsNullOrWhiteSpace(request.ImageUrl))
+        {
+            var galleryCount = await _db.ProductImages.CountAsync(i => i.ProductId == id && i.DeletedAt == null);
+            if (galleryCount >= MaxProductImages)
+                throw new ArgumentException($"A product can have at most {MaxProductImages} images, including its primary image.");
+        }
 
         ValidateWholesaleTier(request.WholesaleMinQty, request.WholesaleUnitPrice, request.SellingPrice);
 

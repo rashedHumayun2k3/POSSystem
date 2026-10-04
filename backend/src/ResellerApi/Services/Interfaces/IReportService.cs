@@ -6,6 +6,7 @@ public interface IReportService
 {
     Task<DashboardKpiDto> GetDashboardAsync(bool canSeeCosts);
     Task<HomeSummaryDto> GetHomeSummaryAsync(bool canSeeCosts);
+    Task<HomeTodayMetricsDto> GetHomeTodayMetricsAsync(bool canSeeCosts);
     Task<SalesSummaryDto> GetSalesSummaryAsync(DateTime from, DateTime to, string groupBy);
     Task<InventoryReportDto> GetInventoryReportAsync(DateTime from, DateTime to, string groupBy, bool canSeeCosts);
     Task<PnlReportDto> GetPnlReportAsync(DateTime from, DateTime to, string groupBy, bool canSeeCosts);

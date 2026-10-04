@@ -39,22 +39,17 @@ public class PreOrdersController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> Create(CreatePreOrderRequest request)
     {
-        if (request.Items is null || request.Items.Count == 0) return BadRequest(new { message = "Select at least one product." });
-        if (request.Items.Any(x => x.Quantity <= 0)) return BadRequest(new { message = "Quantity must be greater than zero." });
+        if (request.Items is null || request.Items.Count == 0) return BadRequest(new { message = "Add at least one item." });
+        if (request.Items.Any(x => string.IsNullOrWhiteSpace(x.ProductName) || x.ProductName.Trim().Length > 300)) return BadRequest(new { message = "Enter a product name up to 300 characters." });
+        if (request.Items.Any(x => x.Quantity is <= 0)) return BadRequest(new { message = "Quantity must be greater than zero when provided." });
         var branchId = _business.CurrentBranchId ?? await _db.Branches.Where(x => x.IsDefault && x.IsActive).Select(x => (Guid?)x.Id).FirstOrDefaultAsync();
         if (branchId is null) return BadRequest(new { message = "Select an active branch before creating a pre-order." });
-        var variantIds = request.Items.Select(x => x.VariantId).Distinct().ToList();
-        if (variantIds.Count != request.Items.Count) return BadRequest(new { message = "Each product variant can only be added once." });
-        var variants = await _db.ProductVariants.Include(x => x.Product).Where(x => variantIds.Contains(x.Id) && x.Product.Status == "ACTIVE").ToDictionaryAsync(x => x.Id);
-        if (variants.Count != variantIds.Count) return BadRequest(new { message = "One or more products are unavailable." });
         await using var tx = await _db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
         var sequence = await _db.PreOrders.IgnoreQueryFilters().CountAsync(x => x.BusinessId == _business.CurrentBusinessId && x.RequestedAt.Date == DateTime.UtcNow.Date) + 1;
         var order = new PreOrder { BusinessId = _business.CurrentBusinessId, BranchId = branchId, PreOrderNo = $"PRE-{DateTime.UtcNow:yyMMdd}-{sequence:D4}", Source = "POS", CustomerName = Clean(request.CustomerName), CustomerPhone = Clean(request.CustomerPhone), CustomerEmail = Clean(request.CustomerEmail), CustomerReference = Clean(request.CustomerReference), CustomerNote = Clean(request.CustomerNote), StaffNote = Clean(request.StaffNote), ExpectedDate = request.ExpectedDate, PickupDeadline = request.PickupDeadline, CreatedByUserId = _user.UserId };
         foreach (var requested in request.Items)
         {
-            var variant = variants[requested.VariantId];
-            var values = VariantLabel(variant.VariantValuesJson);
-            order.Items.Add(new PreOrderItem { BusinessId = _business.CurrentBusinessId, ProductId = variant.ProductId, VariantId = variant.Id, QuantityRequested = requested.Quantity, QuantityReserved = 0, UnitPriceSnapshot = variant.PriceOverride ?? variant.Product.SellingPrice, ProductNameSnapshot = variant.Product.Name, VariantNameSnapshot = string.IsNullOrWhiteSpace(values) ? variant.Sku : $"{variant.Sku} Â· {values}" });
+            order.Items.Add(new PreOrderItem { BusinessId = _business.CurrentBusinessId, ProductName = requested.ProductName.Trim(), QuantityRequested = requested.Quantity });
         }
         order.Status = "NEW";
         AddActivity(order, "Created", order.StaffNote);
@@ -70,12 +65,6 @@ public class PreOrdersController : ControllerBase
         var order = await _db.PreOrders.Include(x => x.Items).FirstOrDefaultAsync(x => x.Id == id);
         if (order is null) return NotFound(new { message = "Pre-order not found." });
         if (order.Status is "CANCELLED" or "COMPLETED" or "RESOLVED") return BadRequest(new { message = "This pre-order can no longer be cancelled." });
-        foreach (var item in order.Items.Where(x => x.QuantityReserved > 0))
-        {
-            var stock = await _db.BranchVariantInventories.FirstOrDefaultAsync(x => x.BranchId == order.BranchId && x.VariantId == item.VariantId);
-            if (stock is not null) stock.Committed = Math.Max(0, stock.Committed - item.QuantityReserved);
-            item.QuantityReserved = 0;
-        }
         order.Status = "CANCELLED"; order.CancelledAt = DateTime.UtcNow; order.CancellationReason = request.Reason.Trim();
         AddActivity(order, "Cancelled", order.CancellationReason);
         await _db.SaveChangesAsync(); return Ok(ToDto(order));
@@ -116,7 +105,7 @@ public class PreOrdersController : ControllerBase
             default: return BadRequest(new { message = "Unknown workflow action." });
         }
         AddActivity(order, request.Action, Clean(request.Note), request.Action == "UPDATE"
-            ? $"Purchase reference: {order.PurchaseReference ?? "—"}; Expected date: {order.ExpectedDate:yyyy-MM-dd}"
+            ? $"Purchase reference: {order.PurchaseReference ?? "ï¿½"}; Expected date: {order.ExpectedDate:yyyy-MM-dd}"
             : request.Outcome);
         await _db.SaveChangesAsync();
         return Ok(ToDto(order));
@@ -131,6 +120,5 @@ public class PreOrdersController : ControllerBase
     }
 
     private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
-    private static string VariantLabel(string json) { try { var values = JsonSerializer.Deserialize<Dictionary<string,string>>(json); return values is null ? "" : string.Join(" / ", values.Values); } catch { return ""; } }
-    private static object ToDto(PreOrder x) => new { x.Id, x.PreOrderNo, x.Source, x.Status, x.BranchId, x.CustomerName, x.CustomerPhone, x.CustomerEmail, x.CustomerReference, x.CustomerNote, x.StaffNote, x.RequestedAt, x.ExpectedDate, x.PickupDeadline, x.CompletedAt, x.CancelledAt, x.CancellationReason, x.PurchaseReference, x.ResolutionOutcome, Activities = JsonSerializer.Deserialize<List<Activity>>(x.ActivityJson), Items = x.Items.Select(i => new { i.Id, i.ProductId, i.VariantId, ProductName = i.ProductNameSnapshot, VariantName = i.VariantNameSnapshot, QuantityRequested = i.QuantityRequested, QuantityReserved = i.QuantityReserved, QuantityWaiting = Math.Max(0, i.QuantityRequested - i.QuantityReserved - i.QuantityFulfilled), i.QuantityFulfilled, i.UnitPriceSnapshot }) };
+    private static object ToDto(PreOrder x) => new { x.Id, x.PreOrderNo, x.Source, x.Status, x.BranchId, x.CustomerName, x.CustomerPhone, x.CustomerEmail, x.CustomerReference, x.CustomerNote, x.StaffNote, x.RequestedAt, x.ExpectedDate, x.PickupDeadline, x.CompletedAt, x.CancelledAt, x.CancellationReason, x.PurchaseReference, x.ResolutionOutcome, Activities = JsonSerializer.Deserialize<List<Activity>>(x.ActivityJson), Items = x.Items.Select(i => new { i.Id, i.ProductName, i.QuantityRequested }) };
 }

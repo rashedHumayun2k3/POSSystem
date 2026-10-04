@@ -1,7 +1,7 @@
 import axios from 'axios';
 
+const IMAGE_QUALITY = 0.76;
 const MAX_DIMENSION = 1600;
-const JPEG_QUALITY = 0.8;
 
 // Upload/download of files is handled by the standalone ResellerApi.MediaService app, not the
 // main API — see docs/... (image upload architecture decision). Separate axios instance since
@@ -28,10 +28,9 @@ export function resolveMediaUrl(url: string | null | undefined): string | null {
   return `${origin}${url}`;
 }
 
-// Downscales + re-encodes an image client-side before upload (R2.3 stack note:
-// "Client-side image compression before upload") so large phone-camera photos
-// don't get pushed to the server as-is.
-function compressImage(file: File): Promise<Blob> {
+// Re-encode at the source pixel dimensions to reduce transfer/storage bytes
+// without reducing image resolution.
+function compressImage(file: File, preserveResolution = false, maxWidth?: number): Promise<{ blob: Blob; extension: string }> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     const objectUrl = URL.createObjectURL(file);
@@ -39,8 +38,10 @@ function compressImage(file: File): Promise<Blob> {
     img.onload = () => {
       URL.revokeObjectURL(objectUrl);
 
-      const scale = Math.min(1, MAX_DIMENSION / Math.max(img.width, img.height));
       const canvas = document.createElement('canvas');
+      const scale = maxWidth
+        ? Math.min(1, maxWidth / img.width)
+        : preserveResolution ? 1 : Math.min(1, MAX_DIMENSION / Math.max(img.width, img.height));
       canvas.width = Math.round(img.width * scale);
       canvas.height = Math.round(img.height * scale);
 
@@ -48,21 +49,33 @@ function compressImage(file: File): Promise<Blob> {
       if (!ctx) { reject(new Error('Canvas not supported')); return; }
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
-      canvas.toBlob(
-        (blob) => (blob ? resolve(blob) : reject(new Error('Image compression failed'))),
-        'image/jpeg',
-        JPEG_QUALITY
-      );
+      // WebP usually gives product photos a smaller file than JPEG at similar
+      // visual quality. Fall back to JPEG where WebP encoding is unavailable.
+      canvas.toBlob((webp) => {
+        if (!webp) { reject(new Error('Image compression failed')); return; }
+        if (webp.type === 'image/webp') {
+          resolve(maxWidth || webp.size < file.size
+            ? { blob: webp, extension: '.webp' }
+            : { blob: file, extension: file.name.match(/\.[^.]+$/)?.[0] ?? '.jpg' });
+          return;
+        }
+        canvas.toBlob((jpeg) => {
+          if (!jpeg) { reject(new Error('Image compression failed')); return; }
+          resolve(maxWidth || jpeg.size < file.size
+            ? { blob: jpeg, extension: '.jpg' }
+            : { blob: file, extension: file.name.match(/\.[^.]+$/)?.[0] ?? '.jpg' });
+        }, 'image/jpeg', IMAGE_QUALITY);
+      }, 'image/webp', IMAGE_QUALITY);
     };
     img.onerror = () => { URL.revokeObjectURL(objectUrl); reject(new Error('Could not read image file')); };
     img.src = objectUrl;
   });
 }
 
-export async function uploadImage(file: File): Promise<string> {
-  const compressed = await compressImage(file);
+export async function uploadImage(file: File, options: { preserveResolution?: boolean; maxWidth?: number } = {}): Promise<string> {
+  const { blob, extension } = await compressImage(file, options.preserveResolution, options.maxWidth);
   const formData = new FormData();
-  formData.append('file', compressed, file.name.replace(/\.[^.]+$/, '.jpg'));
+  formData.append('file', blob, file.name.replace(/\.[^.]+$/, extension));
 
   const { data } = await mediaApi.post<{ url: string }>('/api/v1/media/upload', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },

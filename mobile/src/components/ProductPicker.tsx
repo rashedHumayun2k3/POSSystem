@@ -1,10 +1,10 @@
+import { Text } from "../i18n/LocalizedText";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { ActivityIndicator, Image, Platform, Pressable, ScrollView, StyleSheet, TextInput, useWindowDimensions, View } from "react-native";
 import { MEDIA_URL, useAuth } from "../auth/AuthContext";
-import { useModalChrome } from "./ModalChromeContext";
+import PopupSheet from "./PopupSheet";
 import { colors } from "../theme";
 
 export type ProductPickerResult = {
@@ -22,15 +22,9 @@ const mapProduct = (p: RawProduct): ProductPickerResult => ({ productId: p.id, v
 const media = (value: string | null) => !value ? null : /^https?:\/\//i.test(value) ? value : `${MEDIA_URL}${value}`;
 
 export default function ProductPicker({ open, onClose, onSelect, selectedVariantIds, showSellingPrice = false, showAverageCost = true, onlyInStock = false, showRecentlyPurchased = true, title = "Choose Product", branchId }: Props) {
-  const auth = useAuth(); const { width } = useWindowDimensions(); const insets = useSafeAreaInsets(); const desktop = width >= 768;
-  const { setBottomNavHidden } = useModalChrome();
+  const auth = useAuth(); const { width } = useWindowDimensions(); const desktop = width >= 768;
   const searchInput = useRef<TextInput>(null);
   const [query, setQuery] = useState(""); const [category, setCategory] = useState("ALL"); const [categories, setCategories] = useState<Category[]>([]); const [recent, setRecent] = useState<ProductPickerResult[]>([]); const [products, setProducts] = useState<ProductPickerResult[]>([]); const [loading, setLoading] = useState(false); const [error, setError] = useState("");
-
-  useEffect(() => {
-    setBottomNavHidden(open && !desktop);
-    return () => setBottomNavHidden(false);
-  }, [open, desktop, setBottomNavHidden]);
 
   const branchOptions = branchId ? { headers: { "X-Branch-Id": branchId } } : undefined;
   useEffect(() => { if (!open) return; setQuery(""); setCategory("ALL"); setError(""); if (!showRecentlyPurchased) { setCategories([]); setRecent([]); return; } auth.api<RawProduct[]>("/products/recently-purchased?limit=5", branchOptions).then(rows => setRecent(rows.map(mapProduct))).catch(() => setRecent([])); }, [open, showRecentlyPurchased, branchId, auth.session?.businessId]);
@@ -41,16 +35,9 @@ export default function ProductPicker({ open, onClose, onSelect, selectedVariant
   const canCreateProduct=(auth.session?.user.role??"").toUpperCase()==="OWNER";
   const visibleProducts = query.trim().length < 2 && showRecentlyPurchased && recent.length > 0 ? recent : products;
   return (
-    <Modal visible={open} transparent animationType="fade" onShow={() => { if (!desktop) setTimeout(() => searchInput.current?.focus(), 250); }} onRequestClose={onClose}>
-      <KeyboardAvoidingView style={styles.keyboardAvoider} behavior="padding" enabled={!desktop && Platform.OS === "ios"}>
-       <View style={styles.overlay}>
-        <View style={[styles.panel, styles.desktopPanel]}>
-          {!desktop ? <View style={styles.handle} /> : null}
-          <View style={styles.header}>
-            <Text style={styles.title}>{title}</Text>
-            {canCreateProduct ? <Pressable onPress={openNewProduct} style={styles.newProductButton}><Ionicons name="add" size={15} color={colors.primaryDark} /><Text style={styles.newProductText}>New Product</Text></Pressable> : null}
-            <Pressable onPress={onClose} style={styles.iconButton}><Ionicons name="close" size={23} color={colors.secondary} /></Pressable>
-          </View>
+    <PopupSheet visible={open} onClose={onClose} title={title}
+      onShow={() => { if (!desktop) setTimeout(() => searchInput.current?.focus(), 250); }}
+      headerAction={canCreateProduct ? <Pressable onPress={openNewProduct} style={styles.newProductButton}><Ionicons name="add" size={15} color={colors.primaryDark} /><Text style={styles.newProductText}>New Product</Text></Pressable> : null}>
           <View style={styles.searchWrap}>
             <Ionicons name="search-outline" size={19} color={colors.muted} />
             <TextInput ref={searchInput} value={query} onChangeText={setQuery} placeholder="Search product, SKU or barcode" placeholderTextColor={colors.muted} style={styles.search} returnKeyType="search" />
@@ -74,11 +61,8 @@ export default function ProductPicker({ open, onClose, onSelect, selectedVariant
               </Pressable>
             )) : null}
           </ScrollView>
-        </View>
-       </View>
-      </KeyboardAvoidingView>
-    </Modal>
+    </PopupSheet>
   );
 }
 
-const styles = StyleSheet.create({ keyboardAvoider: { flex: 1 }, overlay: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.overlay, padding: 20 }, mobileOverlay: { justifyContent: "flex-end", padding: 0 }, panel: { width: "100%", backgroundColor: colors.white, overflow: "hidden" }, desktopPanel: { maxWidth: 620, height: "84%", borderRadius: 18 }, mobilePanel: { minHeight: "85%", height: "90%", borderTopLeftRadius: 20, borderTopRightRadius: 20 }, handle: { width: 42, height: 4, alignSelf: "center", marginTop: 9, borderRadius: 2, backgroundColor: colors.divider }, header: { minHeight: 54, flexDirection: "row", alignItems: "center", borderBottomWidth: 1, borderBottomColor: colors.divider, paddingHorizontal: 10 }, iconButton: { width: 38, height: 38, alignItems: "center", justifyContent: "center" }, title: { flex: 1, textAlign: "left", color: colors.heading, fontSize: 16, fontWeight: "700" }, newProductButton: { minHeight: 34, flexDirection: "row", alignItems: "center", gap: 2, borderWidth: 1, borderColor: colors.secondaryBorder, borderRadius: 9, backgroundColor: colors.primaryLight, paddingHorizontal: 8 }, newProductText: { color: colors.primaryDark, fontSize: 10, fontWeight: "700" }, searchWrap: { minHeight: 45, flexDirection: "row", alignItems: "center", gap: 8, margin: 12, paddingHorizontal: 12, borderWidth: 1, borderColor: colors.border, borderRadius: 11, backgroundColor: colors.cardSecondary }, search: { flex: 1, height: 43, color: colors.heading, fontSize: 13, outlineStyle: "none" } as never, categoryScroll: { flexGrow: 0, minHeight: 50, maxHeight: 50, marginBottom: 6 }, chips: { alignItems: "center", gap: 7, paddingHorizontal: 12, paddingVertical: 7 }, chip: { borderWidth: 1, borderColor: colors.border, borderRadius: 18, backgroundColor: colors.white, paddingHorizontal: 12, paddingVertical: 7 }, chipActive: { borderColor: colors.primary, backgroundColor: colors.primaryLight }, chipText: { color: colors.secondary, fontSize: 11, fontWeight: "600" }, chipTextActive: { color: colors.primaryDark }, list: { flexGrow: 1, paddingBottom: 24 }, section: { paddingHorizontal: 14, paddingVertical: 6, color: colors.white, backgroundColor: "#9A3412", fontSize: 10, fontWeight: "800", letterSpacing: 1 }, sectionAccent: { color: colors.primaryDark, backgroundColor: colors.primaryLight }, row: { minHeight: 68, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: colors.divider, backgroundColor: colors.white }, rowSelected: { backgroundColor: colors.primaryLight }, image: { width: 44, height: 44, borderRadius: 9 }, imageFallback: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 9, backgroundColor: colors.cardSecondary }, copy: { flex: 1, minWidth: 0 }, name: { color: colors.heading, fontSize: 13, fontWeight: "700" }, selectedName: { color: colors.primaryDark }, variant: { color: colors.muted, fontWeight: "400" }, meta: { color: colors.muted, fontSize: 10, marginTop: 4 }, stock: { alignItems: "flex-end" }, stockText: { color: colors.secondary, fontSize: 10 }, inStock: { color: colors.successText, fontWeight: "700" }, outStock: { color: colors.muted }, cost: { color: colors.primaryDark, fontSize: 10, fontWeight: "700", marginTop: 3 }, low: { color: colors.dangerText, fontSize: 9, marginTop: 2 }, loader: { marginVertical: 28 }, error: { color: colors.dangerText, textAlign: "center", padding: 14 }, empty: { color: colors.muted, textAlign: "center", padding: 28 } });
+const styles = StyleSheet.create({ newProductButton: { minHeight: 34, flexDirection: "row", alignItems: "center", gap: 2, borderWidth: 1, borderColor: colors.secondaryBorder, borderRadius: 9, backgroundColor: colors.primaryLight, paddingHorizontal: 8 }, newProductText: { color: colors.primaryDark, fontSize: 10, fontWeight: "700" }, searchWrap: { minHeight: 45, flexDirection: "row", alignItems: "center", gap: 8, margin: 12, paddingHorizontal: 12, borderWidth: 1, borderColor: colors.border, borderRadius: 11, backgroundColor: colors.cardSecondary }, search: { flex: 1, height: 43, color: colors.heading, fontSize: 13, outlineStyle: "none" } as never, categoryScroll: { flexGrow: 0, minHeight: 50, maxHeight: 50, marginBottom: 6 }, chips: { alignItems: "center", gap: 7, paddingHorizontal: 12, paddingVertical: 7 }, chip: { borderWidth: 1, borderColor: colors.border, borderRadius: 18, backgroundColor: colors.white, paddingHorizontal: 12, paddingVertical: 7 }, chipActive: { borderColor: colors.primary, backgroundColor: colors.primaryLight }, chipText: { color: colors.secondary, fontSize: 11, fontWeight: "600" }, chipTextActive: { color: colors.primaryDark }, list: { flexGrow: 1, paddingBottom: 24 }, section: { paddingHorizontal: 14, paddingVertical: 6, color: colors.white, backgroundColor: "#9A3412", fontSize: 10, fontWeight: "800", letterSpacing: 1 }, sectionAccent: { color: colors.primaryDark, backgroundColor: colors.primaryLight }, row: { minHeight: 68, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: colors.divider, backgroundColor: colors.white }, rowSelected: { backgroundColor: colors.primaryLight }, image: { width: 44, height: 44, borderRadius: 9 }, imageFallback: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 9, backgroundColor: colors.cardSecondary }, copy: { flex: 1, minWidth: 0 }, name: { color: colors.heading, fontSize: 13, fontWeight: "700" }, selectedName: { color: colors.primaryDark }, variant: { color: colors.muted, fontWeight: "400" }, meta: { color: colors.muted, fontSize: 10, marginTop: 4 }, stock: { alignItems: "flex-end" }, stockText: { color: colors.secondary, fontSize: 10 }, inStock: { color: colors.successText, fontWeight: "700" }, outStock: { color: colors.muted }, cost: { color: colors.primaryDark, fontSize: 10, fontWeight: "700", marginTop: 3 }, low: { color: colors.dangerText, fontSize: 9, marginTop: 2 }, loader: { marginVertical: 28 }, error: { color: colors.dangerText, textAlign: "center", padding: 14 }, empty: { color: colors.muted, textAlign: "center", padding: 28 } });

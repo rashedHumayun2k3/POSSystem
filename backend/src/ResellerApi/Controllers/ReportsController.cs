@@ -35,6 +35,10 @@ public class ReportsController : ControllerBase
     public async Task<IActionResult> HomeSummary()
         => Ok(await _svc.GetHomeSummaryAsync(_user.CanSeeCosts));
 
+    [HttpGet("home-today-metrics")]
+    public async Task<IActionResult> HomeTodayMetrics()
+        => Ok(await _svc.GetHomeTodayMetricsAsync(_user.CanSeeCosts));
+
     [HttpGet("sales")]
     public async Task<IActionResult> Sales(
         [FromQuery] DateTime? from,

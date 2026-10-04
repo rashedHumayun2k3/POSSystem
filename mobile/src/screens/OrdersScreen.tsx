@@ -1,3 +1,4 @@
+import { Text } from "../i18n/LocalizedText";
 import { useCallback, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -6,7 +7,6 @@ import {
   RefreshControl,
   ScrollView,
   StyleSheet,
-  Text,
   TextInput,
   View,
 } from "react-native";
@@ -15,6 +15,7 @@ import { useFocusEffect, useLocalSearchParams, router } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "../auth/AuthContext";
 import { colors } from "../theme";
+import PageTitle from "../components/PageTitle";
 import {
   channelLabel,
   channels,
@@ -146,6 +147,7 @@ export default function OrdersScreen() {
   const [filters, setFilters] = useState<Filters>(emptyFilters);
   const [draft, setDraft] = useState<Filters>(emptyFilters);
   const [showFilters, setShowFilters] = useState(false);
+  const [showStockIssue, setShowStockIssue] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [searchFocused, setSearchFocused] = useState(false);
   const [orders, setOrders] = useState<Order[]>([]);
@@ -234,10 +236,9 @@ export default function OrdersScreen() {
         refreshControl={<RefreshControl refreshing={loading && orders.length > 0} onRefresh={() => setReload(value => value + 1)} colors={[colors.primary]} tintColor={colors.primary} />}
       >
         <View style={s.heading}>
+          <View style={s.headerIcon}><Ionicons name="receipt-outline" size={22} color={colors.primaryDark} /></View>
           <View style={s.grow}>
-            <Text accessibilityRole="header" style={s.title}>
-              Orders
-            </Text>
+            <PageTitle accessibilityRole="header">Orders</PageTitle>
           </View>
           <Pressable
             accessibilityRole="button"
@@ -419,8 +420,14 @@ export default function OrdersScreen() {
                     <Pressable
                       key={order.id}
                       accessibilityRole="button"
-                      accessibilityLabel={`Open order ${order.orderNo}, ${order.customerName}`}
-                      onPress={() => router.push(`/orders/${order.id}`)}
+                      accessibilityLabel={`${issue ? "Review stock issue for" : "Open"} order ${order.orderNo}, ${order.customerName}`}
+                      onPress={() => {
+                        if (issue) {
+                          setShowStockIssue(true);
+                          return;
+                        }
+                        router.push(`/orders/${order.id}`);
+                      }}
                       style={({ pressed }) => [
                         s.card,
                         s.orderCard,
@@ -491,6 +498,14 @@ export default function OrdersScreen() {
           </View>
         )}
       </ScrollView>
+      {showStockIssue && (
+        <Sheet title="Stock unavailable" close={() => setShowStockIssue(false)}>
+          <Text accessibilityRole="alert" style={s.name}>
+            One or more products in this order have insufficient stock. Please restock the products before opening the order.
+          </Text>
+          <Button label="OK" primary onPress={() => setShowStockIssue(false)} />
+        </Sheet>
+      )}
       {showFilters && (
         <Sheet title="Filters" close={() => setShowFilters(false)}>
           <View style={s.wrap}>
@@ -581,7 +596,8 @@ const s = StyleSheet.create({
   content: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 28, gap: 8 },
   grow: { flex: 1, minWidth: 0 },
   heading: { flexDirection: "row", alignItems: "center", gap: 12, marginHorizontal: -16, marginTop: -10, marginBottom: 4, paddingHorizontal: 16, paddingVertical: 12, backgroundColor: colors.white, borderBottomWidth: 1, borderBottomColor: colors.divider },
-  title: { fontSize: 26, fontWeight: "400", color: colors.heading },
+  headerIcon: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: colors.primaryLight },
+  title: { fontSize: 17, fontWeight: "400", color: colors.heading },
   subtitle: { fontSize: 12, color: colors.muted, marginTop: 4 },
   toggle: {
     position: "relative",

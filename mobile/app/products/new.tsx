@@ -1,7 +1,9 @@
+import { Text } from "../../src/i18n/LocalizedText";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Keyboard, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Keyboard, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
+import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "../../src/auth/AuthContext";
 import { colors } from "../../src/theme";
@@ -102,7 +104,7 @@ export default function NewProductScreen() {
       <Pressable accessibilityRole="button" accessibilityLabel="Go back" onPress={() => router.back()} style={s.back}><Ionicons name="arrow-back" size={22} color={colors.heading} /></Pressable>
       <Text style={s.title}>Add Product</Text>
     </View>
-    <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={s.content}>
+    <KeyboardAwareScrollView enableOnAndroid extraScrollHeight={24} keyboardShouldPersistTaps="handled" contentContainerStyle={s.content}>
       {!!error && <Text style={s.error}>{error}</Text>}
       <View style={s.field}>
         <Text style={s.label}>CATEGORY *</Text>
@@ -118,20 +120,22 @@ export default function NewProductScreen() {
           {suggestionsOpen && name.trim().length >= 2 && <View style={s.suggestions}>{suggestionsLoading ? <ActivityIndicator color={colors.primary} style={s.suggestionLoader} /> : productSuggestions.length ? productSuggestions.map(item => <Pressable key={item.id} onPress={() => { setName(item.name); setSuggestionsOpen(false); Keyboard.dismiss(); }} style={s.suggestionRow}><View style={s.suggestionCopy}><Text numberOfLines={1} style={s.suggestionName}>{item.name}</Text><Text style={s.suggestionMeta}>{item.categoryName} · SKU {item.sku}</Text></View><Ionicons name="chevron-forward" size={18} color={colors.muted} /></Pressable>) : <Text style={s.suggestionEmpty}>No matching products in this category.</Text>}</View>}
           {duplicateProduct && <View style={s.duplicateNotice}><Text style={s.duplicateText}>This exact product name already exists in {selectedCategory?.name}.</Text><Pressable onPress={() => router.replace({ pathname: "/products/[id]", params: { id: duplicateProduct.id } })} style={s.openExisting}><Text style={s.openExistingText}>Open existing product</Text><Ionicons name="arrow-forward" size={15} color={colors.primaryDark} /></Pressable></View>}
         </View>
-        <Field label="SELLING PRICE *" value={sellingPrice} onChangeText={setSellingPrice} placeholder="0.00" keyboardType="decimal-pad" />
+        <Field label="SELLING PRICE *" note="Enter the regular selling price. You can add offers or discounts later." value={sellingPrice} onChangeText={setSellingPrice} placeholder="0.00" keyboardType="decimal-pad" />
         <Field label="OPENING QUANTITY *" value={quantity} onChangeText={setQuantity} placeholder="1" keyboardType="decimal-pad" />
         <Field label="UNIT COST *" value={costPrice} onChangeText={setCostPrice} placeholder="0.00" keyboardType="decimal-pad" />
         <Text style={s.hint}>A default variant will be created with the opening stock and cost you enter.</Text>
         <Pressable disabled={saving || loading || suggestionsLoading || !!duplicateProduct} onPress={() => void save()} style={[s.submit, (saving || loading || suggestionsLoading || !!duplicateProduct) && s.disabled]}>{saving ? <ActivityIndicator color={colors.white} /> : <Text style={s.submitText}>Save Product</Text>}</Pressable>
       </> : null}
-    </ScrollView>
+    </KeyboardAwareScrollView>
   </SafeAreaView>;
 }
 
-function Field(props: { label: string; value: string; onChangeText: (value: string) => void; placeholder: string; keyboardType?: "decimal-pad" }) {
-  return <View style={s.field}><Text style={s.label}>{props.label}</Text><TextInput value={props.value} onChangeText={props.onChangeText} placeholder={props.placeholder} placeholderTextColor={colors.muted} keyboardType={props.keyboardType} style={s.input} /></View>;
+function Field(props: { label: string; note?: string; value: string; onChangeText: (value: string) => void; placeholder: string; keyboardType?: "decimal-pad" }) {
+  return <View style={s.field}><View style={s.fieldLabelRow}><Text style={s.label}>{props.label}</Text>{props.note && <Text style={s.fieldNote}>({<Text>{props.note}</Text>})</Text>}</View><TextInput value={props.value} onChangeText={props.onChangeText} placeholder={props.placeholder} placeholderTextColor={colors.muted} keyboardType={props.keyboardType} style={s.input} /></View>;
 }
 
 const s = StyleSheet.create({
+  fieldLabelRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "baseline", columnGap: 6, rowGap: 3 },
+  fieldNote: { flexShrink: 1, color: colors.muted, fontSize: 12, lineHeight: 18 },
   root: { flex: 1, backgroundColor: colors.background }, header: { minHeight: 56, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 16, backgroundColor: colors.white, borderBottomWidth: 1, borderBottomColor: colors.divider }, back: { width: 36, height: 40, justifyContent: "center" }, title: { color: colors.heading, fontSize: 18, fontWeight: "700" }, content: { padding: 16, gap: 16 }, field: { gap: 7 }, label: { color: colors.secondary, fontSize: 11, fontWeight: "700", letterSpacing: 0.5 }, categoryInputWrap: { position: "relative", flexDirection: "row", alignItems: "center" }, categorySearchInput: { flex: 1 }, input: { minHeight: 48, borderWidth: 1, borderColor: colors.border, borderRadius: 11, paddingHorizontal: 13, color: colors.heading, backgroundColor: colors.white, fontSize: 15 }, categoryDropdown: { maxHeight: 280, borderWidth: 1, borderColor: colors.border, borderRadius: 11, backgroundColor: colors.white, overflow: "hidden" }, categoryOption: { minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 13, borderBottomWidth: 1, borderBottomColor: colors.divider }, categoryOptionText: { color: colors.heading, fontSize: 14, fontWeight: "600" }, categoryUnit: { color: colors.muted, fontSize: 12 }, suggestions: { maxHeight: 260, borderWidth: 1, borderColor: colors.border, borderRadius: 11, backgroundColor: colors.white, overflow: "hidden" }, suggestionRow: { minHeight: 52, flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, borderBottomWidth: 1, borderBottomColor: colors.divider }, suggestionCopy: { flex: 1, minWidth: 0 }, suggestionName: { color: colors.heading, fontSize: 13, fontWeight: "600" }, suggestionMeta: { color: colors.muted, fontSize: 11, marginTop: 3 }, suggestionLoader: { padding: 14 }, suggestionEmpty: { color: colors.muted, fontSize: 12, padding: 13 }, duplicateNotice: { gap: 7, borderRadius: 10, borderWidth: 1, borderColor: colors.warning, backgroundColor: colors.warningBackground, padding: 11 }, duplicateText: { color: colors.warningText, fontSize: 12, lineHeight: 17 }, openExisting: { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 5 }, openExistingText: { color: colors.primaryDark, fontSize: 12, fontWeight: "700" }, noCategories: { padding: 14, color: colors.muted, fontSize: 13 }, hint: { color: colors.muted, fontSize: 12, lineHeight: 18 }, error: { color: colors.dangerText, fontSize: 13 }, submit: { minHeight: 48, marginTop: 8, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: colors.primary }, submitText: { color: colors.white, fontSize: 14, fontWeight: "700" }, disabled: { opacity: 0.5 },
 });

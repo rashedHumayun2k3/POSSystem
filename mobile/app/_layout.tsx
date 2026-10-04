@@ -9,6 +9,7 @@ import { StatusBar } from "expo-status-bar";
 import { Image, Modal, Platform, Pressable, ScrollView, StyleSheet, TextInput, useWindowDimensions, View } from "react-native";
 import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import AppHeader from "../src/components/AppHeader";
+import BranchSwitcher from "../src/components/BranchSwitcher";
 import { ModalChromeProvider, useModalChrome } from "../src/components/ModalChromeContext";
 import { AuthProvider, useAuth } from "../src/auth/AuthContext";import { LanguageProvider, useLanguage } from "../src/i18n/LanguageContext";
 import LoginScreen from "../src/auth/LoginScreen";
@@ -27,22 +28,23 @@ const tabs = [
 type MoreNavItem = { key: string; label: string; icon: keyof typeof Ionicons.glyphMap; roles?: string[]; route?: "/" | "/orders" | "/products" | "/more/categories" };
 type QuickAction = { key: string; label: string; hint: string; icon: keyof typeof Ionicons.glyphMap; roles?: string[] };
 const quickActions: QuickAction[] = [
-  { key: "pre-order", label: "Add Pre-order", hint: "Reserve or request stock", icon: "time-outline", roles: ["OWNER", "MANAGER", "STAFF"] },
-  { key: "sale", label: "Add Sale", hint: "Open POS", icon: "cart-outline" },
   { key: "order", label: "Add Order", hint: "Create customer order", icon: "receipt-outline" },
-  { key: "product", label: "Add Product", hint: "Create catalog item", icon: "cube-outline", roles: ["OWNER"] },
+  { key: "sale", label: "Add Sale", hint: "Open POS", icon: "cart-outline" },
   { key: "purchase", label: "Add Purchase", hint: "Start purchase order", icon: "bag-add-outline", roles: ["OWNER", "MANAGER", "WAREHOUSE"] },
-  { key: "expense", label: "Add Expense", hint: "Record business cost", icon: "wallet-outline", roles: ["OWNER", "MANAGER"] },
+  { key: "product", label: "Add Product", hint: "Create catalog item", icon: "cube-outline", roles: ["OWNER"] },
   { key: "customer", label: "Add Customer", hint: "Through a new order", icon: "person-add-outline" },
   { key: "supplier", label: "Add Supplier", hint: "Create supplier contact", icon: "business-outline", roles: ["OWNER", "MANAGER", "WAREHOUSE"] },
+  { key: "pre-order", label: "Add Pre-order", hint: "Reserve or request stock", icon: "time-outline", roles: ["OWNER", "MANAGER", "STAFF"] },
+  { key: "expense", label: "Add Expense", hint: "Record business cost", icon: "wallet-outline", roles: ["OWNER", "MANAGER"] },
   { key: "category", label: "Add Category", hint: "Organize products", icon: "pricetag-outline", roles: ["OWNER"] },
+  { key: "task", label: "Add Task", hint: "Create and assign a task", icon: "checkbox-outline", roles: ["OWNER", "MANAGER", "PARTNER"] },
 ];
 const moreItems: MoreNavItem[] = [
+  { key: "tasks", label: "Tasks", icon: "checkbox-outline", roles: ["OWNER", "MANAGER", "PARTNER"] },
   { key: "pre-orders", label: "Pre-orders", icon: "time-outline", roles: ["OWNER", "MANAGER", "STAFF"] },
   { key: "categories", label: "Categories", icon: "pricetag-outline", roles: ["OWNER"], route: "/more/categories" },
   { key: "quick-add", label: "Quick Add Products", icon: "albums-outline", roles: ["OWNER"] },
   { key: "purchases", label: "Purchases", icon: "cart-outline", roles: ["OWNER", "MANAGER", "WAREHOUSE"] },
-  { key: "supplier-returns", label: "Supplier Returns", icon: "return-down-back-outline", roles: ["OWNER", "MANAGER"] },
   { key: "storeroom", label: "Storeroom", icon: "archive-outline", roles: ["OWNER", "WAREHOUSE"] },
   { key: "barcodes", label: "Print Barcodes", icon: "barcode-outline", roles: ["OWNER", "MANAGER", "WAREHOUSE"] },
   { key: "deliveries", label: "Deliveries", icon: "car-outline", roles: ["OWNER", "MANAGER", "STAFF"] },
@@ -81,6 +83,7 @@ const openEnvironmentPath = (path: string) => {
   void ExpoLinking.openURL(ExpoLinking.createURL(path));
 };
 const frontendPaths: Record<string, string> = {
+  tasks: "/more/tasks",
   "pre-orders": "/more/pre-orders",
   "quick-add": "/more/catalog-templates", purchases: "/more/purchases", "supplier-returns": "/more/supplier-returns", storeroom: "/more/storeroom", deliveries: "/more/deliveries", expenses: "/more/expenses", baki: "/more/baki", customers: "/more/customers", faq: "/more/faq", feedback: "/more/feedback",
   "report-dashboard": "/more/reports/dashboard", "report-invoices": "/more/reports/invoices", "report-daily": "/more/reports/daily-closing", "report-sales": "/more/reports/sales", "report-inventory": "/more/reports/inventory", "report-financial": "/more/reports/financial", "report-orders": "/more/reports/orders", "report-stock-valuation": "/more/reports/stock-valuation",
@@ -105,7 +108,8 @@ function AppShell() {
   const role = (auth.session?.user.role || "STAFF").toUpperCase();
   const currentBusiness = auth.session?.businesses.find(business => business.id === auth.session?.businessId);
   if (!auth.ready) return <View style={[s.shell, { justifyContent: "center" }]}><ActivityIndicator color={colors.primary} /></View>;
-  if (!auth.session?.branchId) return <SafeAreaView style={s.shell}><StatusBar style="dark" /><LoginScreen /></SafeAreaView>;
+  const allBranchRole = ["OWNER", "MANAGER", "PARTNER"].includes(role);
+  if (!currentBusiness || (!auth.session?.branchId && !allBranchRole)) return <SafeAreaView style={s.shell}><StatusBar style="dark" /><LoginScreen /></SafeAreaView>;
   if (role === "OWNER" && currentBusiness?.onboardingCompleted === false) return <SafeAreaView style={s.shell}><StatusBar style="dark" /><OnboardingScreen /></SafeAreaView>;
   const mobileTab = (tab: typeof tabs[number]) => {
     const href = tab.href;
@@ -119,16 +123,6 @@ function AppShell() {
     </Link>;
   };
   const mobileBottomNavigation = <>{mobileTab(tabs[0])}{mobileTab(tabs[1])}<Pressable onPress={()=>setQuickActionsOpen(true)} accessibilityRole="button" accessibilityLabel="Create new" style={s.createTab}><View style={s.createButton}><Ionicons name="add" size={29} color={colors.white} /></View><Text style={s.createLabel}>{t("Add")}</Text></Pressable>{mobileTab(tabs[2])}{mobileTab(tabs[3])}</>;
-  const desktopPrimaryNavigation = tabs.map(tab => {
-    const href = tab.href;
-    const active = href === "/" ? path === "/" : path.startsWith(href);
-    const icon = `${tab.icon}${active ? "" : "-outline"}` as keyof typeof Ionicons.glyphMap;
-    return <Link key={tab.label} href={href} accessibilityLabel={t(tab.label)} asChild>
-      <Pressable accessibilityState={{ selected: active }} style={StyleSheet.flatten([s.moreRow, active ? s.activeMoreRow : undefined])}>
-        <Ionicons name={icon} size={19} color={active ? colors.primaryDark : colors.neutralIcon} /><Text style={[s.moreLabel, active && s.activeMoreLabel]}>{t(tab.label)}</Text>
-      </Pressable>
-    </Link>;
-  });
   const drawerPrimaryNavigation = tabs.map(tab => {
     const href = tab.href;
     const active = href === "/" ? path === "/" : path.startsWith(href);
@@ -141,6 +135,7 @@ function AppShell() {
   const openMoreItem = (item: MoreNavItem) => {
     setDrawerOpen(false);
     setMenuSearch("");
+    if (item.key === "tasks") return router.push("/more/tasks");
     if (item.key === "categories") return router.push("/more/categories");
     if (item.key === "quick-add") return router.push("/more/catalog-templates");
     if (item.key === "purchases") return router.push("/more/purchases");
@@ -149,7 +144,7 @@ function AppShell() {
     if (webPath) return openEnvironmentPath(webPath);
     return item.route ? router.push(item.route) : router.push({ pathname: "/more", params: { focus: item.key } });
   };
-  const openQuickAction=(key:string)=>{setQuickActionsOpen(false);if(key==="pre-order")return openEnvironmentPath("/more/pre-orders");if(key==="sale")return router.push("/sale");if(key==="order"||key==="customer")return router.push("/orders/new");if(key==="supplier")return setSupplierFormOpen(true);if(key==="purchase")return router.push("/more/purchases/new");if(key==="category")return router.push({pathname:"/more/categories",params:{new:"1"}});if(key==="product")return router.push("/products/new");if(key==="expense")return openEnvironmentPath("/more/expenses/new")};
+  const openQuickAction=(key:string)=>{setQuickActionsOpen(false);if(key==="task")return router.push({pathname:"/more/tasks",params:{new:"1"}});if(key==="pre-order")return openEnvironmentPath("/more/pre-orders");if(key==="sale")return router.push("/sale");if(key==="order"||key==="customer")return router.push("/orders/new");if(key==="supplier")return setSupplierFormOpen(true);if(key==="purchase")return router.push("/more/purchases/new");if(key==="category")return router.push({pathname:"/more/categories",params:{new:"1"}});if(key==="product")return router.push("/products/new");if(key==="expense")return openEnvironmentPath("/more/expenses/new")};
   const itemPath = (item: MoreNavItem) => item.key === "categories" ? "/more/categories" : item.key === "quick-add" ? "/more/catalog-templates" : item.key === "purchases" ? "/more/purchases" : item.key === "barcodes" ? "/more/barcodes" : frontendPaths[item.key] ?? item.route;
   const itemActive = (item: MoreNavItem) => { const target = itemPath(item); return !!target && (target === "/" ? path === "/" : path === target || path.startsWith(`${target}/`)); };
   const moreRows = (entries: MoreNavItem[], nested = false) => entries.map(item => { const active=itemActive(item); return <Pressable key={item.key} accessibilityState={{selected:active}} onPress={() => openMoreItem(item)} style={({ pressed }) => [s.moreRow, nested && s.nestedRow, active&&s.activeMoreRow, pressed && s.pressed]}>
@@ -164,22 +159,16 @@ function AppShell() {
   const drawerSettings = (role === "OWNER" ? [...basicSettings, ...ownerSettings] : basicSettings).filter(item => menuMatches(item.label, item.key));
   const drawerMoreItems = visibleMoreItems.filter(item => menuMatches(item.label, item.key) || (item.key === "reports" && drawerReports.length > 0) || (item.key === "settings" && drawerSettings.length > 0));
   const drawerHasResults = drawerTabs.length > 0 || drawerMoreItems.length > 0;
-  const morePanel = <View style={s.moreList}>
-    {visibleMoreItems.map(item => {
-      if (item.key === "reports") return <View key={item.key}>
-        <Pressable onPress={() => setReportsOpen(value => !value)} style={({ pressed }) => [s.moreRow,path.startsWith("/more/reports")&&s.activeMoreRow, pressed && s.pressed]}><Ionicons name={item.icon} size={19} color={path.startsWith("/more/reports")?colors.primaryDark:colors.neutralIcon} /><Text style={[s.moreLabel,path.startsWith("/more/reports")&&s.activeMoreLabel]}>{t(item.label)}</Text><Ionicons name={reportsOpen ? "chevron-down" : "chevron-forward"} size={14} color={path.startsWith("/more/reports")?colors.primaryDark:colors.muted} /></Pressable>
-        {reportsOpen && <View style={s.nestedList}>{moreRows(reportItems, true)}</View>}
-      </View>;
-      if (item.key === "settings") {
-        const settings = role === "OWNER" ? [...basicSettings, ...ownerSettings] : basicSettings;
-        return <View key={item.key}>
-          <Pressable onPress={() => setSettingsOpen(value => !value)} style={({ pressed }) => [s.moreRow,path.startsWith("/more/settings")&&s.activeMoreRow, pressed && s.pressed]}><Ionicons name={item.icon} size={19} color={path.startsWith("/more/settings")?colors.primaryDark:colors.neutralIcon} /><Text style={[s.moreLabel,path.startsWith("/more/settings")&&s.activeMoreLabel]}>{t(item.label)}</Text><Ionicons name={settingsOpen ? "chevron-down" : "chevron-forward"} size={14} color={path.startsWith("/more/settings")?colors.primaryDark:colors.muted} /></Pressable>
-          {settingsOpen && <View style={s.nestedList}>{moreRows(settings, true)}</View>}
-        </View>;
-      }
-      return moreRows([item]);
-    })}
-  </View>;
+  const desktopPrimaryNavigation = drawerTabs.map(tab => {
+    const href = tab.href;
+    const active = href === "/" ? path === "/" : path.startsWith(href);
+    const icon = `${tab.icon}${active ? "" : "-outline"}` as keyof typeof Ionicons.glyphMap;
+    return <Link key={tab.label} href={href} accessibilityLabel={t(tab.label)} asChild>
+      <Pressable onPress={() => setMenuSearch("")} accessibilityState={{ selected: active }} style={StyleSheet.flatten([s.moreRow, active ? s.activeMoreRow : undefined])}>
+        <Ionicons name={icon} size={19} color={active ? colors.primaryDark : colors.neutralIcon} /><Text style={[s.moreLabel, active && s.activeMoreLabel]}>{t(tab.label)}</Text>
+      </Pressable>
+    </Link>;
+  });
   const drawerMorePanel = <View style={s.moreList}>
     {drawerMoreItems.map(item => {
       if (item.key === "reports") return <View key={item.key}>
@@ -193,16 +182,17 @@ function AppShell() {
       return moreRows([item]);
     })}
   </View>;
+  const menuSearchField = <View style={[s.drawerSearch, showSidebar && Platform.OS === "web" && { marginHorizontal: 0 }]}><Ionicons name="search-outline" size={19} color={colors.muted}/><TextInput autoCapitalize="none" autoCorrect={false} accessibilityLabel={t("more.searchMenu")} placeholder={t("more.searchMenu")} placeholderTextColor={colors.muted} value={menuSearch} onChangeText={setMenuSearch} style={s.drawerSearchInput}/>{!!menuSearch&&<Pressable accessibilityLabel={t("more.clearSearch")} onPress={()=>setMenuSearch("")} style={s.drawerSearchClear}><Ionicons name="close" size={18} color={colors.secondary}/></Pressable>}</View>;
   return <SafeAreaView style={s.shell} edges={["top", "left", "right"]}>
     <StatusBar style="dark" />
     <AppHeader onMenuPress={() => setDrawerOpen(true)} />
     <View style={s.mainRow}>
-      {showSidebar ? <View style={[s.sidebar, { width: 216 }]}><ScrollView contentContainerStyle={s.sidebarContent} showsVerticalScrollIndicator={false}>{desktopPrimaryNavigation}{morePanel}</ScrollView></View> : null}
+      {showSidebar ? <View style={[s.sidebar, { width: Platform.OS === "web" ? 250 : 216 }]}><ScrollView contentContainerStyle={[s.sidebarContent, Platform.OS === "web" && { paddingHorizontal: 0 }]} showsVerticalScrollIndicator={false}><View style={s.sidebarBranchSwitcher}><BranchSwitcher/></View>{menuSearchField}{!drawerHasResults ? <View style={s.drawerEmpty}><Ionicons name="search-outline" size={27} color={colors.muted}/><Text style={s.drawerEmptyText}>{t("more.noSearchResults")}</Text></View> : <>{desktopPrimaryNavigation}{drawerMorePanel}</>}</ScrollView></View> : null}
       <View style={s.screen}><Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: APP_BACKGROUND } }} /></View>
     </View>
     {!showSidebar && !bottomNavHidden ? <View style={[s.bar, { paddingBottom: Math.max(insets.bottom, 8) }]}>{mobileBottomNavigation}</View> : null}
     {!showSidebar&&<Modal visible={quickActionsOpen} transparent animationType="slide" onRequestClose={()=>setQuickActionsOpen(false)}><Pressable onPress={()=>setQuickActionsOpen(false)} style={s.quickOverlay}><Pressable onPress={event=>event.stopPropagation()} style={[s.quickSheet,{paddingBottom:Math.max(insets.bottom,16)}]}><View style={s.quickHandle}/><View style={s.quickHeader}><View><Text style={s.quickTitle}>{t("Create New")}</Text><Text style={s.quickSubtitle}>{t("Choose what you want to add")}</Text></View><Pressable onPress={()=>setQuickActionsOpen(false)} style={s.quickClose}><Ionicons name="close" size={21} color={colors.secondary}/></Pressable></View><View style={s.quickGrid}>{quickActions.filter(action=>!action.roles||action.roles.includes(role)).map(action=><Pressable key={action.key} onPress={()=>openQuickAction(action.key)} style={({pressed})=>[s.quickAction,pressed&&s.pressed]}><View style={s.quickActionIcon}><Ionicons name={action.icon} size={21} color={colors.primaryDark}/></View><View style={s.quickActionCopy}><Text style={s.quickActionLabel}>{t(action.label)}</Text><Text numberOfLines={1} style={s.quickActionHint}>{t(action.hint)}</Text></View></Pressable>)}</View></Pressable></Pressable></Modal>}
-    {!showSidebar&&<Modal visible={drawerOpen} transparent animationType="fade" onRequestClose={()=>setDrawerOpen(false)}><View style={s.drawerScene}><Pressable accessibilityLabel="Close navigation" onPress={()=>setDrawerOpen(false)} style={s.drawerDismiss}/><SafeAreaView style={s.drawer} edges={["top","bottom"]}><View style={s.drawerHeader}><Image source={require("../assets/logo.png")} resizeMode="contain" style={s.drawerLogo}/><Pressable accessibilityRole="button" accessibilityLabel="Close navigation" onPress={()=>setDrawerOpen(false)} style={s.drawerClose}><Ionicons name="close" size={23} color={colors.secondary}/></Pressable></View><View style={s.drawerSearch}><Ionicons name="search-outline" size={19} color={colors.muted}/><TextInput autoCapitalize="none" autoCorrect={false} accessibilityLabel={t("more.searchMenu")} placeholder={t("more.searchMenu")} placeholderTextColor={colors.muted} value={menuSearch} onChangeText={setMenuSearch} style={s.drawerSearchInput}/>{!!menuSearch&&<Pressable accessibilityLabel={t("more.clearSearch")} onPress={()=>setMenuSearch("")} style={s.drawerSearchClear}><Ionicons name="close" size={18} color={colors.secondary}/></Pressable>}</View><ScrollView contentContainerStyle={s.drawerContent} showsVerticalScrollIndicator={false}>{!drawerHasResults?<View style={s.drawerEmpty}><Ionicons name="search-outline" size={27} color={colors.muted}/><Text style={s.drawerEmptyText}>{t("more.noSearchResults")}</Text></View>:<><View style={s.moreList}>{drawerTabs.map(tab => { const href=tab.href,active=href==="/"?path==="/":path.startsWith(href),icon=`${tab.icon}${active?"":"-outline"}` as keyof typeof Ionicons.glyphMap; return <Pressable key={tab.label} accessibilityState={{selected:active}} onPress={()=>{setDrawerOpen(false);setMenuSearch("");router.push(href)}} style={({pressed})=>[s.moreRow,active&&s.activeMoreRow,pressed&&s.pressed]}><Ionicons name={icon} size={19} color={active?colors.primaryDark:colors.neutralIcon}/><Text numberOfLines={1} style={[s.moreLabel,active&&s.activeMoreLabel]}>{t(tab.label)}</Text></Pressable>})}</View>{drawerMorePanel}</>}</ScrollView></SafeAreaView></View></Modal>}
+    {!showSidebar&&<Modal visible={drawerOpen} transparent animationType="fade" onRequestClose={()=>setDrawerOpen(false)}><View style={s.drawerScene}><Pressable accessibilityLabel="Close navigation" onPress={()=>setDrawerOpen(false)} style={s.drawerDismiss}/><SafeAreaView style={s.drawer} edges={["top","bottom"]}><View style={s.drawerHeader}><Pressable accessibilityRole="button" accessibilityLabel="Go to Home" onPress={()=>{setDrawerOpen(false);router.replace("/")}}><Image source={require("../assets/logo.png")} resizeMode="contain" style={s.drawerLogo}/></Pressable><Pressable accessibilityRole="button" accessibilityLabel="Close navigation" onPress={()=>setDrawerOpen(false)} style={s.drawerClose}><Ionicons name="close" size={23} color={colors.secondary}/></Pressable></View><View style={s.drawerBranchSwitcher}><BranchSwitcher onSelected={()=>setDrawerOpen(false)}/></View>{menuSearchField}<ScrollView contentContainerStyle={s.drawerContent} showsVerticalScrollIndicator={false}>{!drawerHasResults?<View style={s.drawerEmpty}><Ionicons name="search-outline" size={27} color={colors.muted}/><Text style={s.drawerEmptyText}>{t("more.noSearchResults")}</Text></View>:<><View style={s.moreList}>{drawerTabs.map(tab => { const href=tab.href,active=href==="/"?path==="/":path.startsWith(href),icon=`${tab.icon}${active?"":"-outline"}` as keyof typeof Ionicons.glyphMap; return <Pressable key={tab.label} accessibilityState={{selected:active}} onPress={()=>{setDrawerOpen(false);setMenuSearch("");router.push(href)}} style={({pressed})=>[s.moreRow,active&&s.activeMoreRow,pressed&&s.pressed]}><Ionicons name={icon} size={19} color={active?colors.primaryDark:colors.neutralIcon}/><Text numberOfLines={1} style={[s.moreLabel,active&&s.activeMoreLabel]}>{t(tab.label)}</Text></Pressable>})}</View>{drawerMorePanel}</>}</ScrollView></SafeAreaView></View></Modal>}
   {supplierFormOpen&&<SupplierPicker open createOnly onClose={()=>setSupplierFormOpen(false)} onSelect={()=>setSupplierFormOpen(false)}/>}
   </SafeAreaView>;
 }
@@ -227,6 +217,7 @@ const s = StyleSheet.create({
   createLabel: { color: colors.muted, fontSize: 9, fontWeight: "600" },
   sidebar: { flexShrink: 0, borderRightWidth: 1, borderRightColor: colors.divider, backgroundColor: colors.white, zIndex: 5 },
   sidebarContent: { paddingHorizontal: 10, paddingTop: 12, paddingBottom: 20 },
+  sidebarBranchSwitcher: { marginBottom: 10 },
   sideTab: { minHeight: 42, flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8 },
   sideContent: { width: "100%", flexDirection: "row", alignItems: "center", gap: 10 },
   activeSideTab: { backgroundColor: colors.primary },
@@ -247,6 +238,7 @@ const s = StyleSheet.create({
   drawer: { width: "86%", maxWidth: 340, height: "100%", backgroundColor: colors.white, shadowColor: colors.heading, shadowOpacity: 0.24, shadowRadius: 18, shadowOffset: { width: 6, height: 0 }, elevation: 12 },
   drawerHeader: { minHeight: 58, flexDirection: "row", alignItems: "center", gap: 10, borderBottomWidth: 1, borderBottomColor: colors.divider, paddingHorizontal: 14 },
   drawerLogo: { width: 142, height: 42 },
+  drawerBranchSwitcher: { marginHorizontal: 12, marginTop: 12, marginBottom: 4 },
   drawerClose: { marginLeft: "auto", width: 38, height: 38, alignItems: "center", justifyContent: "center", borderRadius: 10, backgroundColor: colors.cardSecondary },
   drawerSearch: { minHeight: 48, marginHorizontal: 12, marginTop: 14, marginBottom: 6, paddingHorizontal: 13, borderRadius: 15, borderWidth: 1, borderColor: colors.divider, backgroundColor: colors.white, flexDirection: "row", alignItems: "center", gap: 9 },
   drawerSearchInput: { flex: 1, minWidth: 0, color: colors.heading, fontSize: 14, outlineStyle: "none" } as any,

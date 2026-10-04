@@ -4,6 +4,7 @@ using ResellerApi.DTOs.Orders;
 using ResellerApi.Infrastructure;
 using ResellerApi.Services;
 using ResellerApi.Services.Interfaces;
+using System.Net.Mail;
 
 namespace ResellerApi.Controllers;
 
@@ -14,11 +15,13 @@ public class OrdersController : ControllerBase
 {
     private readonly IOrderService _svc;
     private readonly ICurrentUserService _user;
+    private readonly IEmailSender _emailSender;
 
-    public OrdersController(IOrderService svc, ICurrentUserService user)
+    public OrdersController(IOrderService svc, ICurrentUserService user, IEmailSender emailSender)
     {
         _svc = svc;
         _user = user;
+        _emailSender = emailSender;
     }
 
     [HttpGet]
@@ -176,6 +179,32 @@ public class OrdersController : ControllerBase
         return File(pdf, "application/pdf", $"receipt-{id}.pdf");
     }
 
+    [HttpPost("{id:guid}/receipt/send")]
+    public async Task<IActionResult> SendReceipt(Guid id, [FromBody] SendReceiptEmailRequest request)
+    {
+        var recipient = request.Email?.Trim();
+        try { _ = new MailAddress(recipient ?? ""); }
+        catch (FormatException) { return BadRequest(new { message = "Enter a valid recipient email." }); }
+
+        try
+        {
+            var pdf = await _svc.GetReceiptPdfAsync(id);
+            await _emailSender.SendEmailWithAttachmentAsync(
+                recipient!,
+                "Your sales receipt",
+                "Thank you for your purchase. Your sales receipt is attached.",
+                pdf,
+                $"sales-receipt-{id:N}.pdf",
+                "application/pdf");
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { message = $"Could not send the sales receipt: {ex.Message}" });
+        }
+
+        return Ok(new { message = $"Sales receipt sent to {recipient}." });
+    }
+
     [HttpGet("{id:guid}/invoice")]
     public async Task<IActionResult> Invoice(Guid id, [FromQuery] bool mobile = false)
     {
@@ -194,3 +223,5 @@ public class OrdersController : ControllerBase
         return Ok();
     }
 }
+
+public sealed record SendReceiptEmailRequest(string Email);

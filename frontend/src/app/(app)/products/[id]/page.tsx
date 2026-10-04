@@ -3798,7 +3798,7 @@ function MarketplaceTab({ product, t }: { product: ProductDetail; t: (key: strin
 // rail on the public product page. Each action (add/remove/reorder) hits the server immediately
 // rather than batching, unlike the label/value detail rows above.
 
-const MAX_GALLERY_IMAGES = 10;
+const MAX_PRODUCT_IMAGES = 10;
 
 function ProductGalleryEditor({ product, t }: { product: ProductDetail; t: (key: string) => string }) {
   const qc = useQueryClient();
@@ -3825,7 +3825,8 @@ function ProductGalleryEditor({ product, t }: { product: ProductDetail; t: (key:
 
   async function handleFiles(files: FileList | null) {
     if (!files?.length) return;
-    const remainingSlots = MAX_GALLERY_IMAGES - images.length;
+    const remainingSlots = MAX_PRODUCT_IMAGES - images.length - (product.imageUrl ? 1 : 0);
+    if (remainingSlots <= 0) return;
     const selectedFiles = Array.from(files).slice(0, remainingSlots);
     setUploading(true);
     try {
@@ -3886,7 +3887,7 @@ function ProductGalleryEditor({ product, t }: { product: ProductDetail; t: (key:
             </div>
           </div>
         ))}
-        {images.length < MAX_GALLERY_IMAGES && (
+        {images.length + (product.imageUrl ? 1 : 0) < MAX_PRODUCT_IMAGES && (
           <button
             type="button"
             onClick={() => inputRef.current?.click()}

@@ -184,7 +184,6 @@ public class ReportService : IReportService
     {
         var todayLocal = DhakaTime.UtcToLocal(DateTime.UtcNow).Date;
         var today = DateOnly.FromDateTime(todayLocal);
-        var yesterday = today.AddDays(-1);
         var sevenDaysAgo = today.AddDays(-6);
         var todayUtc = DhakaTime.LocalToUtc(todayLocal);
         var tomorrowUtc = DhakaTime.LocalToUtc(todayLocal.AddDays(1));
@@ -198,20 +197,6 @@ public class ReportService : IReportService
             .ToListAsync();
 
         var todayOrderRows = recentOrders.Where(o => o.BusinessDate == today).ToList();
-        var todaySales = todayOrderRows.Sum(OrderFinancials.ComputeOrderRevenue);
-        var yesterdaySales = recentOrders
-            .Where(o => o.BusinessDate == yesterday)
-            .Sum(OrderFinancials.ComputeOrderRevenue);
-        decimal? salesChangePercent = yesterdaySales > 0
-            ? Math.Round((todaySales - yesterdaySales) / yesterdaySales * 100, 1)
-            : null;
-
-        decimal? todayProfit = canSeeCosts
-            ? todayOrderRows.Sum(o => OrderFinancials.ComputeOrderRevenue(o) - OrderFinancials.ComputeOrderCogs(o))
-            : null;
-        decimal? todayMarginPercent = canSeeCosts && todaySales > 0
-            ? Math.Round(todayProfit.GetValueOrDefault() / todaySales * 100, 1)
-            : canSeeCosts ? 0 : null;
 
         var sevenDaySales = Enumerable.Range(0, 7)
             .Select(offset =>
@@ -307,11 +292,11 @@ public class ReportService : IReportService
         }
 
         return new HomeSummaryDto(
-            todaySales,
-            yesterdaySales,
-            salesChangePercent,
-            todayProfit,
-            todayMarginPercent,
+            0,
+            0,
+            null,
+            null,
+            null,
             todayOrderRows.Count,
             pendingOrders,
             pendingDeliveries,
@@ -327,6 +312,34 @@ public class ReportService : IReportService
             sevenDaySales,
             topProductsToday
         );
+    }
+
+    public async Task<HomeTodayMetricsDto> GetHomeTodayMetricsAsync(bool canSeeCosts)
+    {
+        var todayLocal = DhakaTime.UtcToLocal(DateTime.UtcNow).Date;
+        var today = DateOnly.FromDateTime(todayLocal);
+        var yesterday = today.AddDays(-1);
+        var orders = await _db.Orders.AsNoTracking()
+            .Where(o => (o.BusinessDate == today || o.BusinessDate == yesterday)
+                && o.OrderStatus != "CANCELLED" && !o.IsDraft)
+            .Include(o => o.Items.Where(i => i.DeletedAt == null))
+                .ThenInclude(i => i.Variant)
+                    .ThenInclude(v => v.Product)
+            .ToListAsync();
+
+        var todayOrders = orders.Where(o => o.BusinessDate == today).ToList();
+        var todaySales = todayOrders.Sum(OrderFinancials.ComputeOrderRevenue);
+        var yesterdaySales = orders.Where(o => o.BusinessDate == yesterday)
+            .Sum(OrderFinancials.ComputeOrderRevenue);
+        decimal? profit = canSeeCosts
+            ? todayOrders.Sum(o => OrderFinancials.ComputeOrderRevenue(o) - OrderFinancials.ComputeOrderCogs(o))
+            : null;
+        return new HomeTodayMetricsDto(
+            todaySales,
+            yesterdaySales,
+            yesterdaySales > 0 ? Math.Round((todaySales - yesterdaySales) / yesterdaySales * 100, 1) : null,
+            profit,
+            canSeeCosts && todaySales > 0 ? Math.Round(profit.GetValueOrDefault() / todaySales * 100, 1) : canSeeCosts ? 0 : null);
     }
 
     // ── Sales Summary ──────────────────────────────────────────────────────────

@@ -1,6 +1,7 @@
 import { Text } from "../i18n/LocalizedText";
 import { colors } from "../theme";import { useEffect, useState } from "react";
-import { ActivityIndicator, Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
+import { ActivityIndicator, Image, Pressable, StyleSheet, TextInput, View } from "react-native";
+import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth, type Branch } from "./AuthContext";
 
@@ -20,15 +21,13 @@ export default function LoginScreen() {
   };
   const go = (next: Page) => { setPage(next); setMessage(null); };
   if (auth.session) return <StoreChooser busy={busy} run={run} />;
-  return <KeyboardAvoidingView style={s.root} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-    <ScrollView contentContainerStyle={s.page} keyboardShouldPersistTaps="handled">
+  return <KeyboardAwareScrollView style={s.root} contentContainerStyle={s.page} enableOnAndroid extraScrollHeight={24} keyboardShouldPersistTaps="handled">
       {page === "login" && <Login busy={busy} run={run} go={go} />}
       {page === "forgot" && <Forgot busy={busy} run={run} login={() => go("login")} success={() => { setPage("login"); setMessage({ text: "Password reset successfully. Please sign in.", ok: true }); }} />}
       {page === "signup" && <Signup busy={busy} run={run} login={() => go("login")} />}
       {busy && <ActivityIndicator style={s.loading} color={colors.primary} />}
       {message && <Text accessibilityRole="alert" style={[s.message, message.ok && s.success]}>{message.text}</Text>}
-    </ScrollView>
-  </KeyboardAvoidingView>;
+  </KeyboardAwareScrollView>;
 }
 
 function Header({ title, subtitle, logo, shopIcon }: { title?: string; subtitle: string; logo?: boolean; shopIcon?: boolean }) {
@@ -89,7 +88,7 @@ function Signup({ busy, run, login }: { busy: boolean; run: (a: () => Promise<vo
 
 function StoreChooser({ busy, run }: { busy: boolean; run: (a: () => Promise<void>) => void }) {
   const auth = useAuth(); const [branches, setBranches] = useState<Branch[] | null>(null);
-  return <ScrollView contentContainerStyle={s.page}><View style={s.width}><Header logo title="Choose your store" subtitle="Select the business and branch to view orders." /><View style={s.card}>{!branches ? auth.session!.businesses.map(b => <Pressable key={b.id} style={s.choice} onPress={() => void run(async () => { const list = await auth.chooseBusiness(b.id); if (list.length === 1) await auth.chooseBranch(list[0]); else setBranches(list); })}><Text style={s.choiceText}>{b.name}</Text><Ionicons name="chevron-forward" size={18} color={colors.muted} /></Pressable>) : <>{branches.map(b => <Pressable key={b.id} style={s.choice} onPress={() => void run(() => auth.chooseBranch(b))}><Text style={s.choiceText}>{b.name}</Text></Pressable>)}{!branches.length && <Text style={s.small}>No branches are assigned to this account.</Text>}<Link text="Choose another business" press={() => setBranches(null)} /></>}{busy && <ActivityIndicator color={colors.primary} />}</View></View></ScrollView>;
+  return <KeyboardAwareScrollView contentContainerStyle={s.page} enableOnAndroid extraScrollHeight={24} keyboardShouldPersistTaps="handled"><View style={s.width}><Header logo title="Choose your store" subtitle="Select the business and branch to view orders." /><View style={s.card}>{!branches ? auth.session!.businesses.map(b => <Pressable key={b.id} style={s.choice} onPress={() => void run(async () => { const list = await auth.chooseBusiness(b.id); if (list.length === 1) await auth.chooseBranch(list[0]); else setBranches(list); })}><Text style={s.choiceText}>{b.name}</Text><Ionicons name="chevron-forward" size={18} color={colors.muted} /></Pressable>) : <>{branches.map(b => <Pressable key={b.id} style={s.choice} onPress={() => void run(() => auth.chooseBranch(b))}><Text style={s.choiceText}>{b.name}</Text></Pressable>)}{!branches.length && <Text style={s.small}>No branches are assigned to this account.</Text>}<Link text="Choose another business" press={() => setBranches(null)} /></>}{busy && <ActivityIndicator color={colors.primary} />}</View></View></KeyboardAwareScrollView>;
 }
 
 const s = StyleSheet.create({

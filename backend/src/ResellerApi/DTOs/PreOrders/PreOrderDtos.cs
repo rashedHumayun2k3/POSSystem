@@ -1,9 +1,8 @@
 namespace ResellerApi.DTOs.PreOrders;
 
-public sealed record CreatePreOrderItemRequest(Guid ProductId, Guid VariantId, decimal Quantity);
+public sealed record CreatePreOrderItemRequest(string ProductName, decimal? Quantity);
 public sealed record CreatePreOrderRequest(
     IReadOnlyList<CreatePreOrderItemRequest> Items,
-    bool ReserveAvailableStock,
     string? CustomerName,
     string? CustomerPhone,
     string? CustomerEmail,

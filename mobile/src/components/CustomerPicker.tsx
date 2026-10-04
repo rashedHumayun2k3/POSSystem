@@ -45,10 +45,10 @@ export default function CustomerPicker({ onClose, onSelect }: { onClose: () => v
     return () => { active = false; clearTimeout(timer); };
   }, [search, auth.session?.businessId]);
 
-  return <Modal visible transparent animationType="fade" onShow={() => { if (mobile && !adding) setTimeout(() => searchInput.current?.focus(), 250); }} onRequestClose={onClose}>
+  return <Modal visible transparent animationType={mobile ? "slide" : "fade"} onShow={() => { if (mobile && !adding) setTimeout(() => searchInput.current?.focus(), 250); }} onRequestClose={onClose}>
     <KeyboardAvoidingView style={s.keyboardAvoider} behavior="padding" enabled={mobile && Platform.OS === "ios"}>
-      <View style={s.overlay}>
-        <SafeAreaView style={[s.sheet, s.desktopSheet]}>
+      <View style={[s.overlay, mobile && s.mobileOverlay]}>
+        <SafeAreaView style={[s.sheet, mobile ? s.mobileSheet : s.desktopSheet]}>
           {mobile && <View style={s.handle} />}
           <View style={s.header}>
             <Text style={s.title}>{adding ? "Add Customer" : "Choose Customer"}</Text>
@@ -73,8 +73,8 @@ export default function CustomerPicker({ onClose, onSelect }: { onClose: () => v
 }
 
 const s = StyleSheet.create({
-  keyboardAvoider: { flex: 1 }, overlay: { flex: 1, justifyContent: "center", alignItems: "center", padding: 16, backgroundColor: colors.overlay }, mobileOverlay: { justifyContent: "flex-end", padding: 0 },
-  sheet: { width: "100%", backgroundColor: colors.white, overflow: "hidden", borderRadius: 18 }, desktopSheet: { maxWidth: 520, maxHeight: "85%", padding: 16, gap: 12 }, mobileSheet: { maxHeight: "92%", borderTopLeftRadius: 18, borderTopRightRadius: 18, borderBottomLeftRadius: 0, borderBottomRightRadius: 0, paddingHorizontal: 16 },
+  keyboardAvoider: { flex: 1 }, overlay: { flex: 1, justifyContent: "center", alignItems: "center", padding: 16, backgroundColor: colors.overlay }, mobileOverlay: { alignItems: "stretch", justifyContent: "flex-end", padding: 0 },
+  sheet: { width: "100%", backgroundColor: colors.white, overflow: "hidden", borderRadius: 18 }, desktopSheet: { maxWidth: 520, maxHeight: "85%", padding: 16, gap: 12 }, mobileSheet: { width: "100%", minHeight: "85%", maxHeight: "90%", borderTopLeftRadius: 18, borderTopRightRadius: 18, borderBottomLeftRadius: 0, borderBottomRightRadius: 0, paddingHorizontal: 16 },
   handle: { width: 42, height: 4, alignSelf: "center", marginTop: 9, borderRadius: 2, backgroundColor: colors.divider }, header: { minHeight: 52, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: colors.divider, gap: 10 }, title: { fontSize: 18, fontWeight: "700", color: colors.heading },
   searchBox: { minHeight: 46, flexDirection: "row", alignItems: "center", gap: 8, borderWidth: 1, borderColor: colors.border, borderRadius: 10, paddingHorizontal: 12, marginTop: 12, backgroundColor: colors.white }, searchInput: { flex: 1, minWidth: 0, color: colors.heading, fontSize: 14 },
   list: { flexShrink: 1, marginTop: 8 }, content: { gap: 4, paddingBottom: 12 }, item: { paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.divider, gap: 4 }, name: { fontWeight: "700", color: colors.heading }, phone: { color: colors.secondary, fontSize: 13 }, empty: { color: colors.muted, textAlign: "center", padding: 24 }, error: { color: colors.dangerText, padding: 12 },

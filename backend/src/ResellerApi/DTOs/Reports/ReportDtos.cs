@@ -56,6 +56,14 @@ public record HomeSummaryDto(
     List<HomeTopProductDto> TopProductsToday
 );
 
+public record HomeTodayMetricsDto(
+    decimal TodaySales,
+    decimal? YesterdaySales,
+    decimal? SalesChangePercent,
+    decimal? TodayProfit,
+    decimal? TodayMarginPercent
+);
+
 // ── Sales ─────────────────────────────────────────────────────────────────────
 
 public record SalesSummaryDto(

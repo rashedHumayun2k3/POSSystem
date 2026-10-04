@@ -301,6 +301,15 @@ namespace ResellerApi.Data.Migrations
                     b.Property<Guid>("UserId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<bool>("CanCommentAllTasks")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("CanManageAllTasks")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("CanViewAllTasks")
+                        .HasColumnType("bit");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
@@ -2804,21 +2813,12 @@ namespace ResellerApi.Data.Migrations
                     b.Property<Guid>("PreOrderId")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<Guid>("ProductId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("ProductNameSnapshot")
+                    b.Property<string>("ProductName")
                         .IsRequired()
                         .HasMaxLength(300)
                         .HasColumnType("nvarchar(300)");
 
-                    b.Property<decimal>("QuantityFulfilled")
-                        .HasColumnType("DECIMAL(18,3)");
-
-                    b.Property<decimal>("QuantityRequested")
-                        .HasColumnType("DECIMAL(18,3)");
-
-                    b.Property<decimal>("QuantityReserved")
+                    b.Property<decimal?>("QuantityRequested")
                         .HasColumnType("DECIMAL(18,3)");
 
                     b.Property<byte[]>("RowVer")
@@ -2827,29 +2827,14 @@ namespace ResellerApi.Data.Migrations
                         .ValueGeneratedOnAddOrUpdate()
                         .HasColumnType("rowversion");
 
-                    b.Property<decimal>("UnitPriceSnapshot")
-                        .HasColumnType("DECIMAL(18,2)");
-
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("datetime2");
-
-                    b.Property<Guid>("VariantId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("VariantNameSnapshot")
-                        .IsRequired()
-                        .HasMaxLength(300)
-                        .HasColumnType("nvarchar(300)");
 
                     b.HasKey("Id");
 
                     b.HasIndex("BusinessId");
 
                     b.HasIndex("PreOrderId");
-
-                    b.HasIndex("ProductId");
-
-                    b.HasIndex("VariantId");
 
                     b.ToTable("pre_order_items", (string)null);
                 });
@@ -4786,6 +4771,106 @@ namespace ResellerApi.Data.Migrations
                     b.ToTable("supplier_return_items", (string)null);
                 });
 
+            modelBuilder.Entity("ResellerApi.Entities.TaskEntry", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ActorId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("BusinessId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<string>("Message")
+                        .IsRequired()
+                        .HasMaxLength(24000)
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<byte[]>("RowVer")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<Guid>("TaskId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ActorId");
+
+                    b.HasIndex("TaskId");
+
+                    b.HasIndex("BusinessId", "TaskId", "CreatedAt");
+
+                    b.ToTable("task_entries", (string)null);
+                });
+
+            modelBuilder.Entity("ResellerApi.Entities.TaskNotification", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("BusinessId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Message")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<DateTime?>("ReadAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("RecipientId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<byte[]>("RowVer")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<Guid>("TaskId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RecipientId");
+
+                    b.HasIndex("TaskId");
+
+                    b.HasIndex("BusinessId", "RecipientId", "ReadAt", "CreatedAt");
+
+                    b.ToTable("task_notifications", (string)null);
+                });
+
             modelBuilder.Entity("ResellerApi.Entities.Unit", b =>
                 {
                     b.Property<string>("Code")
@@ -4919,6 +5004,81 @@ namespace ResellerApi.Data.Migrations
                     b.HasKey("VariantId");
 
                     b.ToTable("variant_inventories", (string)null);
+                });
+
+            modelBuilder.Entity("ResellerApi.Entities.WorkTask", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("AssigneeId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("BusinessId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("CompletedById")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("CreatorId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(10000)
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime?>("DueAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Priority")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)");
+
+                    b.Property<byte[]>("RowVer")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AssigneeId");
+
+                    b.HasIndex("CompletedById");
+
+                    b.HasIndex("CreatorId");
+
+                    b.HasIndex("BusinessId", "CreatorId", "Status");
+
+                    b.HasIndex("BusinessId", "Status", "DueAt");
+
+                    b.HasIndex("BusinessId", "AssigneeId", "Status", "DueAt");
+
+                    b.ToTable("work_tasks", (string)null);
                 });
 
             modelBuilder.Entity("ResellerApi.Entities.ActivityLog", b =>
@@ -5757,25 +5917,9 @@ namespace ResellerApi.Data.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("ResellerApi.Entities.Product", "Product")
-                        .WithMany()
-                        .HasForeignKey("ProductId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("ResellerApi.Entities.ProductVariant", "Variant")
-                        .WithMany()
-                        .HasForeignKey("VariantId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
                     b.Navigation("Business");
 
                     b.Navigation("PreOrder");
-
-                    b.Navigation("Product");
-
-                    b.Navigation("Variant");
                 });
 
             modelBuilder.Entity("ResellerApi.Entities.PriceActivationLog", b =>
@@ -6397,6 +6541,60 @@ namespace ResellerApi.Data.Migrations
                     b.Navigation("Variant");
                 });
 
+            modelBuilder.Entity("ResellerApi.Entities.TaskEntry", b =>
+                {
+                    b.HasOne("ResellerApi.Entities.User", "Actor")
+                        .WithMany()
+                        .HasForeignKey("ActorId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("ResellerApi.Entities.Business", "Business")
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("ResellerApi.Entities.WorkTask", "Task")
+                        .WithMany()
+                        .HasForeignKey("TaskId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Actor");
+
+                    b.Navigation("Business");
+
+                    b.Navigation("Task");
+                });
+
+            modelBuilder.Entity("ResellerApi.Entities.TaskNotification", b =>
+                {
+                    b.HasOne("ResellerApi.Entities.Business", "Business")
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("ResellerApi.Entities.User", "Recipient")
+                        .WithMany()
+                        .HasForeignKey("RecipientId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("ResellerApi.Entities.WorkTask", "Task")
+                        .WithMany()
+                        .HasForeignKey("TaskId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Business");
+
+                    b.Navigation("Recipient");
+
+                    b.Navigation("Task");
+                });
+
             modelBuilder.Entity("ResellerApi.Entities.User", b =>
                 {
                     b.HasOne("ResellerApi.Entities.Company", "Company")
@@ -6436,6 +6634,40 @@ namespace ResellerApi.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("Variant");
+                });
+
+            modelBuilder.Entity("ResellerApi.Entities.WorkTask", b =>
+                {
+                    b.HasOne("ResellerApi.Entities.User", "Assignee")
+                        .WithMany()
+                        .HasForeignKey("AssigneeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("ResellerApi.Entities.Business", "Business")
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("ResellerApi.Entities.User", "CompletedBy")
+                        .WithMany()
+                        .HasForeignKey("CompletedById")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("ResellerApi.Entities.User", "Creator")
+                        .WithMany()
+                        .HasForeignKey("CreatorId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Assignee");
+
+                    b.Navigation("Business");
+
+                    b.Navigation("CompletedBy");
+
+                    b.Navigation("Creator");
                 });
 
             modelBuilder.Entity("ResellerApi.Entities.Branch", b =>

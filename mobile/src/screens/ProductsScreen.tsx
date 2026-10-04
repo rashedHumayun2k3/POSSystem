@@ -5,6 +5,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import { MEDIA_URL, useAuth } from "../auth/AuthContext";
 import { colors } from "../theme";
+import PageTitle from "../components/PageTitle";
 
 type Category = { id: string; name: string; nameBn?: string | null };
 type Product = {
@@ -16,6 +17,17 @@ type Product = {
 const PAGE_SIZE = 20;
 const imageUrl = (value: string | null) => !value ? null : /^https?:\/\//i.test(value) ? value : `${MEDIA_URL}${value}`;
 const money = (value: number) => `৳${Number(value).toLocaleString("en-BD", { maximumFractionDigits: 2 })}`;
+const layout = StyleSheet.create({
+  titleToolbar: { minHeight: 40, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
+  pageTitle: { flex: 1 }, toolbarActions: { flexDirection: "row", alignItems: "center", gap: 5 },
+  toolbarButton: { width: 38, height: 38, alignItems: "center", justifyContent: "center", borderRadius: 10, backgroundColor: colors.disabled },
+  toolbarButtonActive: { backgroundColor: colors.primaryLight },
+  addProductButton: { width: 40, height: 38, alignItems: "center", justifyContent: "center", borderRadius: 10, backgroundColor: colors.primary },
+  filterModal: { width: "100%", maxWidth: 420, borderRadius: 18, backgroundColor: colors.white, padding: 18, gap: 10 },
+  filterLabel: { color: colors.muted, fontSize: 10, fontWeight: "700", letterSpacing: 1, marginTop: 4 },
+  filterOption: { minHeight: 46, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: colors.divider, paddingHorizontal: 3 },
+  filterOptionText: { color: colors.secondary, fontSize: 14 }, filterOptionSelected: { color: colors.primaryDark, fontWeight: "700" },
+});
 
 export default function ProductsScreen() {
   const auth = useAuth();
@@ -24,6 +36,9 @@ export default function ProductsScreen() {
   const [products, setProducts] = useState<Product[]>([]);
   const [category, setCategory] = useState("ALL");
   const [search, setSearch] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [statusFilter, setStatusFilter] = useState("ACTIVE");
+  const [filterOpen, setFilterOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
@@ -45,7 +60,8 @@ export default function ProductsScreen() {
     let active = true;
     const timer = setTimeout(() => {
       setLoading(true); setError(""); setProducts([]); setHasMore(false);
-      const query = new URLSearchParams({ status: "ACTIVE", skip: "0", take: String(PAGE_SIZE) });
+      const query = new URLSearchParams({ skip: "0", take: String(PAGE_SIZE) });
+      if (statusFilter !== "ALL") query.set("status", statusFilter);
       if (category !== "ALL") query.set("categoryId", category);
       if (search.trim()) query.set("q", search.trim());
       apiRef.current<Product[]>(`/products?${query}`).then(value => {
@@ -53,13 +69,14 @@ export default function ProductsScreen() {
       }).catch(e => { if (active) setError(e.message); }).finally(() => { if (active) setLoading(false); });
     }, search.trim() ? 250 : 0);
     return () => { active = false; clearTimeout(timer); };
-  }, [category, search, reload, auth.session?.businessId, auth.session?.branchId]);
+  }, [category, search, statusFilter, reload, auth.session?.businessId, auth.session?.branchId]);
 
   const loadMore = async () => {
     if (loadingMore || !hasMore) return;
     setLoadingMore(true);
     try {
-      const query = new URLSearchParams({ status: "ACTIVE", skip: String(products.length), take: String(PAGE_SIZE) });
+      const query = new URLSearchParams({ skip: String(products.length), take: String(PAGE_SIZE) });
+      if (statusFilter !== "ALL") query.set("status", statusFilter);
       if (category !== "ALL") query.set("categoryId", category);
       if (search.trim()) query.set("q", search.trim());
       const next = await apiRef.current<Product[]>(`/products?${query}`);
@@ -74,14 +91,20 @@ export default function ProductsScreen() {
     setScanning(true); setScanError("");
     try {
       const result = await apiRef.current<{ productName?: string; name?: string; variantSku?: string; sku?: string }>(`/products/barcode/${encodeURIComponent(barcode.trim())}`);
-      setSearch(result.productName ?? result.name ?? result.variantSku ?? result.sku ?? barcode.trim());
+      setSearch(result.productName ?? result.name ?? result.variantSku ?? result.sku ?? barcode.trim()); setSearchOpen(true);
       setCategory("ALL"); setScanner(false); setBarcode("");
     } catch (e) { setScanError((e as Error).message); } finally { setScanning(false); }
   };
 
   return <View style={s.root}>
     <View style={s.header}>
-      <View style={s.searchRow}><View style={s.searchBox}><TextInput accessibilityLabel="Search products" value={search} onChangeText={setSearch} placeholder="Name, SKU, or barcode..." placeholderTextColor={colors.muted} autoCapitalize="none" style={s.searchInput} />{!!search && <Pressable accessibilityLabel="Clear search" onPress={() => setSearch("")}><Ionicons name="close-circle" size={19} color={colors.muted} /></Pressable>}<Ionicons name="search-outline" size={18} color={colors.muted} /></View><Pressable accessibilityRole="button" accessibilityLabel="Scan barcode" onPress={() => { setScanError(""); setScanner(true); }} style={s.scanButton}><Ionicons name="qr-code-outline" size={18} color={colors.white} /><Text style={s.scanText}>Scan</Text></Pressable></View>
+      <View style={layout.titleToolbar}><PageTitle style={layout.pageTitle}>Products</PageTitle><View style={layout.toolbarActions}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Search products" onPress={() => { setSearchOpen(value => !value); if (searchOpen) setSearch(""); }} style={layout.toolbarButton}><Ionicons name={searchOpen ? "close" : "search-outline"} size={21} color={colors.heading}/></Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel="Scan barcode" onPress={() => { setScanError(""); setScanner(true); }} style={layout.toolbarButton}><Ionicons name="qr-code-outline" size={20} color={colors.heading}/></Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel="Filter products" onPress={() => setFilterOpen(true)} style={[layout.toolbarButton, statusFilter !== "ACTIVE" && layout.toolbarButtonActive]}><Ionicons name="filter-outline" size={20} color={statusFilter !== "ACTIVE" ? colors.primaryDark : colors.heading}/></Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel="Add product" onPress={() => router.push("/products/new")} style={layout.addProductButton}><Ionicons name="add" size={23} color={colors.white}/></Pressable>
+      </View></View>
+      {searchOpen && <View style={s.searchRow}><View style={s.searchBox}><Ionicons name="search-outline" size={18} color={colors.muted}/><TextInput autoFocus accessibilityLabel="Search products" value={search} onChangeText={setSearch} placeholder="Name, SKU, or barcode..." placeholderTextColor={colors.muted} autoCapitalize="none" style={s.searchInput} />{!!search && <Pressable accessibilityLabel="Clear search" onPress={() => setSearch("")}><Ionicons name="close-circle" size={19} color={colors.muted} /></Pressable>}</View></View>}
     </View>
     <View style={s.categoryBar}><ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.categories}>{[{ id: "ALL", name: "All" }, ...categories].map(item => <Pressable key={item.id} accessibilityState={{ selected: category === item.id }} onPress={() => setCategory(item.id)} style={[s.chip, category === item.id && s.activeChip]}><Text style={[s.chipText, category === item.id && s.activeChipText]}>{item.name}</Text></Pressable>)}</ScrollView></View>
     <ScrollView contentContainerStyle={s.list} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => setReload(v => v + 1)} colors={[colors.primary]} tintColor={colors.primary} />}>
@@ -93,6 +116,13 @@ export default function ProductsScreen() {
     </ScrollView>
     <Modal visible={scanner} transparent animationType="fade" onRequestClose={() => setScanner(false)}>
       <View style={s.overlay}><SafeAreaView style={s.modal}><View style={s.modalHeader}><Text style={s.modalTitle}>Scan barcode</Text><Pressable accessibilityLabel="Close scanner" onPress={() => setScanner(false)}><Ionicons name="close" size={24} color={colors.heading} /></Pressable></View><Text style={s.helper}>Scan with a USB/Bluetooth scanner or enter the barcode.</Text><TextInput autoFocus accessibilityLabel="Barcode" value={barcode} onChangeText={setBarcode} onSubmitEditing={() => void lookupBarcode()} placeholder="Enter barcode" placeholderTextColor={colors.muted} keyboardType="number-pad" style={s.barcodeInput} />{!!scanError && <Text style={s.error}>{scanError}</Text>}<Pressable disabled={scanning || !barcode.trim()} onPress={() => void lookupBarcode()} style={[s.lookup, (scanning || !barcode.trim()) && s.disabled]}>{scanning ? <ActivityIndicator color={colors.white} /> : <Text style={s.primaryText}>Find product</Text>}</Pressable></SafeAreaView></View>
+    </Modal>
+    <Modal visible={filterOpen} transparent animationType="fade" onRequestClose={() => setFilterOpen(false)}>
+      <Pressable style={s.overlay} onPress={() => setFilterOpen(false)}><Pressable style={layout.filterModal} onPress={event => event.stopPropagation()}>
+        <View style={s.modalHeader}><Text style={s.modalTitle}>Filter products</Text><Pressable accessibilityLabel="Close filter" onPress={() => setFilterOpen(false)}><Ionicons name="close" size={23} color={colors.heading}/></Pressable></View>
+        <Text style={layout.filterLabel}>PRODUCT STATUS</Text>
+        {[{ value: "ACTIVE", label: "Active products" }, { value: "INACTIVE", label: "Inactive products" }, { value: "ALL", label: "All products" }].map(option => <Pressable key={option.value} accessibilityRole="button" accessibilityState={{ selected: statusFilter === option.value }} onPress={() => { setStatusFilter(option.value); setFilterOpen(false); }} style={layout.filterOption}><Text style={[layout.filterOptionText, statusFilter === option.value && layout.filterOptionSelected]}>{option.label}</Text>{statusFilter === option.value && <Ionicons name="checkmark-circle" size={20} color={colors.primary}/>}</Pressable>)}
+      </Pressable></Pressable>
     </Modal>
   </View>;
 }

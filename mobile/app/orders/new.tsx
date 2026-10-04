@@ -12,12 +12,14 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import ProductPicker, {
   type ProductPickerResult,
 } from "../../src/components/ProductPicker";
 import OrderCustomerPicker, {
   type OrderCustomer,
 } from "../../src/components/OrderCustomerPicker";
+import PageTitle from "../../src/components/PageTitle";
 
 type CartItem = ProductPickerResult & { quantity: number; unitPrice: string };
 type OrderBranch = { id: string; name: string; isActive: boolean };
@@ -37,22 +39,33 @@ export default function NewOrderScreen() {
   const [branchesLoading, setBranchesLoading] = useState(true);
   const [branchesError, setBranchesError] = useState("");
   const [branchReload, setBranchReload] = useState(0);
-  const [orderBranchId, setOrderBranchId] = useState<string | null>(null);
+  const [orderBranchId, setOrderBranchId] = useState<string | null>(auth.session?.branchId ?? null);
   useEffect(() => {
     let active = true;
-    setBranchesLoading(true);
     setBranchesError("");
-    auth.api<OrderBranch[]>("/branches").then(rows => {
+    const selectedBranchId = auth.session?.branchId;
+    if (selectedBranchId) {
+      setOrderBranchId(selectedBranchId);
+      setBranches([{ id: selectedBranchId, name: auth.session?.branchName ?? "Selected branch", isActive: true }]);
+      setBranchesLoading(false);
+      return () => { active = false; };
+    }
+    setOrderBranchId(null);
+    setBranchesLoading(true);
+    auth.api<OrderBranch[]>("/branches/mine").then(rows => {
       if (!active) return;
-      const activeBranches = (rows || []).filter(branch => branch.isActive);
+      const activeBranches = (rows || []).filter(branch => branch.isActive !== false);
       setBranches(activeBranches);
-      setOrderBranchId(current => current && activeBranches.some(branch => branch.id === current)
-        ? current
-        : activeBranches.length === 1 ? activeBranches[0].id : null);
+      const headerBranchId = auth.session?.branchId;
+      setOrderBranchId(current => headerBranchId && activeBranches.some(branch => branch.id === headerBranchId)
+        ? headerBranchId
+        : current && activeBranches.some(branch => branch.id === current)
+          ? current
+          : activeBranches.length === 1 ? activeBranches[0].id : null);
     }).catch(error => { if (active) setBranchesError((error as Error).message || "Could not load branches."); })
       .finally(() => { if (active) setBranchesLoading(false); });
     return () => { active = false; };
-  }, [auth.session?.businessId, branchReload]);
+  }, [auth.session?.businessId, auth.session?.branchId, auth.session?.branchName, branchReload]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const productAdded = cart.length > 0;
   const orderTotal = cart.reduce(
@@ -83,7 +96,7 @@ export default function NewOrderScreen() {
     payableTotal - (Number(advancePayment) || 0),
     0,
   );
-  const submitOrder = async (isDraft: boolean) => {
+  const submitOrder = async () => {
     if (submitting) return;
     if (!orderBranchId) { setSubmitError("Choose a branch before creating this order."); return; }
     if (!cart.length) { setSubmitError("Add at least one product before saving the order."); return; }
@@ -107,7 +120,7 @@ export default function NewOrderScreen() {
           customerName: customer.name.trim(),
           customerAddress: customer.address.trim(),
           branchId: orderBranchId,
-          isDraft,
+          isDraft: true,
           items: cart.map(item => ({ variantId: item.variantId, qty: item.quantity, unitPrice: Number(item.unitPrice) || 0 })),
           discountType: Number(discount) > 0 ? "FIXED" : undefined,
           discountValue: Number(discount) > 0 ? Number(discount) : undefined,
@@ -116,7 +129,7 @@ export default function NewOrderScreen() {
           advancePaymentMethod: advance > 0 ? "CASH" : undefined,
         }),
       });
-      router.replace(`/orders/${order.id}`);
+      router.replace({ pathname: "/orders/[id]", params: { id: order.id } });
     } catch (error) {
       setSubmitError((error as Error).message || "Could not save the order. Please try again.");
     } finally {
@@ -131,16 +144,18 @@ export default function NewOrderScreen() {
     {branchesError ? <Pressable onPress={() => setBranchReload(value => value + 1)} style={styles.branchRetry}><Text style={styles.branchRetryText}>Try again</Text></Pressable> : null}
   </ScrollView>;
   if (branches.length > 1 && !orderBranchId) return <ScrollView style={styles.screen} contentContainerStyle={styles.branchContent}>
-    <View style={styles.titleRow}><Pressable accessibilityRole="button" accessibilityLabel="Back to orders" onPress={() => router.back()} style={styles.backButton}><Ionicons name="arrow-back" size={21} color={colors.heading}/></Pressable><View style={styles.titleCopy}><Text style={styles.title}>New Online Order</Text></View></View>
+    <View style={styles.titleRow}><Pressable accessibilityRole="button" accessibilityLabel="Back to orders" onPress={() => router.back()} style={styles.backButton}><Ionicons name="arrow-back" size={21} color={colors.heading}/></Pressable><View style={styles.titleCopy}><PageTitle style={styles.title}>New Online Order</PageTitle></View></View>
     <View style={styles.branchIntro}><Text style={styles.branchQuestion}>Which branch is this order for?</Text><Text style={styles.branchHint}>Products and stock will be shown for this branch — even if you switch branches later, this order stays pinned to your choice here.</Text></View>
     <View style={styles.branchOptions}>{branches.map(branch => <Pressable key={branch.id} accessibilityRole="button" onPress={() => setOrderBranchId(branch.id)} style={[styles.branchOption, branch.id === auth.session?.branchId && styles.branchOptionCurrent]}><Text style={styles.branchName}>{branch.name}</Text>{branch.id === auth.session?.branchId && <Text style={styles.branchCurrentLabel}>Currently viewing branch</Text>}</Pressable>)}</View>
   </ScrollView>;
 
   return (
     <>
-    <ScrollView
+    <KeyboardAwareScrollView
       style={styles.screen}
       contentContainerStyle={styles.content}
+      enableOnAndroid
+      extraScrollHeight={24}
       keyboardShouldPersistTaps="handled"
     >
       <View style={styles.titleRow}>
@@ -153,7 +168,7 @@ export default function NewOrderScreen() {
           <Ionicons name="arrow-back" size={21} color={colors.heading} />
         </Pressable>
         <View style={styles.titleCopy}>
-          <Text style={styles.title}>New Online Order</Text>
+          <PageTitle style={styles.title}>New Online Order</PageTitle>
           <Text style={styles.subtitle}>
             Add products, customer details, and payment
           </Text>
@@ -615,30 +630,22 @@ export default function NewOrderScreen() {
         <View style={styles.actions}>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Save order as draft"
+            accessibilityLabel="Create Order"
             disabled={submitting}
-            onPress={() => void submitOrder(true)}
-            style={styles.draftButton}
-          >
-            {submitting ? <ActivityIndicator color={colors.primaryDark} /> : <Text style={styles.draftText}>Save as draft</Text>}
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Confirm order"
-            disabled={submitting}
-            onPress={() => void submitOrder(false)}
+            onPress={() => void submitOrder()}
             style={[styles.confirmButton, submitting && styles.disabledButton]}
           >
-            {submitting ? <ActivityIndicator color={colors.white} /> : <Text style={styles.confirmText}>Confirm order</Text>}
+            {submitting ? <ActivityIndicator color={colors.white} /> : <Text style={styles.confirmText}>Create Order</Text>}
           </Pressable>
         </View>
       )}
       {!!submitError && <Text style={styles.submitError}>{submitError}</Text>}
-    </ScrollView>
+    </KeyboardAwareScrollView>
     <ProductPicker
         open={productPickerOpen}
         onClose={() => setProductPickerOpen(false)}
         branchId={orderBranchId ?? undefined}
+        showRecentlyPurchased={false}
         onSelect={(selected) => {
           setCart((items) => {
             const existing = items.find((item) => item.variantId === selected.variantId);

@@ -15,12 +15,12 @@ const openEnvironmentPath = (path: string) => {
 };
 
 const items: MenuItem[] = [
+  { key: "tasks", title: "Tasks", description: "Assignments, progress notes and activity", icon: "checkbox-outline", roles: ["OWNER", "MANAGER", "PARTNER"], webPath: "/more/tasks" },
   { key: "pre-orders", title: "Pre-orders", description: "Reserve available stock or record waiting demand", icon: "time-outline", roles: ["OWNER", "MANAGER", "STAFF"], webPath: "/more/pre-orders" },
   { key: "partner-approvals", title: "Business Partner", description: "Review partnership and investment requests", icon: "people-outline", roles: ["PARTNER"], webPath: "/more/settings/partners" },
   { key: "categories", title: "Categories", description: "Product categories & fields", icon: "pricetag-outline", roles: ["OWNER"], webPath: "/more/categories" },
   { key: "catalog-templates", title: "Quick Add Products", description: "Add ready-made categories & products to your shop in a few taps", icon: "albums-outline", roles: ["OWNER"], webPath: "/more/catalog-templates" },
   { key: "purchases", title: "Purchases", description: "Lots & landed cost", icon: "cart-outline", roles: ["OWNER", "MANAGER", "WAREHOUSE"], webPath: "/more/purchases" },
-  { key: "supplier-returns", title: "Supplier Returns", description: "Return or write off damaged goods", icon: "return-down-back-outline", roles: ["OWNER", "MANAGER"], webPath: "/more/supplier-returns" },
   { key: "storeroom", title: "Storeroom", description: "Cartons & labeling", icon: "archive-outline", roles: ["OWNER", "WAREHOUSE"], webPath: "/more/storeroom" },
   { key: "barcodes", title: "Print Barcodes", description: "Product barcode labels and sticker printing", icon: "barcode-outline", roles: ["OWNER", "MANAGER", "WAREHOUSE"], webPath: "/more/barcodes" },
   { key: "deliveries", title: "Deliveries", description: "Courier board", icon: "car-outline", roles: ["OWNER", "MANAGER", "STAFF"], webPath: "/more/deliveries" },
@@ -100,6 +100,7 @@ export default function MoreScreen() {
     openEnvironmentPath(item.webPath);
   };
   const openMenu = (item: MenuItem) => {
+    if (item.key === "tasks") return router.push("/more/tasks");
     if (item.key === "pre-orders") return router.push("/more/pre-orders");
     if (item.key === "reports") return setReportsOpen(value => !value);
     if (item.key === "settings") return setSettingsOpen(value => !value);

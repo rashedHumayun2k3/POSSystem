@@ -23,6 +23,9 @@ public class AppDbContext : DbContext
     public DbSet<Business> Businesses => Set<Business>();
     public DbSet<User> Users => Set<User>();
     public DbSet<BusinessUser> BusinessUsers => Set<BusinessUser>();
+    public DbSet<WorkTask> WorkTasks => Set<WorkTask>();
+    public DbSet<TaskEntry> TaskEntries => Set<TaskEntry>();
+    public DbSet<TaskNotification> TaskNotifications => Set<TaskNotification>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<ActivityLog> ActivityLogs => Set<ActivityLog>();
     public DbSet<AppSetting> AppSettings => Set<AppSetting>();
@@ -130,6 +133,7 @@ public class AppDbContext : DbContext
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+        TaskModel.Configure(modelBuilder);
 
         // ── Rowversion on all BaseEntity tables ────────────────────────────
         foreach (var entity in modelBuilder.Model.GetEntityTypes()
@@ -1466,15 +1470,9 @@ public class AppDbContext : DbContext
             e.ToTable("pre_order_items");
             e.HasKey(x => x.Id);
             e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
+            e.Property(x => x.ProductName).HasMaxLength(300).IsRequired();
             e.Property(x => x.QuantityRequested).HasColumnType("DECIMAL(18,3)");
-            e.Property(x => x.QuantityReserved).HasColumnType("DECIMAL(18,3)");
-            e.Property(x => x.QuantityFulfilled).HasColumnType("DECIMAL(18,3)");
-            e.Property(x => x.UnitPriceSnapshot).HasColumnType("DECIMAL(18,2)");
-            e.Property(x => x.ProductNameSnapshot).HasMaxLength(300).IsRequired();
-            e.Property(x => x.VariantNameSnapshot).HasMaxLength(300).IsRequired();
             e.HasOne(x => x.PreOrder).WithMany(x => x.Items).HasForeignKey(x => x.PreOrderId).OnDelete(DeleteBehavior.Cascade);
-            e.HasOne(x => x.Product).WithMany().HasForeignKey(x => x.ProductId).OnDelete(DeleteBehavior.Restrict);
-            e.HasOne(x => x.Variant).WithMany().HasForeignKey(x => x.VariantId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne(x => x.Business).WithMany().HasForeignKey(x => x.BusinessId).OnDelete(DeleteBehavior.Restrict);
         });
 
