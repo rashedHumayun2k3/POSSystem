@@ -63,3 +63,6 @@ $RECYCLE.BIN/
 /backend/.tmp-build
 /mediaSolution/.build-attachments/Debug/net9.0
 /mediaSolution/ResellerApi.MediaService/App_Data/uploads/21046168-e229-4a4e-ad8c-8663058cd777
+/.tmp
+/backend/.build-preorder-repair
+/backend/.build-preorders

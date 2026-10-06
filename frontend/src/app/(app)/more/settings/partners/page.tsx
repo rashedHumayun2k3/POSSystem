@@ -9,7 +9,7 @@ import type { PartnerDto, PartnerType } from "@/types/partner";
 import { useLanguage } from "@/i18n/LanguageContext";
 import { formatPaisa } from "@/lib/format";
 import SlidePanel from "@/components/ui/SlidePanel";
-import { useToastStore } from "@/store/toastStore";
+import { getErrorMessage } from "@/lib/api";
 import { isBangladeshMobileNumber } from "@/lib/phone";
 import { PlusIcon } from "@heroicons/react/24/outline";
 import ImageUploadField from "@/components/ui/ImageUploadField";
@@ -78,6 +78,7 @@ export default function PartnersPage() {
   const isOwner = currentUser?.role === "OWNER";
 
   const [open, setOpen] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
 
   const { data: partners = [], isLoading } = useQuery({
@@ -94,9 +95,10 @@ export default function PartnersPage() {
   const managing = partners.filter((p) => p.partnerType === "MANAGING");
   const sleeping = partners.filter((p) => p.partnerType === "SLEEPING");
 
-  const openAdd = () => { setForm(EMPTY_FORM); setOpen(true); };
+  const openAdd = () => { setSaveError(null); setForm(EMPTY_FORM); setOpen(true); };
   const openAddMyself = () => {
     if (!currentUser) return;
+    setSaveError(null);
     setForm({
       ...EMPTY_FORM,
       partnerType: "MANAGING",
@@ -126,6 +128,7 @@ export default function PartnersPage() {
   ) && !phoneInvalid && !emergencyPhoneInvalid;
 
   const saveMutation = useMutation({
+    onMutate: () => setSaveError(null),
     mutationFn: () =>
       createPartner({
         name: form.name.trim(),
@@ -150,7 +153,7 @@ export default function PartnersPage() {
         emergencyContactRelation: form.emergencyContactRelation.trim() || undefined,
       }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["partners"] }); close(); },
-    onError: () => useToastStore.getState().show(t("partners.failedSavePartner"), "error"),
+    onError: (error) => setSaveError(getErrorMessage(error, t("partners.failedSavePartner"))),
   });
 
   const renderCard = (p: PartnerDto) => (
@@ -272,6 +275,11 @@ export default function PartnersPage() {
         title={t("partners.addPartner")}
         footer={
           <>
+            {saveError && (
+              <p role="alert" className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+                {saveError}
+              </p>
+            )}
             <button
               onClick={() => saveMutation.mutate()}
               disabled={saveMutation.isPending || !canSave}
