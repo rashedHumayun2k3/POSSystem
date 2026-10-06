@@ -23,6 +23,7 @@ frontend/.next.zip
 .env.*
 **/.env
 **/.env.*
+!mobile/.env.production
 
 *.db-shm
 *.db-wal

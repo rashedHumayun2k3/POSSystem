@@ -226,7 +226,8 @@ public record CreateProductRequest(
     decimal? WholesaleMinQty,
     decimal? WholesaleUnitPrice,
     string? WholesaleNote,
-    Guid? SuggestedProductId = null
+    Guid? SuggestedProductId = null,
+    string? Sku = null
 );
 
 // "I already have this stock" — for a variant that has never had any real purchase cost

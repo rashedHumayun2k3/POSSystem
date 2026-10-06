@@ -463,13 +463,12 @@ public class ProductService : IProductService
         var normalizedProductName = productName.ToLower();
         var existingProduct = await _db.Products
             .AsNoTracking()
-            .Where(p => p.CategoryId == request.CategoryId
-                && p.Status == "ACTIVE"
+            .Where(p => p.Status == "ACTIVE"
                 && p.Name.ToLower() == normalizedProductName)
             .Select(p => new { p.Name, p.Sku })
             .FirstOrDefaultAsync();
         if (existingProduct is not null)
-            throw new ArgumentException($"A product named '{existingProduct.Name}' already exists in this category (SKU: {existingProduct.Sku}). Open the existing product instead.");
+            throw new ArgumentException($"A product named '{existingProduct.Name}' already exists in this company (SKU: {existingProduct.Sku}). Open the existing product instead.");
 
         SuggestedProduct? suggestedProduct = null;
         if (request.SuggestedProductId.HasValue)
@@ -510,7 +509,16 @@ public class ProductService : IProductService
             branchId = await ResolveSingleBranchIdAsync(request.BranchId);
         }
 
-        var sku = await GenerateSkuAsync();
+        var requestedSku = request.Sku?.Trim();
+        if (requestedSku is { Length: > 50 })
+            throw new ArgumentException("SKU cannot exceed 50 characters.");
+        if (requestedSku is { Length: > 0 })
+        {
+            var normalizedSku = requestedSku.ToLower();
+            var skuExists = await _db.Products.AsNoTracking().AnyAsync(p => p.Sku.ToLower() == normalizedSku);
+            if (skuExists) throw new ArgumentException($"SKU '{requestedSku}' is already used by another product.");
+        }
+        var sku = requestedSku is { Length: > 0 } ? requestedSku : await GenerateSkuAsync();
         var usesSuggestedImage = suggestedProduct?.ImageUrl is { Length: > 0 } suggestedImageUrl
             && string.Equals(request.ImageUrl, suggestedImageUrl, StringComparison.OrdinalIgnoreCase);
 

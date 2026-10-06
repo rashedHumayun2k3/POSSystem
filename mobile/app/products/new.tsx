@@ -7,17 +7,20 @@ import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "../../src/auth/AuthContext";
 import { colors } from "../../src/theme";
+import { useLanguage } from "../../src/i18n/LanguageContext";
 
 type Category = { id: string; name: string; defaultUnit?: string | null };
 type ExistingProduct = { id: string; name: string; sku: string; categoryName: string };
 
 export default function NewProductScreen() {
   const auth = useAuth();
+  const { lang } = useLanguage();
   const [categories, setCategories] = useState<Category[]>([]);
   const [categoryId, setCategoryId] = useState("");
   const [categoryQuery, setCategoryQuery] = useState("");
   const [categoryOpen, setCategoryOpen] = useState(false);
   const [name, setName] = useState("");
+  const [sku, setSku] = useState("");
   const [productSuggestions, setProductSuggestions] = useState<ExistingProduct[]>([]);
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
@@ -53,7 +56,7 @@ export default function NewProductScreen() {
     const timer = setTimeout(async () => {
       setSuggestionsLoading(true);
       try {
-        const params = new URLSearchParams({ status: "ACTIVE", categoryId, q: query });
+        const params = new URLSearchParams({ status: "ACTIVE", q: query });
         const rows = await auth.api<ExistingProduct[]>(`/products?${params.toString()}`);
         if (active) setProductSuggestions(Array.isArray(rows) ? rows.filter(item => item.name.toLowerCase().includes(query.toLowerCase())).slice(0, 8) : []);
       } catch {
@@ -73,7 +76,9 @@ export default function NewProductScreen() {
     const qty = Number(quantity), cost = Number(costPrice), price = Number(sellingPrice);
     if (!categoryId) return setError("Choose a category.");
     if (!name.trim()) return setError("Enter a product name.");
-    if (duplicateProduct) return setError(`“${duplicateProduct.name}” already exists in this category. Open the existing product instead.`);
+    if (!sku.trim()) return setError("Enter an SKU code.");
+    if (sku.trim().length > 50) return setError("SKU code cannot exceed 50 characters.");
+    if (duplicateProduct) return setError(`“${duplicateProduct.name}” already exists in this company. Open the existing product instead.`);
     if (!Number.isFinite(price) || price <= 0) return setError("Enter a selling price greater than zero.");
     if (!Number.isFinite(qty) || qty <= 0) return setError("Enter an opening quantity greater than zero.");
     if (!Number.isFinite(cost) || cost < 0) return setError("Enter a valid cost price.");
@@ -83,7 +88,7 @@ export default function NewProductScreen() {
       const product = await auth.api<{ id: string }>("/products", {
         method: "POST",
         body: JSON.stringify({
-          categoryId, name: name.trim(), imageUrl: null, description: null, defectNotes: null,
+          categoryId, name: name.trim(), sku: sku.trim(), imageUrl: null, description: null, defectNotes: null,
           unitCode: category?.defaultUnit || "pcs", sellingPrice: price, marketPrice: null,
           packagingCostPerUnit: 0, lowStockThreshold: 5, attributesJson: "{}", note: null,
           variantCombinations: [{ values: {}, qty, costPrice: cost }], branchId: auth.session?.branchId,
@@ -107,31 +112,32 @@ export default function NewProductScreen() {
     <KeyboardAwareScrollView enableOnAndroid extraScrollHeight={24} keyboardShouldPersistTaps="handled" contentContainerStyle={s.content}>
       {!!error && <Text style={s.error}>{error}</Text>}
       <View style={s.field}>
-        <Text style={s.label}>CATEGORY *</Text>
+        <Text style={s.label}>{lang === "bn" ? "ক্যাটাগরি *" : "CATEGORY *"}</Text>
         {loading ? <ActivityIndicator color={colors.primary} /> : !categories.length ? <Text style={s.hint}>{loaded ? "Add a category before creating a product." : "Loading categories…"}</Text> : <>
-          <View style={s.categoryInputWrap}><TextInput value={categoryOpen ? categoryQuery : selectedCategory?.name ?? ""} onFocus={() => { setCategoryQuery(""); setCategoryOpen(true); }} onChangeText={(value) => { setCategoryQuery(value); setCategoryId(""); setCategoryOpen(true); }} placeholder="Type to search and select a category" placeholderTextColor={colors.muted} style={[s.input,s.categorySearchInput]} accessibilityLabel="Search product categories"/><Ionicons name={categoryOpen ? "chevron-up" : "chevron-down"} size={19} color={colors.muted}/></View>
+          <View style={s.categoryInputWrap}><TextInput value={categoryOpen ? categoryQuery : selectedCategory?.name ?? ""} onFocus={() => { setCategoryQuery(""); setCategoryOpen(true); }} onChangeText={(value) => { setCategoryQuery(value); setCategoryId(""); setCategoryOpen(true); }} placeholder={lang === "bn" ? "ক্যাটাগরি লিখে খুঁজুন ও নির্বাচন করুন" : "Type to search and select a category"} placeholderTextColor={colors.muted} style={[s.input,s.categorySearchInput]} accessibilityLabel="Search product categories"/><Ionicons name={categoryOpen ? "chevron-up" : "chevron-down"} size={19} color={colors.muted}/></View>
           {categoryOpen && <ScrollView style={s.categoryDropdown} keyboardShouldPersistTaps="handled" nestedScrollEnabled>{visibleCategories.length ? visibleCategories.map((category) => <Pressable key={category.id} onPress={() => { setCategoryId(category.id); setCategoryQuery(""); setCategoryOpen(false); Keyboard.dismiss(); }} style={s.categoryOption}><Text style={s.categoryOptionText}>{category.name}</Text><Text style={s.categoryUnit}>{category.defaultUnit || "pcs"}</Text></Pressable>) : <Text style={s.noCategories}>No matching categories.</Text>}</ScrollView>}
         </>}
       </View>
       {categoryId ? <>
         <View style={s.field}>
-          <Text style={s.label}>PRODUCT NAME *</Text>
-          <TextInput value={name} onFocus={() => setSuggestionsOpen(name.trim().length >= 2)} onChangeText={(value) => { setName(value); setSuggestionsOpen(value.trim().length >= 2); setError(""); }} placeholder="Product name" placeholderTextColor={colors.muted} style={s.input} accessibilityLabel="Product name" autoCorrect={false} />
-          {suggestionsOpen && name.trim().length >= 2 && <View style={s.suggestions}>{suggestionsLoading ? <ActivityIndicator color={colors.primary} style={s.suggestionLoader} /> : productSuggestions.length ? productSuggestions.map(item => <Pressable key={item.id} onPress={() => { setName(item.name); setSuggestionsOpen(false); Keyboard.dismiss(); }} style={s.suggestionRow}><View style={s.suggestionCopy}><Text numberOfLines={1} style={s.suggestionName}>{item.name}</Text><Text style={s.suggestionMeta}>{item.categoryName} · SKU {item.sku}</Text></View><Ionicons name="chevron-forward" size={18} color={colors.muted} /></Pressable>) : <Text style={s.suggestionEmpty}>No matching products in this category.</Text>}</View>}
-          {duplicateProduct && <View style={s.duplicateNotice}><Text style={s.duplicateText}>This exact product name already exists in {selectedCategory?.name}.</Text><Pressable onPress={() => router.replace({ pathname: "/products/[id]", params: { id: duplicateProduct.id } })} style={s.openExisting}><Text style={s.openExistingText}>Open existing product</Text><Ionicons name="arrow-forward" size={15} color={colors.primaryDark} /></Pressable></View>}
+          <Text style={s.label}>{lang === "bn" ? "পণ্যের নাম *" : "PRODUCT NAME *"}</Text>
+          <TextInput value={name} onFocus={() => setSuggestionsOpen(name.trim().length >= 2)} onChangeText={(value) => { setName(value); setSuggestionsOpen(value.trim().length >= 2); setError(""); }} placeholder={lang === "bn" ? "পণ্যের নাম লিখুন" : "Product name"} placeholderTextColor={colors.muted} style={s.input} accessibilityLabel="Product name" autoCorrect={false} />
+          {suggestionsOpen && name.trim().length >= 2 && (suggestionsLoading || productSuggestions.length > 0) && <View style={s.suggestions}>{suggestionsLoading ? <ActivityIndicator color={colors.primary} style={s.suggestionLoader} /> : productSuggestions.map(item => <Pressable key={item.id} onPress={() => { setName(item.name); setSuggestionsOpen(false); Keyboard.dismiss(); }} style={s.suggestionRow}><View style={s.suggestionCopy}><Text numberOfLines={1} style={s.suggestionName}>{item.name}</Text><Text style={s.suggestionMeta}>{item.categoryName} · SKU {item.sku}</Text></View><Ionicons name="chevron-forward" size={18} color={colors.muted} /></Pressable>)}</View>}
+          {duplicateProduct && <View style={s.duplicateNotice}><Text style={s.duplicateText}>{lang === "bn" ? "এই কোম্পানিতে একই নামে একটি পণ্য আগে থেকেই আছে।" : "A product with this exact name already exists in this company."}</Text><Pressable onPress={() => router.replace({ pathname: "/products/[id]", params: { id: duplicateProduct.id } })} style={s.openExisting}><Text style={s.openExistingText}>Open existing product</Text><Ionicons name="arrow-forward" size={15} color={colors.primaryDark} /></Pressable></View>}
         </View>
-        <Field label="SELLING PRICE *" note="Enter the regular selling price. You can add offers or discounts later." value={sellingPrice} onChangeText={setSellingPrice} placeholder="0.00" keyboardType="decimal-pad" />
-        <Field label="OPENING QUANTITY *" value={quantity} onChangeText={setQuantity} placeholder="1" keyboardType="decimal-pad" />
-        <Field label="UNIT COST *" value={costPrice} onChangeText={setCostPrice} placeholder="0.00" keyboardType="decimal-pad" />
-        <Text style={s.hint}>A default variant will be created with the opening stock and cost you enter.</Text>
+        <Field label={lang === "bn" ? "SKU কোড *" : "SKU CODE *"} value={sku} onChangeText={value => { setSku(value); setError(""); }} placeholder={lang === "bn" ? "SKU কোড লিখুন" : "Enter SKU code"} autoCapitalize="characters" />
+        <Field label={lang === "bn" ? "বিক্রয়মূল্য *" : "SELLING PRICE *"} note={lang === "bn" ? "পণ্যের নিয়মিত বিক্রয়মূল্য দিন। পরে অফার বা ছাড় যোগ করতে পারবেন।" : "Enter the regular selling price. You can add offers or discounts later."} value={sellingPrice} onChangeText={setSellingPrice} placeholder={lang === "bn" ? "০.০০" : "0.00"} keyboardType="decimal-pad" />
+        <Field label={lang === "bn" ? "শুরুর স্টক পরিমাণ *" : "OPENING QUANTITY *"} value={quantity} onChangeText={setQuantity} placeholder={lang === "bn" ? "১" : "1"} keyboardType="decimal-pad" />
+        <Field label={lang === "bn" ? "প্রতি ইউনিট ক্রয়মূল্য *" : "UNIT COST *"} note={lang === "bn" ? "স্টাফরা ইউনিটের ক্রয়মূল্য দেখতে পারবেন না। শুধু ম্যানেজার ও মালিক পণ্যের ক্রয়মূল্য দেখতে পারবেন।" : "Staff cannot see unit cost. Only managers and owners can view product cost."} value={costPrice} onChangeText={setCostPrice} placeholder={lang === "bn" ? "০.০০" : "0.00"} keyboardType="decimal-pad" />
+        <Text style={s.hint}>{lang === "bn" ? "আপনার দেওয়া শুরুর স্টক ও ক্রয়মূল্য দিয়ে একটি ডিফল্ট ভ্যারিয়েন্ট তৈরি হবে।" : "A default variant will be created with the opening stock and cost you enter."}</Text>
         <Pressable disabled={saving || loading || suggestionsLoading || !!duplicateProduct} onPress={() => void save()} style={[s.submit, (saving || loading || suggestionsLoading || !!duplicateProduct) && s.disabled]}>{saving ? <ActivityIndicator color={colors.white} /> : <Text style={s.submitText}>Save Product</Text>}</Pressable>
       </> : null}
     </KeyboardAwareScrollView>
   </SafeAreaView>;
 }
 
-function Field(props: { label: string; note?: string; value: string; onChangeText: (value: string) => void; placeholder: string; keyboardType?: "decimal-pad" }) {
-  return <View style={s.field}><View style={s.fieldLabelRow}><Text style={s.label}>{props.label}</Text>{props.note && <Text style={s.fieldNote}>({<Text>{props.note}</Text>})</Text>}</View><TextInput value={props.value} onChangeText={props.onChangeText} placeholder={props.placeholder} placeholderTextColor={colors.muted} keyboardType={props.keyboardType} style={s.input} /></View>;
+function Field(props: { label: string; note?: string; value: string; onChangeText: (value: string) => void; placeholder: string; keyboardType?: "decimal-pad"; autoCapitalize?: "none" | "sentences" | "words" | "characters" }) {
+  return <View style={s.field}><View style={s.fieldLabelRow}><Text style={s.label}>{props.label}</Text>{props.note && <Text style={s.fieldNote}>({<Text>{props.note}</Text>})</Text>}</View><TextInput value={props.value} onChangeText={props.onChangeText} placeholder={props.placeholder} placeholderTextColor={colors.muted} keyboardType={props.keyboardType} autoCapitalize={props.autoCapitalize} style={s.input} /></View>;
 }
 
 const s = StyleSheet.create({
