@@ -33,7 +33,8 @@ export default function SaleScreen() {
   const [receipt,setReceipt]=useState<SaleReceipt|null>(null);const [receiptPromptOpen,setReceiptPromptOpen]=useState(false);const [emailPromptOpen,setEmailPromptOpen]=useState(false);const [receiptEmail,setReceiptEmail]=useState("");const [sendingReceipt,setSendingReceipt]=useState(false);const [receiptActionError,setReceiptActionError]=useState("");
   const [selectedCustomer,setSelectedCustomer]=useState<Customer|null>(null);const [customerPickerOpen,setCustomerPickerOpen]=useState(false);
   useEffect(() => { setBottomNavHidden(customerPickerOpen && isMobile); return () => setBottomNavHidden(false); }, [customerPickerOpen, isMobile, setBottomNavHidden]);
-  const canSeeCosts = ["OWNER", "MANAGER"].includes(auth.session?.user.role ?? "OWNER");
+  const canSeeCosts = ["OWNER", "MANAGER"].includes(auth.session?.user.role ?? "");
+  const canSeeProfit = canSeeCosts;
   const business = auth.session?.businesses.find(item => item.id === auth.session?.businessId);
   const channel = business?.salesChannels?.includes("HAWKER") ? "HAWKER" : "SHOP";
 
@@ -50,13 +51,13 @@ export default function SaleScreen() {
       const query = searching ? `/products/search?q=${encodeURIComponent(search.trim())}&onlyInStock=true` : `/products/browse?onlyInStock=true${category ? `&categoryId=${category}` : ""}`;
       try {
         const tasks: Promise<unknown>[] = [apiRef.current<RawProduct[]>(query), apiRef.current<Sold>("/products/today-sold")];
-        if (canSeeCosts) tasks.push(apiRef.current<number>("/products/today-hawker-profit"));
+        if (canSeeProfit) tasks.push(apiRef.current<number>("/products/today-hawker-profit"));
         const values = await Promise.all(tasks);
-        if (activeRequest) { setProducts(values[0] as RawProduct[]); setSold(values[1] as Sold); if (canSeeCosts) setProfit(values[2] as number); }
+        if (activeRequest) { setProducts(values[0] as RawProduct[]); setSold(values[1] as Sold); setProfit(canSeeProfit ? values[2] as number : 0); }
       } catch (e) { if (activeRequest) setError((e as Error).message); } finally { if (activeRequest) setLoading(false); }
     }, 300);
     return () => { activeRequest = false; clearTimeout(timer); };
-  }, [category, search, searchMode, reload, canSeeCosts, auth.session?.businessId, auth.session?.branchId]);
+  }, [category, search, searchMode, reload, canSeeProfit, auth.session?.businessId, auth.session?.branchId]);
 
   const addToCart=(product:RawProduct)=>{setSuccess("");setCart(items=>{const existing=items.find(item=>item.product.variantId===product.variantId);if(existing)return items.map(item=>item.product.variantId===product.variantId?{...item,qty:Math.min(product.stock,item.qty+1)}:item);return [...items,{product,qty:1,unitPrice:product.effectivePrice}]})};
   const updateQty=(variantId:string,change:number)=>setCart(items=>items.map(item=>item.product.variantId===variantId?{...item,qty:Math.max(1,Math.min(item.product.stock,item.qty+change))}:item));
@@ -102,7 +103,7 @@ export default function SaleScreen() {
   return <View style={s.root}>
     <ScrollView contentContainerStyle={[s.content, !!cart.length && s.contentWithCart]} refreshControl={<RefreshControl refreshing={loading && products.length > 0} onRefresh={() => setReload(v => v + 1)} colors={[colors.primary]} tintColor={colors.primary} />}>
       <View style={s.topRow}>
-        {canSeeCosts && <Text style={s.profit}>Today's Profit: {money(profit)}</Text>}
+        {canSeeProfit && <Text style={s.profit}>Today's Profit: {money(profit)}</Text>}
         <View style={s.topActions}>
           {canSeeCosts && <Pressable onPress={() => router.push({ pathname: "/sales-record", params: { from: "today", to: "today" } })} style={s.history}><Text style={s.historyText}>Today's sales history</Text></Pressable>}
           <Pressable accessibilityRole="button" accessibilityLabel={searchMode ? "Close search" : "Search products"} accessibilityState={{expanded:searchMode}} onPress={() => { setSearchMode(!searchMode); setSearch(""); }} style={s.squareButton}><Ionicons name={searchMode ? "close" : "search-outline"} size={21} color={colors.neutralIcon} /></Pressable>

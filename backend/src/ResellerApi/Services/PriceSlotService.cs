@@ -18,7 +18,7 @@ public class PriceSlotService : IPriceSlotService
         _business = business;
     }
 
-    public async Task<List<PriceSlotDto>> GetSlotsAsync(Guid variantId)
+    public async Task<List<PriceSlotDto>> GetSlotsAsync(Guid variantId, bool includeDeleted = false)
     {
         // Reconcile scheduled Offers before reading (same reason as ProductService.GetAsync) —
         // without this, this endpoint could show a slot as "active" that a different read path
@@ -26,7 +26,10 @@ public class PriceSlotService : IPriceSlotService
         // query that the schedule moved on.
         await EnsureScheduledStateAsync(variantId);
 
-        var slots = await _db.PriceSlots
+        var query = includeDeleted
+            ? _db.PriceSlots.IgnoreQueryFilters().Where(s => s.BusinessId == _business.CurrentBusinessId)
+            : _db.PriceSlots.AsQueryable();
+        var slots = await query
             .AsNoTracking()
             .Where(s => s.VariantId == variantId)
             .Include(s => s.CreatedByUser)
@@ -92,7 +95,14 @@ public class PriceSlotService : IPriceSlotService
         if (targetSlot.IsActive)
             return; // already active, no-op
 
-        await ActivateSlotCoreAsync(variant, targetSlot, userId, DateTime.UtcNow);
+        var now = DateTime.UtcNow;
+        if (targetSlot.EndDate.HasValue && targetSlot.EndDate.Value < now)
+            throw new ArgumentException("This offer has expired. Create a new offer to apply a discount.");
+
+        // Manual Apply starts a scheduled offer now so the next read keeps it active.
+        if (targetSlot.StartDate > now)
+            targetSlot.StartDate = now;
+        await ActivateSlotCoreAsync(variant, targetSlot, userId, now);
         await _db.SaveChangesAsync();
     }
 
@@ -205,6 +215,18 @@ public class PriceSlotService : IPriceSlotService
         await _db.SaveChangesAsync();
     }
 
+    public async Task RestoreSlotAsync(Guid variantId, Guid slotId)
+    {
+        var slot = await _db.PriceSlots.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(s => s.Id == slotId && s.VariantId == variantId
+                && s.BusinessId == _business.CurrentBusinessId)
+            ?? throw new KeyNotFoundException("Price slot not found.");
+        if (slot.DeletedAt == null) return;
+        slot.DeletedAt = null;
+        slot.IsActive = false;
+        await _db.SaveChangesAsync();
+    }
+
     public async Task<List<PriceActivationLogDto>> GetActivationHistoryAsync(Guid variantId)
     {
         var logs = await _db.PriceActivationLogs
@@ -274,6 +296,7 @@ public class PriceSlotService : IPriceSlotService
         s.CreatedAt,
         userName ?? s.CreatedByUser?.Name ?? "Unknown",
         s.StartDate,
-        s.EndDate
+        s.EndDate,
+        s.DeletedAt
     );
 }

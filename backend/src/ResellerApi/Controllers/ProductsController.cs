@@ -385,9 +385,17 @@ public class ProductsController : ControllerBase
     // ── Price slots ───────────────────────────────────────────────────────────
 
     [HttpGet("variants/{variantId:guid}/slots")]
+    [Authorize(Roles = Roles.OwnerOrManager)]
+    public async Task<IActionResult> GetSlots(Guid variantId, [FromQuery] bool includeDeleted = false)
+        => Ok(await _slotSvc.GetSlotsAsync(variantId, includeDeleted));
+
+    [HttpPost("variants/{variantId:guid}/slots/{slotId:guid}/restore")]
     [Authorize(Roles = "OWNER")]
-    public async Task<IActionResult> GetSlots(Guid variantId)
-        => Ok(await _slotSvc.GetSlotsAsync(variantId));
+    public async Task<IActionResult> RestoreSlot(Guid variantId, Guid slotId)
+    {
+        await _slotSvc.RestoreSlotAsync(variantId, slotId);
+        return NoContent();
+    }
 
     [HttpPost("variants/{variantId:guid}/slots")]
     [Authorize(Roles = "OWNER")]

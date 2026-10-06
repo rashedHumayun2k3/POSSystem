@@ -9,7 +9,8 @@ public record PriceSlotDto(
     DateTime CreatedAt,
     string CreatedByName,
     DateTime StartDate,
-    DateTime? EndDate
+    DateTime? EndDate,
+    DateTime? DeletedAt = null
 );
 
 public record PriceActivationLogDto(
