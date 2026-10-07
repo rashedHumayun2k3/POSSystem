@@ -2,7 +2,7 @@ import { Text } from "../i18n/LocalizedText";
 import { colors } from "../theme";import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Animated, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
+import { Link, router, type Href } from "expo-router";
 import { useAuth } from "../auth/AuthContext";
 import PageTitle from "../components/PageTitle";
 import TaskWidget from "../tasks/TaskWidget";
@@ -76,7 +76,7 @@ export default function HomeScreen() {
   return <ScrollView style={s.root} contentContainerStyle={s.content} refreshControl={<RefreshControl refreshing={loading} onRefresh={refresh} />}>
     <View style={s.welcome}><Text style={s.welcomeText}>Welcome back, {auth.session?.user.name}</Text><View style={s.businessRow}><PageTitle numberOfLines={1} style={s.business}>{business?.name ?? "LavLokshan"}</PageTitle><Text style={s.date}>{date}</Text></View></View>
     <View style={s.body}>
-      <SectionTitle title="Business today" link="Closing summary" />
+      <SectionTitle title="Business today" link="Closing summary" href="/more/reports/daily-closing" />
       <View style={s.infoGrid}>
         <Info value={data.todayOrders} label="Orders today" color={colors.infoText} action={() => router.push("/orders")} />
         <Info value={data.pendingOrders} label="Orders awaiting action" color={colors.primaryDark} action={() => router.push({ pathname: "/orders", params: { tab: "WAITING_COURIER" } })} />
@@ -106,7 +106,13 @@ export default function HomeScreen() {
   </ScrollView>;
 }
 
-function SectionTitle({ title, subtitle, link }: { title: string; subtitle?: string; link?: string }) { return <View style={s.section}><View><Text style={s.heading}>{title}</Text>{subtitle && <Text style={s.sectionSub}>{subtitle}</Text>}</View>{link && <View style={s.linkRow}><Text style={s.link}>{link}</Text><Ionicons name="arrow-forward" size={14} color={colors.primary} /></View>}</View>; }
+function SectionTitle({ title, subtitle, link, href }: { title: string; subtitle?: string; link?: string; href?: Href }) {
+  const linkContent = <><Text style={s.link}>{link}</Text><Ionicons name="arrow-forward" size={14} color={colors.primary} /></>;
+  return <View style={s.section}>
+    <View><Text style={s.heading}>{title}</Text>{subtitle && <Text style={s.sectionSub}>{subtitle}</Text>}</View>
+    {link && (href ? <Link href={href} asChild><Pressable accessibilityRole="link" style={s.linkRow}>{linkContent}</Pressable></Link> : <View style={s.linkRow}>{linkContent}</View>)}
+  </View>;
+}
 function Info({ value, label, color, action }: { value: number; label: string; color: string; action?: () => void }) { return <Pressable onPress={action} style={s.info}><Text style={[s.infoValue, { color }]}>{value}</Text><Text style={s.infoLabel}>{label}</Text></Pressable>; }
 function salesDetailFor(metrics: TodayMetrics) {
   const change = metrics.salesChangePercent;

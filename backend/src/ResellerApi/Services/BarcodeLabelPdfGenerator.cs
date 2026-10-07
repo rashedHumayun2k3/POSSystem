@@ -219,29 +219,28 @@ public static class BarcodeLabelPdfGenerator
                     page.Size((float)size.Width, (float)size.Height, Unit.Millimetre);
                     page.Margin(0);
                     page.DefaultTextStyle(x => x.FontFamily(Fonts.Arial).FontSize(7));
-                    page.Content().Element(cell => ComposeLabel(cell, label));
+                    page.Content().Element(cell => ComposeLabel(cell, label, size.Height <= 25));
                 });
             }
         }).GeneratePdf();
     }
 
-    private static void ComposeLabel(IContainer container, VariantLabelData? label)
+    private static void ComposeLabel(IContainer container, VariantLabelData? label, bool compact = false)
     {
         if (label is null) return;
 
         container
-            .Padding(4)
+            .Padding(compact ? 2 : 4)
             .AlignCenter()
             .AlignMiddle()
             .Column(column =>
             {
-                column.Spacing(1);
+                column.Spacing(compact ? 0.5f : 1);
+                column.Item().AlignCenter().Text("TOSS Active").Bold().FontSize(7);
                 column.Item().AlignCenter().Text(label.ProductName).Bold().FontSize(7).ClampLines(2, "…");
-                if (!string.IsNullOrWhiteSpace(label.VariantLabel))
-                    column.Item().AlignCenter().Text(label.VariantLabel).FontSize(5.5f).FontColor(Colors.Grey.Darken2).ClampLines(1, "…");
-                column.Item().MaxHeight(12, Unit.Millimetre).PaddingHorizontal(2).Image(RenderBarcode(label.Barcode)).FitArea();
+                column.Item().Height(compact ? 7 : 10, Unit.Millimetre).PaddingHorizontal(2).Image(RenderBarcode(label.Barcode)).FitUnproportionally();
                 column.Item().AlignCenter().Text(label.Barcode).FontFamily(Fonts.CourierNew).FontSize(5.5f);
-                column.Item().AlignCenter().Text($"৳{label.Price:N2}").Bold().FontSize(8);
+                column.Item().AlignCenter().Text($"৳{label.Price:N2}").Bold().FontSize(6.5f);
             });
     }
 }

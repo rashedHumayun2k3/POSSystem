@@ -5,6 +5,7 @@ import * as ExpoLinking from "expo-linking";
 import { useState } from "react";
 import { Stack, Link, usePathname, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { useFonts } from "expo-font";
 import { StatusBar } from "expo-status-bar";
 import { Image, Modal, Platform, Pressable, ScrollView, StyleSheet, TextInput, useWindowDimensions, View } from "react-native";
 import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -198,6 +199,18 @@ function AppShell() {
 }
 
 export default function RootLayout() {
+  // Load once before icons mount: their automatic loader does not catch failures.
+  const [fontsLoaded, fontError] = useFonts(Ionicons.font);
+
+  if (!fontsLoaded) {
+    return <SafeAreaProvider style={s.background}><View style={[s.shell, { justifyContent: "center", alignItems: "center", padding: 24 }]}>
+      {fontError ? <>
+        <Text>Unable to load the app icons. Check your connection and reload the app.</Text>
+        {Platform.OS === "web" && <Pressable accessibilityRole="button" onPress={() => window.location.reload()} style={{ padding: 16 }}><Text>Reload</Text></Pressable>}
+      </> : <ActivityIndicator accessibilityLabel="Loading app icons" color={colors.primary} />}
+    </View></SafeAreaProvider>;
+  }
+
   return <SafeAreaProvider style={s.background}><LanguageProvider><AuthProvider><ModalChromeProvider><AppShell /></ModalChromeProvider></AuthProvider></LanguageProvider></SafeAreaProvider>;
 }
 

@@ -159,6 +159,12 @@ public class PartnerService : IPartnerService
                     "Partner type cannot be changed once a capital ledger entry exists. Mark this partner EXITED and create a new partner record instead.");
         }
 
+        if (request.CanAccessPos.HasValue && partner.PartnerType == "MANAGING" && partner.LinkedUserId.HasValue)
+        {
+            var linkedUser = await _db.Users.FirstAsync(u => u.Id == partner.LinkedUserId.Value);
+            linkedUser.CanAccessPos = request.CanAccessPos.Value;
+        }
+
         partner.Name = request.Name.Trim();
         partner.Phone = phone;
         partner.PhotoUrl = request.PhotoUrl?.Trim();
@@ -305,11 +311,13 @@ public class PartnerService : IPartnerService
     private async Task<PartnerDto> ToDtoAsync(Partner p)
     {
         var balance = await _capital.GetBalanceAsync(p.Id);
+        var canAccessPos = p.PartnerType == "MANAGING" && p.LinkedUserId.HasValue &&
+            await _db.Users.AsNoTracking().AnyAsync(u => u.Id == p.LinkedUserId.Value && u.CanAccessPos);
         return new PartnerDto(
             p.Id, p.Name, p.Phone, p.PhotoUrl, p.LinkedUserId, p.PartnerType, p.Status, p.DeferredLossPaisa, p.JoinDate, p.Note,
             balance.CapitalBalancePaisa, balance.ProfitBalancePaisa,
             p.NidNumber, p.Address, p.Email, p.BankAccountNumber, p.BankName, p.AgreedProfitSharePct,
-            p.EmergencyContactName, p.EmergencyContactPhone, p.EmergencyContactRelation);
+            p.EmergencyContactName, p.EmergencyContactPhone, p.EmergencyContactRelation, canAccessPos);
     }
 
     private static string? NormalizeOptionalBangladeshMobile(string? value, string fieldName)

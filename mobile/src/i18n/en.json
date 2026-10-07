@@ -1,4 +1,65 @@
 {
+  "storeroomMobile": {
+    "noAccess": "Storeroom access is available to owners and warehouse staff.",
+    "invalidCount": "Enter 1–200 cartons with unique carton numbers.",
+    "invalidContents": "Add products with positive quantities, valid prices, and damaged quantities no greater than the total.",
+    "invalidLabels": "Enter a positive quantity no greater than the remaining quantity.",
+    "invalidPrint": "Enter a whole number from 1 to {max}.",
+    "resetWarning": "Saving edited contents resets the recorded labeling counts, as in the web storeroom."
+  },
+  "offerCompare": {
+    "discount": "{percent}% discount = {amount}",
+    "currentSlot": "Current Price Slot",
+    "regularSlot": "Regular price",
+    "actual": "Actual Price",
+    "currentProfit": "Current Profit (per unit)",
+    "newHeading": "If you choose the new offer:",
+    "newPrice": "New Price will be",
+    "newProfit": "New Profit (per unit)",
+    "newEnd": "New offer end date",
+    "unknownCost": "Purchase cost not set",
+    "agree": "Do you agree to change the current offer ({current}) to the new offer ({next})?"
+  },
+  "offerConfirm": {
+    "title": "Apply this offer?",
+    "product": "Product",
+    "selected": "Selected offer",
+    "regular": "Regular selling price",
+    "current": "Current selling price",
+    "proposed": "Proposed discount amount",
+    "result": "Price after applying offer",
+    "start": "Offer start date",
+    "end": "Offer end date",
+    "immediate": "Immediately",
+    "noEnd": "No end date",
+    "reason": "Note",
+    "execute": "Execute Offer",
+    "cancel": "Not now",
+    "applied": "Offer applied",
+    "success": "{product} is now set to {offer}. The selling price is {price}."
+  },
+  "productInfo": {
+    "imageDeleteTitle": "Delete product image?",
+    "imageDeleteMessage": "Remove this image from the product and permanently delete its uploaded file if it is not used elsewhere?",
+    "imageDeleteFailed": "The image was removed from the product, but file cleanup failed. Please retry.",
+    "imageUploading": "Uploading image…",
+    "imageSaving": "Saving image…",
+    "images": "Product images",
+    "galleryHelp": "These images appear in the public product gallery. Use the arrows to change their order.",
+    "details": "Product details",
+    "name": "Product Name",
+    "description": "Description",
+    "warranty": "Warranty",
+    "stock": "Stock",
+    "inStock": "In Stock",
+    "lowStock": "Low Stock",
+    "outOfStock": "Out of Stock",
+    "adjustStock": "Adjust Stock",
+    "lowStockAlert": "Low Stock Alert",
+    "marketplace": "Show this product on the website",
+    "marketplaceHelp": "Turning this option off will hide this product from the website."
+  },
+
   "nav": {
     "preOrders": "Pre-orders",
     "posLabel": "POS",
@@ -2133,5 +2194,9 @@
     "paid": "Paid",
     "courier": "Courier"
   },
-  "productPriceHelp": "Enter the regular selling price. You can add offers or discounts later."
+  "productPriceHelp": "Enter the regular selling price. You can add offers or discounts later.",
+  "posPermission": {
+    "title": "POS access denied",
+    "message": "You don’t have permission to access this section. Contact your owner to enable Daily Sale / POS access."
+}
 }

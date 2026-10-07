@@ -107,6 +107,7 @@ export default function MoreScreen() {
     if (item.key === "categories") return router.push("/more/categories");
     if (item.key === "catalog-templates") return router.push("/more/catalog-templates");
     if (item.key === "purchases") return router.push("/more/purchases");
+    if (item.key === "storeroom") return router.push("/more/storeroom" as never);
     if (item.key === "barcodes") return router.push("/more/barcodes");
     if (item.key === "deliveries") return router.push("/more/deliveries");
     if (item.key === "expenses") return router.push("/more/expenses");

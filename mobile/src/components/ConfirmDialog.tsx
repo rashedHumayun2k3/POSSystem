@@ -1,5 +1,6 @@
+import type { ReactNode } from "react";
 import { Ionicons } from "@expo/vector-icons";
-import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { ActivityIndicator, ScrollView, Modal, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { colors } from "../theme";
 
@@ -7,6 +8,7 @@ type ConfirmDialogProps = {
   visible: boolean;
   title: string;
   message: string;
+  children?: ReactNode;
   confirmLabel?: string;
   cancelLabel?: string;
   destructive?: boolean;
@@ -19,6 +21,7 @@ export function ConfirmDialog({
   visible,
   title,
   message,
+  children,
   confirmLabel = "Confirm",
   cancelLabel = "Cancel",
   destructive = false,
@@ -38,12 +41,12 @@ export function ConfirmDialog({
           <Ionicons name={destructive ? "trash-outline" : "help-circle-outline"} size={26} color={destructive ? colors.danger : colors.primary} />
         </View>
         <Text accessibilityRole="header" style={styles.title}>{title}</Text>
-        <Text style={styles.message}>{message}</Text>
-        <View style={[styles.actions, compact && styles.compactActions]}>
-          <Pressable accessibilityRole="button" disabled={busy} onPress={close} style={[styles.button, styles.cancelButton, compact && styles.compactButton]}>
+        <ScrollView style={{ flexShrink: 1 }} contentContainerStyle={{ gap: 12 }}>{children}{!!message && <Text style={styles.message}>{message}</Text>}</ScrollView>
+        <View style={[styles.actions, compact && !children && styles.compactActions]}>
+          <Pressable accessibilityRole="button" disabled={busy} onPress={close} style={[styles.button, styles.cancelButton, compact && !children && styles.compactButton]}>
             <Text style={styles.cancelText}>{cancelLabel}</Text>
           </Pressable>
-          <Pressable accessibilityRole="button" disabled={busy} onPress={onConfirm} style={[styles.button, destructive ? styles.dangerButton : styles.confirmButton, compact && styles.compactButton, busy && styles.disabled]}>
+          <Pressable accessibilityRole="button" disabled={busy} onPress={onConfirm} style={[styles.button, destructive ? styles.dangerButton : styles.confirmButton, compact && !children && styles.compactButton, busy && styles.disabled]}>
             {busy ? <ActivityIndicator color={colors.white} /> : <Text style={styles.confirmText}>{confirmLabel}</Text>}
           </Pressable>
         </View>
@@ -54,7 +57,7 @@ export function ConfirmDialog({
 
 const styles = StyleSheet.create({
   overlay: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.overlay, padding: 20 },
-  dialog: { width: "100%", maxWidth: 440, borderWidth: 1, borderColor: colors.divider, borderRadius: 20, backgroundColor: colors.card, padding: 24, shadowColor: colors.heading, shadowOpacity: .2, shadowRadius: 22, shadowOffset: { width: 0, height: 10 }, elevation: 12 },
+  dialog: { width: "100%", maxWidth: 440, maxHeight: "90%", borderWidth: 1, borderColor: colors.divider, borderRadius: 20, backgroundColor: colors.card, padding: 24, shadowColor: colors.heading, shadowOpacity: .2, shadowRadius: 22, shadowOffset: { width: 0, height: 10 }, elevation: 12 },
   compactDialog: { borderRadius: 18, padding: 20 },
   iconWrap: { width: 52, height: 52, alignItems: "center", justifyContent: "center", borderRadius: 26, backgroundColor: colors.primaryLight, marginBottom: 18 },
   dangerIconWrap: { backgroundColor: colors.dangerBackground },

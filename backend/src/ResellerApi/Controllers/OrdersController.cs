@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using ResellerApi.Data;
 using ResellerApi.DTOs.Orders;
 using ResellerApi.Infrastructure;
 using ResellerApi.Services;
@@ -54,9 +56,12 @@ public class OrdersController : ControllerBase
 
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateOrderRequest request,
-        [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey)
+        [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
+        [FromServices] AppDbContext db)
     {
-        if ((request.Channel == "SHOP" || request.Channel == "HAWKER") && !_user.CanAccessPos)
+        // Read the saved permission so a revoked grant cannot survive in an older JWT.
+        if ((request.Channel == "SHOP" || request.Channel == "HAWKER") &&
+            !await db.Users.AsNoTracking().AnyAsync(u => u.Id == _user.UserId && u.IsActive && u.CanAccessPos))
             return StatusCode(StatusCodes.Status403Forbidden, new { message = "Daily Sale / POS access is not enabled for this account." });
 
         var req = request with { ClientUid = request.ClientUid ?? idempotencyKey };

@@ -23,7 +23,8 @@ public record PartnerDto(
     decimal? AgreedProfitSharePct,
     string? EmergencyContactName,
     string? EmergencyContactPhone,
-    string? EmergencyContactRelation
+    string? EmergencyContactRelation,
+    bool CanAccessPos = false
 );
 
 public record CreatePartnerRequest(
@@ -65,7 +66,8 @@ public record UpdatePartnerRequest(
     decimal? AgreedProfitSharePct,
     string? EmergencyContactName,
     string? EmergencyContactPhone,
-    string? EmergencyContactRelation
+    string? EmergencyContactRelation,
+    bool? CanAccessPos = null
 );
 
 // R15.11 — new partner approval workflow.
