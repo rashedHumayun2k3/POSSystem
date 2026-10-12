@@ -21,6 +21,10 @@
     "plugins": [
       "expo-router",
       "expo-secure-store",
+      ["expo-speech-recognition", {
+        "microphonePermission": "Allow LavLokshan to use your microphone for voice chat.",
+        "speechRecognitionPermission": "Allow LavLokshan to turn your speech into chat messages."
+      }],
       "./plugins/withUsbBackend"
     ]
   }

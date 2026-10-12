@@ -25,6 +25,29 @@ public class MediaStorageService
 
     public string RootPath => _rootPath;
 
+    public string GetOwnedImagePath(string url, Guid businessId)
+    {
+        var prefix = $"/uploads/{businessId}/";
+        if (!url.StartsWith(prefix, StringComparison.Ordinal))
+            throw new ArgumentException("Only images uploaded to this business can be deleted.");
+        var fileName = url[prefix.Length..];
+        var extension = Path.GetExtension(fileName).ToLowerInvariant();
+        if (fileName != Path.GetFileName(fileName) || fileName.Contains('\\') ||
+            !Guid.TryParseExact(Path.GetFileNameWithoutExtension(fileName), "D", out _) ||
+            (extension != ".jpg" && extension != ".png" && extension != ".webp"))
+            throw new ArgumentException("Invalid uploaded image path.");
+        var folder = Path.GetFullPath(Path.Combine(_rootPath, businessId.ToString()));
+        var path = Path.GetFullPath(Path.Combine(folder, fileName));
+        if (!string.Equals(Path.GetDirectoryName(path), folder, StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("Invalid uploaded image path.");
+        return path;
+    }
+
+    public void DeleteOwnedImage(string url, Guid businessId)
+    {
+        File.Delete(GetOwnedImagePath(url, businessId));
+    }
+
     public Task<string> SaveImageAsync(IFormFile file, Guid businessId)
     {
         if (file == null || !file.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))

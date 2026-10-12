@@ -52,6 +52,32 @@ public class MediaController : ControllerBase
         }
     }
 
+    // Cleanup only after the caller has removed the product/gallery reference.
+    [HttpDelete("product-image")]
+    [Authorize(Roles = "OWNER")]
+    public async Task<IActionResult> DeleteProductImage([FromQuery] string url)
+    {
+        if (!Guid.TryParse(Request.Headers["X-Business-Id"].FirstOrDefault(), out var businessId))
+            return BadRequest(new { message = "X-Business-Id header is required." });
+        if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId) ||
+            !await _db.BusinessUsers.AnyAsync(x => x.BusinessId == businessId && x.UserId == userId))
+            return Forbid();
+        try
+        {
+            _storage.GetOwnedImagePath(url, businessId);
+            // Includes archived products/variants; their images must remain available.
+            if (await _db.Products.AnyAsync(x => x.ImageUrl == url) ||
+                await _db.ProductImages.AnyAsync(x => x.DeletedAt == null && x.ImageUrl == url) ||
+                await _db.ProductVariants.AnyAsync(x => x.ImageUrl == url))
+                return Ok(new { deleted = false, reason = "IMAGE_IN_USE" });
+            _storage.DeleteOwnedImage(url, businessId);
+            return Ok(new { deleted = true });
+        }
+        catch (ArgumentException ex) { return BadRequest(new { message = ex.Message }); }
+        catch (IOException) { return StatusCode(500, new { message = "Could not delete the image file. Please retry." }); }
+        catch (UnauthorizedAccessException) { return StatusCode(500, new { message = "Could not delete the image file. Please retry." }); }
+    }
+
     // Customer review photo upload — public storefront. productId resolves the owning business;
     // there's no membership check here (any logged-in customer may review any product they
     // bought), same trust boundary as the original ProductReviewsController.UploadImage.
