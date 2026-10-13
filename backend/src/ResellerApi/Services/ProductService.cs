@@ -515,7 +515,8 @@ public class ProductService : IProductService
         if (requestedSku is { Length: > 0 })
         {
             var normalizedSku = requestedSku.ToLower();
-            var skuExists = await _db.Products.AsNoTracking().AnyAsync(p => p.Sku.ToLower() == normalizedSku);
+            var skuExists = await _db.Products.IgnoreQueryFilters().AsNoTracking()
+                .AnyAsync(p => p.BusinessId == _business.CurrentBusinessId && p.Sku.ToLower() == normalizedSku);
             if (skuExists) throw new ArgumentException($"SKU '{requestedSku}' is already used by another product.");
         }
         var sku = requestedSku is { Length: > 0 } ? requestedSku : await GenerateSkuAsync();
@@ -597,7 +598,8 @@ public class ProductService : IProductService
     // purchase trip, no hidden receive event.
     private async Task SetVariantOpeningStockAndCostAsync(Guid variantId, decimal qty, decimal costPerUnit, Guid branchId, Guid userId)
     {
-        await using var tx = await _db.Database.BeginTransactionAsync();
+        // Bulk imports own the outer transaction; standalone callers still get atomic stock updates.
+        await using var tx = _db.Database.CurrentTransaction is null ? await _db.Database.BeginTransactionAsync() : null;
         try
         {
             var inv = await _db.BranchVariantInventories
@@ -631,11 +633,11 @@ public class ProductService : IProductService
             variant.AvgLandedCost = costPerUnit;
 
             await _db.SaveChangesAsync();
-            await tx.CommitAsync();
+            if (tx is not null) await tx.CommitAsync();
         }
         catch
         {
-            await tx.RollbackAsync();
+            if (tx is not null) await tx.RollbackAsync();
             throw;
         }
 

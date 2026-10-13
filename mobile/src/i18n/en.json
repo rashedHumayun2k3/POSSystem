@@ -1,4 +1,5 @@
 {
+  "productImportMenu": { "bulk": "Bulk Upload Products", "suggested": "Suggested Products", "description": "Import up to 50 new products from Excel", "suggestions": "Choose from ready-made categories and products" },
   "storeroomMobile": {
     "noAccess": "Storeroom access is available to owners and warehouse staff.",
     "invalidCount": "Enter 1–200 cartons with unique carton numbers.",

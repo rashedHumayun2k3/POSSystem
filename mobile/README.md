@@ -42,3 +42,13 @@ npx expo start --web --port 8084
 ```
 
 Browser sessions are memory-only; Android sessions persist in secure storage. For web development the backend CORS policy must allow the chosen local web origin. The layout remains capped at 768 logical pixels.
+
+## Bulk product upload
+
+Owners can open **More → Quick Add Products → Bulk Upload Products** (`/more/bulk-products`).
+Download the five-column `.xlsx` template (SKU, name, quantity, buy price, sell price), enter up to 50 products (5 MB maximum), then review the spreadsheet-style grid. One required category selector above the grid applies to the entire batch. Duplicate SKU cells are highlighted red and update as you edit.
+SKU is text to preserve leading zeros. Quantities support three decimal places; prices support two. Category determines the unit; opening stock goes to the selected active branch.
+
+The API exposes `/api/v1/products/import/{template,preview,validate,errors,save}`. Files are parsed on the server with ClosedXML; CSV, formula cells and incompatible workbooks are rejected. Validation checks duplicate SKUs within the file and all records in the business, including deleted products. Each save uses a transaction and an import reference recorded in the activity log so retries return the original result.
+
+Restart the API after backend changes. Native builds need rebuilding after adding `expo-document-picker`; Expo web loads it without a native rebuild.

@@ -149,6 +149,11 @@ public class PartnerCapitalService : IPartnerCapitalService
 
     private async Task ApproveInjectionAsync(CapitalInjection injection, Guid userId)
     {
+        if (injection.ExpenseId.HasValue && !await _db.Expenses.IgnoreQueryFilters().AnyAsync(e =>
+            e.Id == injection.ExpenseId && e.BusinessId == _business.CurrentBusinessId && e.DeletedAt == null
+            && e.Status == "APPROVED" && e.FundingSource == "PERSONAL" && e.FundingPartnerId == injection.PartnerId
+            && e.Amount * 100 == injection.AmountPaisa))
+            throw new InvalidOperationException("The linked personal expense is not valid for investment approval.");
         var ledgerAlreadyExists = await _db.CapitalLedgerEntries.AnyAsync(entry =>
             entry.ReferenceType == "CapitalInjection" && entry.ReferenceId == injection.Id);
         if (!ledgerAlreadyExists)
@@ -297,6 +302,8 @@ public class PartnerCapitalService : IPartnerCapitalService
 
     private static void EnsureDraft(CapitalInjection injection)
     {
+        if (injection.ExpenseId.HasValue)
+            throw new InvalidOperationException("This investment is linked to an expense and cannot be changed independently.");
         if (injection.Status != "DRAFT")
             throw new InvalidOperationException("Only draft capital injections can be edited or deleted.");
     }

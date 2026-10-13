@@ -293,6 +293,49 @@ namespace ResellerApi.Data.Migrations
                     b.ToTable("businesses", (string)null);
                 });
 
+            modelBuilder.Entity("ResellerApi.Entities.BusinessExpenseFund", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("BusinessId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("InitializedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<long>("OpeningBalancePaisa")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("RecordedNetPaisaAtOpening")
+                        .HasColumnType("bigint");
+
+                    b.Property<byte[]>("RowVer")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BusinessId")
+                        .IsUnique();
+
+                    b.HasIndex("InitializedBy");
+
+                    b.ToTable("business_expense_funds", (string)null);
+                });
+
             modelBuilder.Entity("ResellerApi.Entities.BusinessUser", b =>
                 {
                     b.Property<Guid>("BusinessId")
@@ -359,6 +402,9 @@ namespace ResellerApi.Data.Migrations
 
                     b.Property<DateTime?>("DeletedAt")
                         .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("ExpenseId")
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTime>("InjectedAt")
                         .HasColumnType("datetime2");
@@ -435,6 +481,10 @@ namespace ResellerApi.Data.Migrations
                     b.HasIndex("BusinessId");
 
                     b.HasIndex("CreatedBy");
+
+                    b.HasIndex("ExpenseId")
+                        .IsUnique()
+                        .HasFilter("[ExpenseId] IS NOT NULL");
 
                     b.HasIndex("PartnerId");
 
@@ -1444,6 +1494,17 @@ namespace ResellerApi.Data.Migrations
                     b.Property<DateTime>("ExpenseDate")
                         .HasColumnType("datetime2");
 
+                    b.Property<Guid?>("FundingPartnerId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("FundingPartnerName")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("FundingSource")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
                     b.Property<bool>("IsRecurring")
                         .HasColumnType("bit");
 
@@ -1467,6 +1528,13 @@ namespace ResellerApi.Data.Migrations
                     b.Property<string>("RejectionReason")
                         .HasMaxLength(500)
                         .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("RequestHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<Guid?>("RequestId")
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<byte[]>("RowVer")
                         .IsConcurrencyToken()
@@ -1502,11 +1570,17 @@ namespace ResellerApi.Data.Migrations
 
                     b.HasIndex("CreatedBy");
 
+                    b.HasIndex("FundingPartnerId");
+
                     b.HasIndex("PettyCashBoxId");
 
                     b.HasIndex("StaffId");
 
                     b.HasIndex("BusinessId", "ExpenseDate");
+
+                    b.HasIndex("BusinessId", "RequestId")
+                        .IsUnique()
+                        .HasFilter("[RequestId] IS NOT NULL");
 
                     b.HasIndex("BusinessId", "Status");
 
@@ -5152,6 +5226,23 @@ namespace ResellerApi.Data.Migrations
                     b.Navigation("Company");
                 });
 
+            modelBuilder.Entity("ResellerApi.Entities.BusinessExpenseFund", b =>
+                {
+                    b.HasOne("ResellerApi.Entities.Business", "Business")
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("ResellerApi.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("InitializedBy")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Business");
+                });
+
             modelBuilder.Entity("ResellerApi.Entities.BusinessUser", b =>
                 {
                     b.HasOne("ResellerApi.Entities.Business", "Business")
@@ -5185,6 +5276,11 @@ namespace ResellerApi.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("ResellerApi.Entities.Expense", "Expense")
+                        .WithMany()
+                        .HasForeignKey("ExpenseId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("ResellerApi.Entities.Partner", "Partner")
                         .WithMany("CapitalInjections")
                         .HasForeignKey("PartnerId")
@@ -5194,6 +5290,8 @@ namespace ResellerApi.Data.Migrations
                     b.Navigation("Business");
 
                     b.Navigation("CreatedByUser");
+
+                    b.Navigation("Expense");
 
                     b.Navigation("Partner");
                 });
@@ -5473,6 +5571,11 @@ namespace ResellerApi.Data.Migrations
                         .HasForeignKey("CreatedBy")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.HasOne("ResellerApi.Entities.Partner", null)
+                        .WithMany()
+                        .HasForeignKey("FundingPartnerId")
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("ResellerApi.Entities.PettyCashBox", "PettyCashBox")
                         .WithMany()

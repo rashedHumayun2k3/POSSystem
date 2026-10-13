@@ -4,6 +4,7 @@ import { ActivityIndicator, AppState, Keyboard, KeyboardAvoidingView, Modal, Pla
 import { Ionicons } from "@expo/vector-icons";
 import { usePathname } from "expo-router";
 import { colors } from "../../../theme";
+import { useAuth } from "../../../auth/AuthContext";
 import { chatQuestions, getPocAnswer } from "../services/chatPoc";
 import { prepareBanglaSpeech, speakBangla, stopSpeaking } from "../services/speechService";
 
@@ -11,6 +12,14 @@ import { createVoiceSession, type VoicePhase } from "../services/voiceSession";
 
 type Message = { id: number; role: "user" | "assistant"; text: string };
 export default function AIButton() {
+  const { session } = useAuth();
+  const phone = (session?.user.phone ?? "").replace(/\D/g, "").replace(/^880/, "0");
+  // Temporary account restriction while testing the business assistant.
+  if (phone !== "01723111252" && phone !== "01700000000") return null;
+  return <AIChatButton />;
+}
+
+function AIChatButton() {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);

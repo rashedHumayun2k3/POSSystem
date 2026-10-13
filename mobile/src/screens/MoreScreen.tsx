@@ -9,6 +9,10 @@ import { colors } from "../theme";
 type IconName = keyof typeof Ionicons.glyphMap;
 type MenuItem = { key: string; title: string; description: string; icon: IconName; roles?: string[]; webPath: string };
 type ChildItem = { key: string; title: string; description: string; icon: IconName; webPath: string };
+const quickAddItems: ChildItem[] = [
+  { key: "suggested-products", title: "Suggested Products", description: "Choose from ready-made categories and products", icon: "albums-outline", webPath: "/more/catalog-templates" },
+  { key: "bulk-products", title: "Bulk Upload Products", description: "Import up to 50 new products from Excel", icon: "cloud-upload-outline", webPath: "/more/bulk-products" },
+];
 const openEnvironmentPath = (path: string) => {
   if (Platform.OS === "web" && typeof window !== "undefined") { window.location.assign(path); return; }
   void ExpoLinking.openURL(ExpoLinking.createURL(path));
@@ -68,6 +72,7 @@ export default function MoreScreen() {
   const [search, setSearch] = useState("");
   const [reportsOpen, setReportsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
   const query = search.trim().toLocaleLowerCase();
   const settings = role === "OWNER" ? [...baseSettings, ...ownerSettings] : baseSettings;
   const visibleReports = reports.filter(item => !query || includes(item, query));
@@ -75,12 +80,15 @@ export default function MoreScreen() {
   const visibleItems = useMemo(() => items.filter(item => {
     if (item.roles && !item.roles.includes(role)) return false;
     if (!query || includes(item, query)) return true;
+    if (item.key === "catalog-templates") return quickAddItems.some(child => includes(child, query));
     if (item.key === "reports") return visibleReports.length > 0;
     if (item.key === "settings") return visibleSettings.length > 0;
     return false;
   }), [query, role, visibleReports.length, visibleSettings.length]);
 
   const openChild = (item: ChildItem) => {
+    if (item.key === "suggested-products") return router.push("/more/catalog-templates");
+    if (item.key === "bulk-products") return router.push("/more/bulk-products");
     if (item.key === "staff") return router.push("/more/settings/staff");
     if (item.key === "couriers") return router.push("/more/settings/couriers");
     if (item.key === "expense-categories") return router.push("/more/settings/expense-categories");
@@ -105,7 +113,7 @@ export default function MoreScreen() {
     if (item.key === "reports") return setReportsOpen(value => !value);
     if (item.key === "settings") return setSettingsOpen(value => !value);
     if (item.key === "categories") return router.push("/more/categories");
-    if (item.key === "catalog-templates") return router.push("/more/catalog-templates");
+    if (item.key === "catalog-templates") return setQuickAddOpen(value => !value);
     if (item.key === "purchases") return router.push("/more/purchases");
     if (item.key === "storeroom") return router.push("/more/storeroom" as never);
     if (item.key === "barcodes") return router.push("/more/barcodes");
@@ -123,9 +131,9 @@ export default function MoreScreen() {
     </View>
     {!visibleItems.length && <View style={s.empty}><Text style={s.emptyText}>No menus found. Try a different search.</Text></View>}
     {visibleItems.map(item => {
-      const expandable = item.key === "reports" || item.key === "settings";
-      const expanded = query ? true : item.key === "reports" ? reportsOpen : item.key === "settings" ? settingsOpen : false;
-      const children = item.key === "reports" ? visibleReports : visibleSettings;
+      const expandable = item.key === "reports" || item.key === "settings" || item.key === "catalog-templates";
+      const expanded = query ? true : item.key === "reports" ? reportsOpen : item.key === "settings" ? settingsOpen : quickAddOpen;
+      const children = item.key === "catalog-templates" ? quickAddItems : item.key === "reports" ? visibleReports : visibleSettings;
       return <View key={item.key} style={[s.card, expandable && s.accordion]}>
         <Pressable onPress={() => openMenu(item)} disabled={!!query && expandable} style={({ pressed }) => [s.row, pressed && !query && s.pressed]}>
           <View style={[s.iconBox, expandable && s.accordionIcon]}><Ionicons name={item.icon} size={21} color={colors.primaryDark} /></View>

@@ -33,7 +33,9 @@ public record ExpenseDto(
     string? ApprovedByName,
     string? Note,
     string? RejectionReason,
-    DateTime CreatedAt
+    DateTime CreatedAt,
+    string? FundingSource = null,
+    string? FundingPartnerName = null
 );
 
 // ── Create ────────────────────────────────────────────────────────────────────
@@ -49,8 +51,13 @@ public record CreateExpenseRequest(
     Guid? PettyCashBoxId,
     string? PhotoUrl,
     string? Note,
-    Guid? BranchId = null // null = business-wide expense (e.g. marketing, salary), not attributed to one branch
+    Guid? BranchId = null,
+    string? FundingSource = null,
+    Guid? RequestId = null
 );
+
+public record ExpenseFundingDto(bool Initialized, decimal? Balance, Guid? PartnerId, string? PartnerName, bool CanInitialize);
+public record InitializeExpenseFundRequest(decimal OpeningBalance);
 
 // ── Update ────────────────────────────────────────────────────────────────────
 public record UpdateExpenseRequest(

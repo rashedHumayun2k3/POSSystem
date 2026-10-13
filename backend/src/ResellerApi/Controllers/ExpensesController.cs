@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using ResellerApi.DTOs.Expenses;
 using ResellerApi.Infrastructure;
 using ResellerApi.Services.Interfaces;
+using ResellerApi.Services;
 
 namespace ResellerApi.Controllers;
 
@@ -13,11 +14,29 @@ public class ExpensesController : ControllerBase
 {
     private readonly IExpenseService _svc;
     private readonly ICurrentUserService _user;
+    private readonly ExpenseFundingService _funding;
 
-    public ExpensesController(IExpenseService svc, ICurrentUserService user)
+    public ExpensesController(IExpenseService svc, ICurrentUserService user, ExpenseFundingService funding)
     {
         _svc = svc;
         _user = user;
+        _funding = funding;
+    }
+
+    [HttpGet("funding")]
+    public async Task<IActionResult> Funding() => Ok(await _funding.GetAsync(_user.UserId, _user.IsOwner, _user.CanSeeCosts || _user.IsPartner));
+
+    [HttpPost("funding/opening-balance")]
+    [Authorize(Roles = Roles.Owner)]
+    public async Task<IActionResult> InitializeFunding(InitializeExpenseFundRequest request)
+    {
+        try
+        {
+            await _funding.InitializeAsync(request.OpeningBalance, _user.UserId);
+            return Ok(await _funding.GetAsync(_user.UserId, true, true));
+        }
+        catch (ArgumentException ex) { return BadRequest(new { message = ex.Message }); }
+        catch (InvalidOperationException ex) { return Conflict(new { message = ex.Message }); }
     }
 
     [HttpGet]

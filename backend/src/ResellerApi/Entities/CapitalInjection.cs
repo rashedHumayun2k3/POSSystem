@@ -9,6 +9,8 @@ namespace ResellerApi.Entities;
 /// </summary>
 public class CapitalInjection : BusinessScopedEntity
 {
+    public Guid? ExpenseId { get; set; }
+    public Expense? Expense { get; set; }
     public Guid PartnerId { get; set; }
     public long AmountPaisa { get; set; }
     public DateTime InjectedAt { get; set; }

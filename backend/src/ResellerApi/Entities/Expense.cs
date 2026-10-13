@@ -4,6 +4,11 @@ namespace ResellerApi.Entities;
 
 public class Expense : BusinessScopedEntity, IBranchScoped
 {
+    public string? FundingSource { get; set; } // BUSINESS | PERSONAL; null = legacy
+    public Guid? FundingPartnerId { get; set; }
+    public string? FundingPartnerName { get; set; }
+    public Guid? RequestId { get; set; }
+    public string? RequestHash { get; set; }
     // NULL = business-wide expense (e.g. marketing, salary), not attributed to one branch's P&L.
     public Guid? BranchId { get; set; }
     public Branch? Branch { get; set; }

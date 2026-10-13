@@ -105,6 +105,7 @@ function AppShell() {
   const [supplierFormOpen, setSupplierFormOpen] = useState(false);
   const [reportsOpen, setReportsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [quickAddOpen, setQuickAddOpen] = useState(path === "/more/bulk-products" || path === "/more/catalog-templates");
   const [menuSearch, setMenuSearch] = useState("");
   const role = (auth.session?.user.role || "STAFF").toUpperCase();
   const currentBusiness = auth.session?.businesses.find(business => business.id === auth.session?.businessId);
@@ -139,6 +140,7 @@ function AppShell() {
     if (item.key === "tasks") return router.push("/more/tasks");
     if (item.key === "categories") return router.push("/more/categories");
     if (item.key === "quick-add") return router.push("/more/catalog-templates");
+    if (item.key === "bulk-products") return router.push("/more/bulk-products");
     if (item.key === "purchases") return router.push("/more/purchases");
     if (item.key === "barcodes") return router.push("/more/barcodes");
     const webPath = frontendPaths[item.key];
@@ -146,7 +148,7 @@ function AppShell() {
     return item.route ? router.push(item.route) : router.push({ pathname: "/more", params: { focus: item.key } });
   };
   const openQuickAction=(key:string)=>{setQuickActionsOpen(false);if(key==="task")return router.push({pathname:"/more/tasks",params:{new:"1"}});if(key==="pre-order")return openEnvironmentPath("/more/pre-orders");if(key==="sale")return router.push("/sale");if(key==="order"||key==="customer")return router.push("/orders/new");if(key==="supplier")return setSupplierFormOpen(true);if(key==="purchase")return router.push("/more/purchases/new");if(key==="category")return router.push({pathname:"/more/categories",params:{new:"1"}});if(key==="product")return router.push("/products/new");if(key==="expense")return openEnvironmentPath("/more/expenses/new")};
-  const itemPath = (item: MoreNavItem) => item.key === "categories" ? "/more/categories" : item.key === "quick-add" ? "/more/catalog-templates" : item.key === "purchases" ? "/more/purchases" : item.key === "barcodes" ? "/more/barcodes" : frontendPaths[item.key] ?? item.route;
+  const itemPath = (item: MoreNavItem) => item.key === "bulk-products" ? "/more/bulk-products" : item.key === "categories" ? "/more/categories" : item.key === "quick-add" ? "/more/catalog-templates" : item.key === "purchases" ? "/more/purchases" : item.key === "barcodes" ? "/more/barcodes" : frontendPaths[item.key] ?? item.route;
   const itemActive = (item: MoreNavItem) => { const target = itemPath(item); return !!target && (target === "/" ? path === "/" : path === target || path.startsWith(`${target}/`)); };
   const moreRows = (entries: MoreNavItem[], nested = false) => entries.map(item => { const active=itemActive(item); return <Pressable key={item.key} accessibilityState={{selected:active}} onPress={() => openMoreItem(item)} style={({ pressed }) => [s.moreRow, nested && s.nestedRow, active&&s.activeMoreRow, pressed && s.pressed]}>
     <Ionicons name={item.icon} size={nested ? 17 : 19} color={active?colors.primaryDark:colors.neutralIcon} />
@@ -158,7 +160,7 @@ function AppShell() {
   const drawerTabs = tabs.filter(tab => menuMatches(tab.label, tab.href));
   const drawerReports = reportItems.filter(item => menuMatches(item.label, item.key));
   const drawerSettings = (role === "OWNER" ? [...basicSettings, ...ownerSettings] : basicSettings).filter(item => menuMatches(item.label, item.key));
-  const drawerMoreItems = visibleMoreItems.filter(item => menuMatches(item.label, item.key) || (item.key === "reports" && drawerReports.length > 0) || (item.key === "settings" && drawerSettings.length > 0));
+  const drawerMoreItems = visibleMoreItems.filter(item => menuMatches(item.label, item.key) || (item.key === "quick-add" && menuMatches("Bulk Upload Products")) || (item.key === "reports" && drawerReports.length > 0) || (item.key === "settings" && drawerSettings.length > 0));
   const drawerHasResults = drawerTabs.length > 0 || drawerMoreItems.length > 0;
   const desktopPrimaryNavigation = drawerTabs.map(tab => {
     const href = tab.href;
@@ -172,6 +174,10 @@ function AppShell() {
   });
   const drawerMorePanel = <View style={s.moreList}>
     {drawerMoreItems.map(item => {
+      if (item.key === "quick-add") return <View key={item.key}>
+        <Pressable onPress={() => setQuickAddOpen(value => !value)} style={s.moreRow} accessibilityState={{ expanded: quickAddOpen || !!menuQuery }}><Ionicons name={item.icon} size={19} color={colors.neutralIcon} /><Text style={s.moreLabel}>{t(item.label)}</Text><Ionicons name={quickAddOpen || menuQuery ? "chevron-down" : "chevron-forward"} size={14} color={colors.muted} /></Pressable>
+        {(quickAddOpen || !!menuQuery) && <View style={s.nestedList}>{moreRows([{ key: "quick-add", label: "Suggested Products", icon: "albums-outline" }, { key: "bulk-products", label: "Bulk Upload Products", icon: "cloud-upload-outline" }], true)}</View>}
+      </View>;
       if (item.key === "reports") return <View key={item.key}>
         <Pressable disabled={!!menuQuery} onPress={() => setReportsOpen(value => !value)} style={({ pressed }) => [s.moreRow,path.startsWith("/more/reports")&&s.activeMoreRow, pressed && s.pressed]}><Ionicons name={item.icon} size={19} color={path.startsWith("/more/reports")?colors.primaryDark:colors.neutralIcon} /><Text style={[s.moreLabel,path.startsWith("/more/reports")&&s.activeMoreLabel]}>{t(item.label)}</Text><Ionicons name={(menuQuery||reportsOpen) ? "chevron-down" : "chevron-forward"} size={14} color={path.startsWith("/more/reports")?colors.primaryDark:colors.muted} /></Pressable>
         {(!!menuQuery||reportsOpen) && <View style={s.nestedList}>{moreRows(drawerReports, true)}</View>}

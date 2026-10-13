@@ -48,6 +48,7 @@ public class AppDbContext : DbContext
 
     // ── Phase 7 — Expenses ────────────────────────────────────────────────
     public DbSet<Expense> Expenses => Set<Expense>();
+    public DbSet<BusinessExpenseFund> BusinessExpenseFunds => Set<BusinessExpenseFund>();
     public DbSet<PettyCashBox> PettyCashBoxes => Set<PettyCashBox>();
     public DbSet<PettyCashTxn> PettyCashTxns => Set<PettyCashTxn>();
     public DbSet<PlannedRate> PlannedRates => Set<PlannedRate>();
@@ -1208,10 +1209,28 @@ public class AppDbContext : DbContext
             e.HasIndex(x => new { x.PartnerId, x.VotedByPartnerId }).IsUnique();
         });
 
+        modelBuilder.Entity<BusinessExpenseFund>(e =>
+        {
+            e.ToTable("business_expense_funds");
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.BusinessId).IsUnique();
+            e.HasOne(x => x.Business).WithMany().HasForeignKey(x => x.BusinessId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.InitializedBy).OnDelete(DeleteBehavior.Restrict);
+        });
+        modelBuilder.Entity<Expense>(e =>
+        {
+            e.Property(x => x.FundingSource).HasMaxLength(20);
+            e.Property(x => x.FundingPartnerName).HasMaxLength(200);
+            e.Property(x => x.RequestHash).HasMaxLength(64);
+            e.HasIndex(x => new { x.BusinessId, x.RequestId }).IsUnique().HasFilter("[RequestId] IS NOT NULL");
+            e.HasOne<Partner>().WithMany().HasForeignKey(x => x.FundingPartnerId).OnDelete(DeleteBehavior.Restrict);
+        });
         // ── CapitalInjection ────────────────────────────────────────────────
         modelBuilder.Entity<CapitalInjection>(e =>
         {
             e.ToTable("capital_injections");
+            e.HasOne(x => x.Expense).WithMany().HasForeignKey(x => x.ExpenseId).OnDelete(DeleteBehavior.Restrict);
+            e.HasIndex(x => x.ExpenseId).IsUnique().HasFilter("[ExpenseId] IS NOT NULL");
             e.HasKey(x => x.Id);
             e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
             e.Property(x => x.AmountPaisa).HasColumnType("bigint");

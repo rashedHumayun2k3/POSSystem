@@ -75,6 +75,7 @@ builder.Services.AddScoped<ICategoryPresetService, CategoryPresetService>();
 // Phase 2 — Catalog
 builder.Services.AddScoped<ICategoryService, CategoryService>();
 builder.Services.AddScoped<IProductService, ProductService>();
+builder.Services.AddScoped<ProductImportService>();
 builder.Services.AddScoped<IPriceHistoryService, PriceHistoryService>();
 builder.Services.AddScoped<IPriceSlotService, PriceSlotService>();
 builder.Services.AddScoped<IPopularityService, PopularityService>();
@@ -95,6 +96,7 @@ builder.Services.AddScoped<IPartnerCapitalService, PartnerCapitalService>();
 builder.Services.AddScoped<IPartnerService, PartnerService>();
 // Phase 7 — Expenses & Petty Cash
 builder.Services.AddScoped<IExpenseService, ExpenseService>();
+builder.Services.AddScoped<ExpenseFundingService>();
 builder.Services.AddScoped<IPettyCashService, PettyCashService>();
 // Phase 10 — Reports
 builder.Services.AddScoped<IReportService, ReportService>();
