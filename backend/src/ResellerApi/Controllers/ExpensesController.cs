@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using ResellerApi.DTOs.Expenses;
 using ResellerApi.Infrastructure;
 using ResellerApi.Services.Interfaces;
@@ -26,15 +27,25 @@ public class ExpensesController : ControllerBase
     [HttpGet("funding")]
     public async Task<IActionResult> Funding() => Ok(await _funding.GetAsync(_user.UserId, _user.IsOwner, _user.CanSeeCosts || _user.IsPartner));
 
-    [HttpPost("funding/opening-balance")]
+    [HttpGet("funding/closings")]
     [Authorize(Roles = Roles.Owner)]
-    public async Task<IActionResult> InitializeFunding(InitializeExpenseFundRequest request)
+    public async Task<IActionResult> Closings([FromServices] ResellerApi.Data.AppDbContext db) =>
+        Ok(await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.ToListAsync(
+            db.AccountingPeriodClosings.AsNoTracking().OrderByDescending(x => x.PeriodEnd)));
+
+    [HttpGet("funding/closings/preview")]
+    [Authorize(Roles = Roles.Owner)]
+    public async Task<IActionResult> ClosingPreview([FromQuery] DateTime through)
     {
-        try
-        {
-            await _funding.InitializeAsync(request.OpeningBalance, _user.UserId);
-            return Ok(await _funding.GetAsync(_user.UserId, true, true));
-        }
+        try { return Ok(await _funding.PreviewAsync(through)); }
+        catch (ArgumentException ex) { return BadRequest(new { message = ex.Message }); }
+    }
+
+    [HttpPost("funding/closings")]
+    [Authorize(Roles = Roles.Owner)]
+    public async Task<IActionResult> ClosePeriod(CloseFundingPeriodRequest request)
+    {
+        try { return Ok(await _funding.CloseAsync(request.Through, request.Note, _user.UserId)); }
         catch (ArgumentException ex) { return BadRequest(new { message = ex.Message }); }
         catch (InvalidOperationException ex) { return Conflict(new { message = ex.Message }); }
     }

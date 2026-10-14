@@ -48,6 +48,8 @@ public class AppDbContext : DbContext
 
     // ── Phase 7 — Expenses ────────────────────────────────────────────────
     public DbSet<Expense> Expenses => Set<Expense>();
+    public DbSet<AccountingPeriodClosing> AccountingPeriodClosings => Set<AccountingPeriodClosing>();
+    public DbSet<BusinessFundLedgerEntry> BusinessFundLedgerEntries => Set<BusinessFundLedgerEntry>();
     public DbSet<BusinessExpenseFund> BusinessExpenseFunds => Set<BusinessExpenseFund>();
     public DbSet<PettyCashBox> PettyCashBoxes => Set<PettyCashBox>();
     public DbSet<PettyCashTxn> PettyCashTxns => Set<PettyCashTxn>();
@@ -1224,6 +1226,23 @@ public class AppDbContext : DbContext
             e.Property(x => x.RequestHash).HasMaxLength(64);
             e.HasIndex(x => new { x.BusinessId, x.RequestId }).IsUnique().HasFilter("[RequestId] IS NOT NULL");
             e.HasOne<Partner>().WithMany().HasForeignKey(x => x.FundingPartnerId).OnDelete(DeleteBehavior.Restrict);
+        });
+        modelBuilder.Entity<AccountingPeriodClosing>(e =>
+        {
+            e.ToTable("accounting_period_closings");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Status).HasMaxLength(20);
+            e.Property(x => x.Note).HasMaxLength(1000);
+            e.HasIndex(x => new { x.BusinessId, x.PeriodEnd }).IsUnique();
+        });
+        modelBuilder.Entity<BusinessFundLedgerEntry>(e =>
+        {
+            e.ToTable("business_fund_ledger");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.MovementType).HasMaxLength(30);
+            e.Property(x => x.SourceType).HasMaxLength(30);
+            e.HasIndex(x => new { x.BusinessId, x.SourceType, x.SourceId }).IsUnique();
+            e.HasOne<AccountingPeriodClosing>().WithMany().HasForeignKey(x => x.ClosingId).OnDelete(DeleteBehavior.Restrict);
         });
         // ── CapitalInjection ────────────────────────────────────────────────
         modelBuilder.Entity<CapitalInjection>(e =>

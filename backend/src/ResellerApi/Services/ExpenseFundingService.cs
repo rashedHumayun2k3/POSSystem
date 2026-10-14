@@ -35,25 +35,102 @@ public class ExpenseFundingService(AppDbContext db, IBusinessContext business)
         catch { await tx.DisposeAsync(); throw; }
     }
 
-    private async Task<long> RecordedNetAsync()
+    public async Task LockInExistingTransactionAsync()
     {
-        // These are business-wide amounts, including every branch. An expense paid directly
-        // by a partner increases their investment after approval but never adds cash here.
-        var id = business.CurrentBusinessId;
-        var capital = await db.CapitalInjections.IgnoreQueryFilters()
-            .Where(i => i.BusinessId == id && i.DeletedAt == null && i.Status == "APPROVED" && i.ExpenseId == null)
-            .SumAsync(i => (long?)i.AmountPaisa) ?? 0;
-        var expenses = await db.Expenses.IgnoreQueryFilters()
-            .Where(e => e.BusinessId == id && e.DeletedAt == null && e.FundingSource != "PERSONAL"
-                && (e.Status == "APPROVED" || e.PettyCashBoxId != null && e.Status == "PENDING"))
-            .SumAsync(e => (decimal?)e.Amount) ?? 0;
-        return capital - checked((long)decimal.Round(expenses * 100, 0));
+        if (!db.Database.IsSqlServer()) return;
+        var resource = $"expense-funding:{business.CurrentBusinessId}";
+        await db.Database.ExecuteSqlInterpolatedAsync($@"DECLARE @result int;
+            EXEC @result = sp_getapplock @Resource={resource}, @LockMode='Exclusive', @LockOwner='Transaction', @LockTimeout=15000;
+            IF @result < 0 THROW 51000, 'Financial period is busy. Please retry.', 1;");
     }
 
-    public async Task<long?> BalanceAsync()
+    public async Task<AccountingPeriodClosing?> LatestClosingAsync() => await db.AccountingPeriodClosings
+        .AsNoTracking().OrderByDescending(x => x.PeriodEnd).FirstOrDefaultAsync();
+
+    private async Task<(long Capital, long Expenses, List<CapitalInjection> Injections, List<Expense> ExpenseRows)> MovementsAsync(DateTime start, DateTime end)
     {
-        var account = await db.BusinessExpenseFunds.AsNoTracking().SingleOrDefaultAsync();
-        return account == null ? null : account.OpeningBalancePaisa + await RecordedNetAsync() - account.RecordedNetPaisaAtOpening;
+        var id = business.CurrentBusinessId;
+        var investments = await db.CapitalInjections.IgnoreQueryFilters().AsNoTracking()
+            .Where(i => i.BusinessId == id && i.DeletedAt == null && i.Status == "APPROVED" && i.ExpenseId == null
+                && i.InjectedAt >= start && i.InjectedAt < end)
+            .ToListAsync();
+        var expenses = await db.Expenses.IgnoreQueryFilters().AsNoTracking()
+            .Where(e => e.BusinessId == id && e.DeletedAt == null && e.FundingSource != "PERSONAL"
+                && (e.Status == "APPROVED" || e.PettyCashBoxId != null && e.Status == "PENDING")
+                && e.ExpenseDate >= start && e.ExpenseDate < end)
+            .ToListAsync();
+        return (investments.Sum(i => i.AmountPaisa), expenses.Sum(e => ToPaisa(e.Amount)), investments, expenses);
+    }
+
+    public async Task<long> BalanceAsync()
+    {
+        var last = await LatestClosingAsync();
+        var movements = await MovementsAsync(last?.PeriodEnd.AddDays(1) ?? DateTime.MinValue, DateTime.MaxValue);
+        return (last?.ClosingBalancePaisa ?? 0) + movements.Capital - movements.Expenses;
+    }
+
+    public async Task<FundingClosingPreview> PreviewAsync(DateTime through)
+    {
+        if (through.TimeOfDay != TimeSpan.Zero || through.Date >= DateTime.UtcNow.Date)
+            throw new ArgumentException("Choose a completed date before today.");
+        var last = await LatestClosingAsync();
+        if (last != null && through <= last.PeriodEnd)
+            throw new ArgumentException("Closing date must be after the last closed period.");
+        var start = last?.PeriodEnd.AddDays(1) ?? DateTime.MinValue;
+        var end = through.AddDays(1);
+        var movements = await MovementsAsync(start, end);
+        var pendingInjections = await db.CapitalInjections.IgnoreQueryFilters().CountAsync(i =>
+            i.BusinessId == business.CurrentBusinessId && i.DeletedAt == null && i.Status == "PENDING_APPROVAL" && i.InjectedAt < end);
+        var pendingExpenseItems = await db.Expenses.IgnoreQueryFilters().AsNoTracking()
+            .Where(e => e.BusinessId == business.CurrentBusinessId && e.DeletedAt == null && e.Status == "PENDING" && e.ExpenseDate < end)
+            .OrderBy(e => e.ExpenseDate)
+            .Select(e => new PendingClosingExpense(e.Id, e.SubType, e.Amount, e.ExpenseDate, e.Note, e.FundingSource))
+            .ToListAsync();
+        return new FundingClosingPreview(start == DateTime.MinValue ? null : start, through,
+            (last?.ClosingBalancePaisa ?? 0) / 100m, movements.Capital / 100m, movements.Expenses / 100m,
+            ((last?.ClosingBalancePaisa ?? 0) + movements.Capital - movements.Expenses) / 100m,
+            pendingInjections, pendingExpenseItems.Count, pendingExpenseItems);
+    }
+
+    public async Task<AccountingPeriodClosing> CloseAsync(DateTime through, string? note, Guid userId)
+    {
+        await using var tx = await BeginAsync();
+        var preview = await PreviewAsync(through);
+        if (preview.PendingInjections > 0 || preview.PendingExpenses > 0)
+            throw new InvalidOperationException("Resolve pending installments and expenses dated in this period before closing.");
+        var movements = await MovementsAsync(preview.PeriodStart ?? DateTime.MinValue, through.AddDays(1));
+        var closing = new AccountingPeriodClosing {
+            BusinessId = business.CurrentBusinessId, PeriodStart = preview.PeriodStart ?? DateTime.MinValue,
+            PeriodEnd = through, OpeningBalancePaisa = checked((long)(preview.OpeningBalance * 100m)),
+            ApprovedCashPaisa = movements.Capital, BusinessExpensePaisa = movements.Expenses,
+            ClosingBalancePaisa = checked((long)(preview.ClosingBalance * 100m)), ClosedBy = userId,
+            ClosedAt = DateTime.UtcNow, Note = note?.Trim()
+        };
+        db.AccountingPeriodClosings.Add(closing);
+        foreach (var item in movements.Injections)
+            db.BusinessFundLedgerEntries.Add(new BusinessFundLedgerEntry {
+                BusinessId = business.CurrentBusinessId, ClosingId = closing.Id,
+                PostingDate = item.InjectedAt.Date, OriginalDate = item.InjectedAt.Date,
+                MovementType = "CASH_INVESTMENT", AmountPaisa = item.AmountPaisa,
+                SourceType = "CapitalInjection", SourceId = item.Id, CreatedBy = userId
+            });
+        foreach (var item in movements.ExpenseRows)
+            db.BusinessFundLedgerEntries.Add(new BusinessFundLedgerEntry {
+                BusinessId = business.CurrentBusinessId, ClosingId = closing.Id,
+                PostingDate = item.ExpenseDate.Date, OriginalDate = item.ExpenseDate.Date,
+                MovementType = "BUSINESS_EXPENSE", AmountPaisa = -ToPaisa(item.Amount),
+                SourceType = "Expense", SourceId = item.Id, CreatedBy = userId
+            });
+        await db.SaveChangesAsync();
+        if (tx != null) await tx.CommitAsync();
+        return closing;
+    }
+
+    public async Task EnsureDateOpenAsync(DateTime date)
+    {
+        var last = await LatestClosingAsync();
+        if (last != null && date.Date <= last.PeriodEnd.Date)
+            throw new InvalidOperationException("This date is in a closed period. Record an adjustment in the current period instead.");
     }
 
     public Task<Partner?> PartnerAsync(Guid userId) => db.Partners.AsNoTracking()
@@ -64,34 +141,13 @@ public class ExpenseFundingService(AppDbContext db, IBusinessContext business)
         var balance = await BalanceAsync();
         var partner = await PartnerAsync(userId);
         var canInvest = await db.Partners.AnyAsync(p => p.Status == "ACTIVE" && p.PartnerType == "MANAGING");
-        return new(balance.HasValue, canViewBalance ? balance / 100m : null,
-            canInvest ? partner?.Id : null, canInvest ? partner?.Name : null, owner);
+        return new(true, canViewBalance ? balance / 100m : null,
+            canInvest ? partner?.Id : null, canInvest ? partner?.Name : null, false);
     }
 
-    public async Task InitializeAsync(decimal amount, Guid userId)
+    public async Task CheckBusinessPaymentAsync(decimal amount)
     {
-        var paisa = ToPaisa(amount);
-        await using var tx = await BeginAsync();
-        if (await db.BusinessExpenseFunds.AnyAsync())
-            throw new InvalidOperationException("The opening balance has already been set.");
-        db.BusinessExpenseFunds.Add(new BusinessExpenseFund
-        {
-            BusinessId = business.CurrentBusinessId, OpeningBalancePaisa = paisa,
-            RecordedNetPaisaAtOpening = await RecordedNetAsync(), InitializedBy = userId
-        });
-        await db.SaveChangesAsync();
-        if (tx != null) await tx.CommitAsync();
-    }
-
-    public async Task CheckBusinessPaymentAsync(decimal amount, bool requireOpening)
-    {
-        var balance = await BalanceAsync();
-        if (!balance.HasValue)
-        {
-            if (requireOpening) throw new InvalidOperationException("Ask the owner to enter the opening business capital balance first.");
-            return; // Compatibility for historical clients before the one-time setup.
-        }
-        if (balance.Value < ToPaisa(amount))
+        if (await BalanceAsync() < ToPaisa(amount))
             throw new InvalidOperationException("Insufficient business capital balance. Refresh the balance or choose a personal payment.");
     }
 

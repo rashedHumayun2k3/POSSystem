@@ -1,6 +1,6 @@
 import {Text} from "../i18n/LocalizedText";
 import {Ionicons} from "@expo/vector-icons";
-import {router} from "expo-router";
+import {router,useLocalSearchParams} from "expo-router";
 import {useEffect,useRef,useState} from "react";
 import {ActivityIndicator,Modal,Pressable,RefreshControl,ScrollView,StyleSheet,TextInput,useWindowDimensions,View} from "react-native";
 import {SafeAreaView} from "react-native-safe-area-context";
@@ -12,8 +12,10 @@ type Tab="ALL"|"PENDING"|"APPROVED";
 const money=(n:number)=>`৳${Number(n).toLocaleString("en-BD",{maximumFractionDigits:2})}`;
 const date=(v:string)=>new Date(v).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"});
 export default function ExpensesScreen(){
+ const params=useLocalSearchParams<{status?:string}>();
  const auth=useAuth();const apiRef=useRef(auth.api);apiRef.current=auth.api;const {width}=useWindowDimensions();const mobile=width<768;const owner=auth.session?.user.role==="OWNER";
- const [tab,setTab]=useState<Tab>("ALL");const [items,setItems]=useState<Expense[]>([]);const [loading,setLoading]=useState(true);const [error,setError]=useState("");const [success,setSuccess]=useState("");const [reload,setReload]=useState(0);const [reject,setReject]=useState<Expense|null>(null);const [reason,setReason]=useState("");const [remove,setRemove]=useState<Expense|null>(null);const [saving,setSaving]=useState(false);
+ const [tab,setTab]=useState<Tab>(params.status==="PENDING"?"PENDING":"ALL");const [items,setItems]=useState<Expense[]>([]);const [loading,setLoading]=useState(true);const [error,setError]=useState("");const [success,setSuccess]=useState("");const [reload,setReload]=useState(0);const [reject,setReject]=useState<Expense|null>(null);const [reason,setReason]=useState("");const [remove,setRemove]=useState<Expense|null>(null);const [saving,setSaving]=useState(false);
+ useEffect(()=>{if(params.status==="PENDING")setTab("PENDING")},[params.status]);
  useEffect(()=>{let active=true;(async()=>{setLoading(true);setError("");try{const q=tab==="ALL"?"":`&status=${tab}`;const data=await apiRef.current<ExpensePage>(`/expenses?pageSize=100${q}`);if(active)setItems(data.items||[])}catch(e){if(active)setError((e as Error).message)}finally{if(active)setLoading(false)}})();return()=>{active=false}},[tab,reload,auth.session?.businessId,auth.session?.branchId]);
  const act=async(path:string,method:"POST"|"DELETE",body?:unknown)=>{setSaving(true);setError("");try{await apiRef.current(path,{method,headers:{"Content-Type":"application/json"},body:body?JSON.stringify(body):undefined});setReject(null);setRemove(null);setReason("");setSuccess("Expense updated successfully.");setReload(v=>v+1)}catch(e){setError((e as Error).message)}finally{setSaving(false)}};
  const approved=items.filter(e=>e.status==="APPROVED").reduce((n,e)=>n+e.amount,0),pending=items.filter(e=>e.status==="PENDING").length;

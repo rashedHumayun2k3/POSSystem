@@ -1,4 +1,9 @@
 {
+  "homeApproval": {"later": "Later", "failed": "Could not check installment approvals.", "remaining": "{count} installment(s) need your review."},
+  "capitalForm": {"ok": "OK","submittedTitle": "Submitted for approval","installmentFor": "Installment for {name}", "submitted": "Installment submitted to the managing partners for approval.", "select": "Select partner", "empty": "No active partners available."},
+  "expenseOpening": {"title": "Set opening balance", "required": "Please set the opening balance before using Business Capital.", "notSet": "Not set up", "private": "Balance hidden", "unavailable": "Unavailable", "help": "Enter the actual funds available for expenses now, before this payment. This is a one-time setup for the whole business. Past investments and expenses will not be counted again.", "askOwner": "Ask the business owner to set the opening balance before paying from Business Capital.", "amount": "Opening balance in taka", "save": "Set opening balance"},
+  "expenseOptions": {"item0": "Delivery & Shipping", "item1": "Equipment & Other", "item2": "Initial Setup & Assets", "item3": "Inventory & Stock Loss", "item4": "Marketing & Ads", "item5": "Office & Admin", "item6": "Owner Drawing", "item7": "Staff & Salary", "item8": "Trip & Purchase Costs", "item9": "Product Damage Loss", "item10": "Rent", "item11": "Electricity", "item12": "Internet", "item13": "Stationery", "item14": "Cleaning", "item15": "Mobile/Phone Bill", "item16": "Bank/MFS Charge", "item17": "Salary", "item18": "Delivery rider salary", "item19": "Bonus", "item20": "Advance", "item21": "Overtime", "item22": "Transport allowance", "item23": "Facebook Ads", "item24": "Boost post", "item25": "Banner", "item26": "Packaging design", "item27": "Promotional gift", "item28": "Courier fee", "item29": "Return charge", "item30": "COD collection charge", "item31": "Petrol", "item32": "Van/Rickshaw rent", "item33": "Vehicle maintenance", "item34": "Toll/Ferry", "item35": "Parking", "item36": "Packaging Materials", "item37": "Flight ticket", "item38": "Hotel", "item39": "Food", "item40": "Visa fee", "item41": "Customs", "item42": "Local transport", "item43": "Equipment purchase", "item44": "Repair", "item45": "Furniture", "item46": "Software", "item47": "Miscellaneous", "item48": "Personal drawing", "item49": "Personal transfer", "item50": "Damage Loss", "item51": "Expired/Near-expiry write-off", "item52": "Theft/Pilferage", "item53": "Stock count adjustment", "item54": "Shop Rent Advance/Deposit", "item55": "Shop Decoration/Renovation", "item56": "CCTV & Security System", "item57": "Signboard/Branding", "item58": "POS/Computer Setup", "item59": "Initial Furniture & Fixtures", "item60": "Shop/Property Purchase", "item61": "Business Registration/Trade License", "item62": "Other", "item63": "Expense name", "item64": "Custom expense", "item65": "Search cost: courier, salary, rent…", "item66": "e.g. Special courier fee", "entryCount": "{count} expense entry", "entriesCount": "{count} expense entries"},
+  "partnerSummary": {"total": "Total approved investment", "available": "Available funds", "totalHint": "Approved investments from managing and sleeping partners. Pending installments are excluded.", "availableHint": "Approved cash installments − business-paid expenses. Includes petty cash already paid; excludes personal payments.", "notSet": "Opening balance has not been set.", "restricted": "You do not have access to view this balance.", "loading": "Loading available funds…", "failed": "Available funds could not be loaded.", "retry": "Try again"},
   "productImportMenu": { "bulk": "Bulk Upload Products", "suggested": "Suggested Products", "description": "Import up to 50 new products from Excel", "suggestions": "Choose from ready-made categories and products" },
   "storeroomMobile": {
     "noAccess": "Storeroom access is available to owners and warehouse staff.",
@@ -1335,6 +1340,7 @@
     "saveFailed": "Failed to save."
   },
   "partners": {
+    "paymentMethodDIRECT_EXPENSE": "Paid personally for an expense",
     "title": "Business Partner",
     "sectionManaging": "Managing Partners",
     "sectionSleeping": "Sleeping Partners",
@@ -1829,7 +1835,8 @@
     "amount": "Amount",
     "date": "Date",
     "today": "Today",
-    "yesterday": "Yesterday"
+    "yesterday": "Yesterday",
+    "chooseDate": "Choose date"
   },
   "pos": {
     "openShift": "Open Shift",

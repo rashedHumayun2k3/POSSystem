@@ -100,7 +100,12 @@ public class ExpenseService : IExpenseService
             .Include(x => x.ApprovedByUser)
             .FirstOrDefaultAsync(x => x.Id == id)
             ?? throw new KeyNotFoundException("Expense not found.");
-        return MapDto(e);
+        var investmentId = e.FundingSource == "PERSONAL"
+            ? await _db.CapitalInjections.IgnoreQueryFilters().AsNoTracking()
+                .Where(i => i.BusinessId == _business.CurrentBusinessId && i.ExpenseId == e.Id && i.DeletedAt == null)
+                .Select(i => (Guid?)i.Id).FirstOrDefaultAsync()
+            : null;
+        return MapDto(e) with { FundingPartnerId = e.FundingPartnerId, PersonalInvestmentId = investmentId };
     }
 
     public async Task<ExpenseDto> CreateAsync(CreateExpenseRequest req, Guid userId, bool isOwner)
@@ -119,6 +124,7 @@ public class ExpenseService : IExpenseService
         if (source != null && req.PettyCashBoxId.HasValue)
             throw new ArgumentException("Choose one payment source only.");
         await using var tx = await Funding.BeginAsync();
+        await Funding.EnsureDateOpenAsync(req.ExpenseDate);
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(req))));
         if (req.RequestId.HasValue)
         {
@@ -132,12 +138,14 @@ public class ExpenseService : IExpenseService
             }
         }
         var partner = source == "PERSONAL" ? await Funding.PartnerAsync(userId) : null;
+        var managingPartner = partner ?? await Funding.PartnerAsync(userId);
+        var autoApprove = isOwner || managingPartner?.PartnerType == "MANAGING";
         if (source == "PERSONAL" && partner == null)
             throw new InvalidOperationException("Your account must be linked to an active business partner to record a personal investment.");
         if (source == "PERSONAL" && !await _db.Partners.AnyAsync(p => p.Status == "ACTIVE" && p.PartnerType == "MANAGING"))
             throw new InvalidOperationException("An active managing partner is required to review the investment.");
-        if (source != "PERSONAL" && (isOwner || source == "BUSINESS" || req.PettyCashBoxId.HasValue))
-            await Funding.CheckBusinessPaymentAsync(req.Amount, source == "BUSINESS");
+        if (source != "PERSONAL" && (autoApprove || source == "BUSINESS" || req.PettyCashBoxId.HasValue))
+            await Funding.CheckBusinessPaymentAsync(req.Amount);
 
         var cat = await _db.ExpenseCategories.FirstOrDefaultAsync(c => c.Id == req.CategoryId)
             ?? throw new KeyNotFoundException("Expense category not found.");
@@ -162,10 +170,10 @@ public class ExpenseService : IExpenseService
             PettyCashBoxId   = req.PettyCashBoxId,
             PhotoUrl         = req.PhotoUrl?.Trim(),
             Note             = req.Note?.Trim(),
-            Status           = isOwner ? "APPROVED" : "PENDING",
-            PaidAt           = isOwner ? DateTime.UtcNow : null,
+            Status           = autoApprove ? "APPROVED" : "PENDING",
+            PaidAt           = autoApprove ? DateTime.UtcNow : null,
             CreatedBy        = userId,
-            ApprovedBy       = isOwner ? userId : null,
+            ApprovedBy       = autoApprove ? userId : null,
         };
         _db.Expenses.Add(expense);
 
@@ -191,7 +199,7 @@ public class ExpenseService : IExpenseService
             });
         }
 
-        if (isOwner) await Funding.AddPersonalInvestmentAsync(expense);
+        if (autoApprove) await Funding.AddPersonalInvestmentAsync(expense);
         await _db.SaveChangesAsync();
         await _log.LogAsync(_business.CurrentBusinessId, userId, "CREATE", "Expense", expense.Id,
             null, new { expense.Amount, expense.SubType, expense.FundingSource, expense.FundingPartnerId });
@@ -221,7 +229,9 @@ public class ExpenseService : IExpenseService
 
         ExpenseFundingService.ToPaisa(req.Amount);
         if (expense.Status == "APPROVED" && req.Amount > expense.Amount)
-            await Funding.CheckBusinessPaymentAsync(req.Amount - expense.Amount, false);
+            await Funding.CheckBusinessPaymentAsync(req.Amount - expense.Amount);
+        await Funding.EnsureDateOpenAsync(expense.ExpenseDate);
+        await Funding.EnsureDateOpenAsync(req.ExpenseDate);
         expense.CategoryId       = req.CategoryId;
         expense.SubType          = NormalizeSubType(cat.Code, req.SubType);
         expense.Amount           = req.Amount;
@@ -251,6 +261,7 @@ public class ExpenseService : IExpenseService
         if (expense.Status == "APPROVED" && expense.PettyCashBoxId.HasValue)
             throw new InvalidOperationException("Cannot delete a petty-cash expense. Adjust the box balance instead.");
 
+        await Funding.EnsureDateOpenAsync(expense.ExpenseDate);
         expense.DeletedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
         await _log.LogAsync(_business.CurrentBusinessId, userId, "DELETE", "Expense", expense.Id);
@@ -260,15 +271,17 @@ public class ExpenseService : IExpenseService
     public async Task<ExpenseDto> ApproveAsync(Guid id, Guid userId, string? note)
     {
         await using var tx = await Funding.BeginAsync();
-        var expense = await _db.Expenses.FirstOrDefaultAsync(e => e.Id == id)
+        var expense = await _db.Expenses.IgnoreQueryFilters().FirstOrDefaultAsync(e =>
+            e.Id == id && e.BusinessId == _business.CurrentBusinessId && e.DeletedAt == null)
             ?? throw new KeyNotFoundException("Expense not found.");
 
         if (expense.Status != "PENDING")
             throw new InvalidOperationException("Only PENDING expenses can be approved.");
 
         if (expense.FundingSource != "PERSONAL" && !expense.PettyCashBoxId.HasValue)
-            await Funding.CheckBusinessPaymentAsync(expense.Amount, expense.FundingSource == "BUSINESS");
+            await Funding.CheckBusinessPaymentAsync(expense.Amount);
         await Funding.AddPersonalInvestmentAsync(expense);
+        await Funding.EnsureDateOpenAsync(expense.ExpenseDate);
         expense.Status     = "APPROVED";
         expense.ApprovedBy = userId;
         expense.PaidAt     = DateTime.UtcNow;
@@ -278,7 +291,7 @@ public class ExpenseService : IExpenseService
         await _db.SaveChangesAsync();
         await _log.LogAsync(_business.CurrentBusinessId, userId, "APPROVE", "Expense", expense.Id);
         if (tx != null) await tx.CommitAsync();
-        return await GetAsync(expense.Id);
+        return MapDto(expense);
     }
 
     public async Task<ExpenseDto> RejectAsync(Guid id, Guid userId, string reason)
@@ -287,7 +300,8 @@ public class ExpenseService : IExpenseService
             throw new ArgumentException("Rejection reason is required.");
 
         await using var tx = await Funding.BeginAsync();
-        var expense = await _db.Expenses.FirstOrDefaultAsync(e => e.Id == id)
+        var expense = await _db.Expenses.IgnoreQueryFilters().FirstOrDefaultAsync(e =>
+            e.Id == id && e.BusinessId == _business.CurrentBusinessId && e.DeletedAt == null)
             ?? throw new KeyNotFoundException("Expense not found.");
 
         if (expense.Status != "PENDING")
@@ -307,7 +321,7 @@ public class ExpenseService : IExpenseService
         await _db.SaveChangesAsync();
         await _log.LogAsync(_business.CurrentBusinessId, userId, "REJECT", "Expense", expense.Id);
         if (tx != null) await tx.CommitAsync();
-        return await GetAsync(expense.Id);
+        return MapDto(expense);
     }
 
     private static ExpenseDto MapDto(Expense e) => new(

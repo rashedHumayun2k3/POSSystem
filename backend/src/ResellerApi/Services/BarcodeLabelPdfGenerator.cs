@@ -36,7 +36,7 @@ public static class BarcodeLabelPdfGenerator
                 Width = 300,
                 Height = 80,
                 Margin = 3,
-                PureBarcode = false,
+                PureBarcode = true,
             }
         };
         using var bitmap = writer.Write(text);
@@ -84,9 +84,15 @@ public static class BarcodeLabelPdfGenerator
                                 .Padding(3)
                                 .Column(col =>
                                 {
+                                    var nameFont = lbl.ProductName.Length > 34 ? 5f : 6.5f;
+                                    col.Item().AlignCenter().Text(lbl.Sku).FontSize(7f).Bold().ClampLines(1, "…");
                                     col.Item()
+                                        .Height(4, Unit.Millimetre)
+                                        .PaddingHorizontal(2)
+                                        .AlignCenter()
+                                        .AlignMiddle()
                                         .Text(lbl.ProductName)
-                                        .FontSize(6.5f)
+                                        .FontSize(nameFont)
                                         .Bold()
                                         .ClampLines(1, "…");
 
@@ -100,18 +106,10 @@ public static class BarcodeLabelPdfGenerator
                                         .PaddingVertical(2)
                                         .Image(RenderBarcode(lbl.Barcode))
                                         .FitWidth();
-
-                                    col.Item().Row(row =>
-                                    {
-                                        row.RelativeItem()
-                                            .Text(lbl.Sku)
-                                            .FontSize(5.5f)
-                                            .FontColor(Colors.Grey.Darken1);
-                                        row.AutoItem()
-                                            .Text($"৳{lbl.Price:N0}")
-                                            .FontSize(7.5f)
-                                            .Bold();
-                                    });
+                                    col.Item().AlignCenter().Text(lbl.Barcode).FontFamily(Fonts.CourierNew).FontSize(5.5f);
+                                    col.Item().AlignCenter().Text($"৳{lbl.Price:N0}").FontSize(7.5f).Bold();
+                                    col.Item().PaddingTop(1).LineHorizontal(0.5f).LineColor(Colors.Grey.Lighten1);
+                                    col.Item().AlignCenter().Text("TOSS Active").FontSize(6);
                                 });
                         }
 
@@ -189,7 +187,7 @@ public static class BarcodeLabelPdfGenerator
                                 table.Cell()
                                     .Width((float)template.LabelWidth, Unit.Millimetre)
                                     .Height((float)template.LabelHeight, Unit.Millimetre)
-                                    .Element(cell => ComposeLabel(cell, label));
+                                    .Element(cell => ComposeLabel(cell, label, (float)template.LabelWidth, (float)template.LabelHeight));
 
                                 if (column < template.Columns - 1)
                                     table.Cell()
@@ -219,15 +217,19 @@ public static class BarcodeLabelPdfGenerator
                     page.Size((float)size.Width, (float)size.Height, Unit.Millimetre);
                     page.Margin(0);
                     page.DefaultTextStyle(x => x.FontFamily(Fonts.Arial).FontSize(7));
-                    page.Content().Element(cell => ComposeLabel(cell, label, size.Height <= 25));
+                    page.Content().Element(cell => ComposeLabel(cell, label, (float)size.Width, (float)size.Height));
                 });
             }
         }).GeneratePdf();
     }
 
-    private static void ComposeLabel(IContainer container, VariantLabelData? label, bool compact = false)
+    private static void ComposeLabel(IContainer container, VariantLabelData? label, float widthMm, float heightMm)
     {
         if (label is null) return;
+        var compact = heightMm <= 25;
+        var nameFont = label.ProductName.Length > Math.Max(20, (int)(widthMm * .7f))
+            ? (compact ? 5f : 5.5f)
+            : (compact ? 6f : 7f);
 
         container
             .Padding(compact ? 2 : 4)
@@ -235,12 +237,15 @@ public static class BarcodeLabelPdfGenerator
             .AlignMiddle()
             .Column(column =>
             {
-                column.Spacing(compact ? 0.5f : 1);
-                column.Item().AlignCenter().Text("TOSS Active").Bold().FontSize(7);
-                column.Item().AlignCenter().Text(label.ProductName).Bold().FontSize(7).ClampLines(2, "…");
+                column.Spacing(compact ? 0.3f : 1);
+                column.Item().AlignCenter().Text(label.Sku).Bold().FontSize(compact ? 6.5f : 7.5f).ClampLines(1, "…");
+                column.Item().Height(4, Unit.Millimetre).PaddingHorizontal(2)
+                    .AlignCenter().AlignMiddle().Text(label.ProductName).Bold().FontSize(nameFont).ClampLines(1, "…");
                 column.Item().Height(compact ? 7 : 10, Unit.Millimetre).PaddingHorizontal(2).Image(RenderBarcode(label.Barcode)).FitUnproportionally();
-                column.Item().AlignCenter().Text(label.Barcode).FontFamily(Fonts.CourierNew).FontSize(5.5f);
-                column.Item().AlignCenter().Text($"৳{label.Price:N2}").Bold().FontSize(6.5f);
+                column.Item().AlignCenter().Text(label.Barcode).FontFamily(Fonts.CourierNew).FontSize(compact ? 5 : 5.5f);
+                column.Item().AlignCenter().Text($"৳{label.Price:N2}").Bold().FontSize(compact ? 6 : 6.5f);
+                column.Item().PaddingTop(compact ? 0.5f : 1).LineHorizontal(0.5f).LineColor(Colors.Grey.Lighten1);
+                column.Item().AlignCenter().Text("TOSS Active").FontSize(compact ? 5.5f : 6);
             });
     }
 }

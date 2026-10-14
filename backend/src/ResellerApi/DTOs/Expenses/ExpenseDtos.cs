@@ -35,7 +35,9 @@ public record ExpenseDto(
     string? RejectionReason,
     DateTime CreatedAt,
     string? FundingSource = null,
-    string? FundingPartnerName = null
+    string? FundingPartnerName = null,
+    Guid? FundingPartnerId = null,
+    Guid? PersonalInvestmentId = null
 );
 
 // ── Create ────────────────────────────────────────────────────────────────────
@@ -57,6 +59,11 @@ public record CreateExpenseRequest(
 );
 
 public record ExpenseFundingDto(bool Initialized, decimal? Balance, Guid? PartnerId, string? PartnerName, bool CanInitialize);
+public record FundingClosingPreview(DateTime? PeriodStart, DateTime PeriodEnd, decimal OpeningBalance,
+    decimal ApprovedCash, decimal BusinessExpenses, decimal ClosingBalance, int PendingInjections, int PendingExpenses,
+    IReadOnlyList<PendingClosingExpense> PendingExpenseItems);
+public record PendingClosingExpense(Guid Id, string SubType, decimal Amount, DateTime ExpenseDate, string? Note, string? FundingSource);
+public record CloseFundingPeriodRequest(DateTime Through, string? Note);
 public record InitializeExpenseFundRequest(decimal OpeningBalance);
 
 // ── Update ────────────────────────────────────────────────────────────────────

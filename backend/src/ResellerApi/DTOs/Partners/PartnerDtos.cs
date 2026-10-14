@@ -138,7 +138,8 @@ public record CreateCapitalInjectionRequest(
     string? ChequeNumber,
     string? PaymentReference,
     string? ProofImageUrl,
-    string? Note
+    string? Note,
+    bool SubmitForApproval = false
 );
 
 public record CapitalInjectionApprovalVoteDto(

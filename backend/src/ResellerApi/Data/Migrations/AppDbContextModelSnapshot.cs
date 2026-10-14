@@ -22,6 +22,71 @@ namespace ResellerApi.Data.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
+            modelBuilder.Entity("ResellerApi.Entities.AccountingPeriodClosing", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<long>("ApprovedCashPaisa")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("BusinessExpensePaisa")
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid>("BusinessId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("ClosedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("ClosedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<long>("ClosingBalancePaisa")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<long>("OpeningBalancePaisa")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("PeriodEnd")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("PeriodStart")
+                        .HasColumnType("datetime2");
+
+                    b.Property<byte[]>("RowVer")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BusinessId", "PeriodEnd")
+                        .IsUnique();
+
+                    b.ToTable("accounting_period_closings", (string)null);
+                });
+
             modelBuilder.Entity("ResellerApi.Entities.ActivityLog", b =>
                 {
                     b.Property<Guid>("Id")
@@ -334,6 +399,71 @@ namespace ResellerApi.Data.Migrations
                     b.HasIndex("InitializedBy");
 
                     b.ToTable("business_expense_funds", (string)null);
+                });
+
+            modelBuilder.Entity("ResellerApi.Entities.BusinessFundLedgerEntry", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<long>("AmountPaisa")
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid>("BusinessId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ClosingId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("CreatedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("MovementType")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<DateTime>("OriginalDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("PostingDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("ReversalOfId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<byte[]>("RowVer")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<Guid>("SourceId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("SourceType")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ClosingId");
+
+                    b.HasIndex("BusinessId", "SourceType", "SourceId")
+                        .IsUnique();
+
+                    b.ToTable("business_fund_ledger", (string)null);
                 });
 
             modelBuilder.Entity("ResellerApi.Entities.BusinessUser", b =>
@@ -5155,6 +5285,17 @@ namespace ResellerApi.Data.Migrations
                     b.ToTable("work_tasks", (string)null);
                 });
 
+            modelBuilder.Entity("ResellerApi.Entities.AccountingPeriodClosing", b =>
+                {
+                    b.HasOne("ResellerApi.Entities.Business", "Business")
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Business");
+                });
+
             modelBuilder.Entity("ResellerApi.Entities.ActivityLog", b =>
                 {
                     b.HasOne("ResellerApi.Entities.Business", "Business")
@@ -5237,6 +5378,23 @@ namespace ResellerApi.Data.Migrations
                     b.HasOne("ResellerApi.Entities.User", null)
                         .WithMany()
                         .HasForeignKey("InitializedBy")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Business");
+                });
+
+            modelBuilder.Entity("ResellerApi.Entities.BusinessFundLedgerEntry", b =>
+                {
+                    b.HasOne("ResellerApi.Entities.Business", "Business")
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("ResellerApi.Entities.AccountingPeriodClosing", null)
+                        .WithMany()
+                        .HasForeignKey("ClosingId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 

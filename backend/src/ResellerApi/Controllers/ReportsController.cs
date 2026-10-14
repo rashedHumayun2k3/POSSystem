@@ -73,6 +73,68 @@ public class ReportsController : ControllerBase
         return Ok(await _svc.GetPnlReportAsync(f, t, groupBy, _user.CanSeeCosts));
     }
 
+    [HttpGet("expenses")]
+    [Authorize(Roles = Roles.OwnerOrManager)]
+    public async Task<IActionResult> Expenses(
+        [FromQuery] DateTime? from, [FromQuery] DateTime? to,
+        [FromQuery] Guid? categoryId, [FromQuery] string? status, [FromQuery] int page = 1)
+    {
+        var start = (from ?? DateTime.UtcNow.Date.AddDays(-29)).Date;
+        var through = (to ?? DateTime.UtcNow.Date).Date;
+        if (through < start || through == DateTime.MaxValue.Date)
+            return BadRequest(new { message = "Choose a valid date range." });
+        var endExclusive = through.AddDays(1);
+        var query = _db.Expenses.AsNoTracking()
+            .Where(e => e.ExpenseDate >= start && e.ExpenseDate < endExclusive);
+        if (categoryId.HasValue) query = query.Where(e => e.CategoryId == categoryId.Value);
+
+        var statusTotals = await query.GroupBy(e => e.Status)
+            .Select(g => new { Status = g.Key, Count = g.Count(), Amount = g.Sum(e => e.Amount) })
+            .ToListAsync();
+        var approved = query.Where(e => e.Status == "APPROVED");
+        var categoryTotals = await approved.GroupBy(e => e.CategoryId)
+            .Select(g => new { CategoryId = g.Key, Amount = g.Sum(e => e.Amount), Count = g.Count() })
+            .OrderByDescending(x => x.Amount).ToListAsync();
+        var categoryIds = categoryTotals.Select(x => x.CategoryId).ToList();
+        var categoryNames = await _db.ExpenseCategories.AsNoTracking()
+            .Where(c => categoryIds.Contains(c.Id))
+            .ToDictionaryAsync(c => c.Id, c => c.Name);
+        var categories = categoryTotals.Select(x => new ExpenseReportCategoryDto(
+            x.CategoryId, categoryNames.GetValueOrDefault(x.CategoryId) ?? "Unknown category", x.Amount, x.Count)).ToList();
+        var sourceTotals = await approved.GroupBy(e => new { e.FundingSource, e.PettyCashBoxId })
+            .Select(g => new { g.Key.FundingSource, g.Key.PettyCashBoxId, Amount = g.Sum(e => e.Amount), Count = g.Count() })
+            .ToListAsync();
+        var sources = sourceTotals
+            .GroupBy(x => x.FundingSource == "PERSONAL" ? "PERSONAL" :
+                x.PettyCashBoxId != null ? "PETTY_CASH" : x.FundingSource == "BUSINESS" ? "BUSINESS" : "UNSPECIFIED")
+            .Select(g => new ExpenseReportFundingDto(g.Key, g.Sum(x => x.Amount), g.Sum(x => x.Count)))
+            .OrderByDescending(x => x.Amount).ToList();
+
+        var normalizedStatus = status?.Trim().ToUpperInvariant();
+        if (!string.IsNullOrEmpty(normalizedStatus) && normalizedStatus != "ALL"
+            && normalizedStatus != "APPROVED" && normalizedStatus != "PENDING" && normalizedStatus != "REJECTED")
+            return BadRequest(new { message = "Invalid expense status." });
+        var rows = query;
+        if (!string.IsNullOrEmpty(normalizedStatus) && normalizedStatus != "ALL")
+            rows = rows.Where(e => e.Status == normalizedStatus);
+        const int pageSize = 25;
+        page = Math.Max(1, page);
+        var totalItems = await rows.CountAsync();
+        var items = await rows.OrderByDescending(e => e.ExpenseDate).ThenByDescending(e => e.CreatedAt)
+            .Skip((page - 1) * pageSize).Take(pageSize)
+            .Select(e => new ExpenseReportItemDto(e.Id, e.ExpenseDate, e.SubType, e.Category.Name,
+                e.Amount, e.Status, e.FundingSource, e.CreatedByUser.Name, e.Note))
+            .ToListAsync();
+        var approvedTotal = statusTotals.FirstOrDefault(x => x.Status == "APPROVED");
+        var pendingTotal = statusTotals.FirstOrDefault(x => x.Status == "PENDING");
+        var rejectedTotal = statusTotals.FirstOrDefault(x => x.Status == "REJECTED");
+        return Ok(new ExpenseReportDto(start, through,
+            approvedTotal?.Amount ?? 0, approvedTotal?.Count ?? 0,
+            pendingTotal?.Amount ?? 0, pendingTotal?.Count ?? 0,
+            rejectedTotal?.Amount ?? 0, rejectedTotal?.Count ?? 0,
+            categories, sources, items, totalItems, page, pageSize));
+    }
+
     [HttpGet("orders")]
     public async Task<IActionResult> Orders(
         [FromQuery] DateTime? from,

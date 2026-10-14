@@ -32,12 +32,16 @@ public class PartnerCapitalService : IPartnerCapitalService
         if (partner.Status != "ACTIVE")
             throw new InvalidOperationException("Capital injections can only be drafted for an ACTIVE partner.");
 
+        await using var tx = await new ExpenseFundingService(_db, _business).BeginAsync();
+        await new ExpenseFundingService(_db, _business).EnsureDateOpenAsync(request.InjectedAt ?? DateTime.UtcNow);
         var injection = BuildInjection(partnerId, request, userId);
+        if (request.SubmitForApproval) await MarkSubmittedAsync(injection, userId);
 
         _db.CapitalInjections.Add(injection);
         await _db.SaveChangesAsync();
 
         await _log.LogAsync(_business.CurrentBusinessId, userId, "CREATE", "CapitalInjectionDraft", injection.Id);
+        if (tx != null) await tx.CommitAsync();
         return ToDto(injection);
     }
 
@@ -47,6 +51,9 @@ public class PartnerCapitalService : IPartnerCapitalService
         var injection = await GetInjectionForPartnerAsync(partnerId, injectionId);
         EnsureDraft(injection);
 
+        await using var tx = await new ExpenseFundingService(_db, _business).BeginAsync();
+        await new ExpenseFundingService(_db, _business).EnsureDateOpenAsync(injection.InjectedAt);
+        await new ExpenseFundingService(_db, _business).EnsureDateOpenAsync(request.InjectedAt ?? DateTime.UtcNow);
         var paymentMethod = NormalizePaymentMethod(request.PaymentMethod);
         var injectedAt = request.InjectedAt ?? DateTime.UtcNow;
         injection.AmountPaisa = request.AmountPaisa;
@@ -62,9 +69,11 @@ public class PartnerCapitalService : IPartnerCapitalService
         injection.ProofImageUrl = request.ProofImageUrl?.Trim();
         injection.Note = request.Note?.Trim();
         injection.UpdatedAt = DateTime.UtcNow;
+        if (request.SubmitForApproval) await MarkSubmittedAsync(injection, userId);
 
         await _db.SaveChangesAsync();
         await _log.LogAsync(_business.CurrentBusinessId, userId, "UPDATE", "CapitalInjectionDraft", injection.Id);
+        if (tx != null) await tx.CommitAsync();
         return ToDto(injection);
     }
 
@@ -72,22 +81,28 @@ public class PartnerCapitalService : IPartnerCapitalService
     {
         var injection = await GetInjectionForPartnerAsync(partnerId, injectionId);
         EnsureDraft(injection);
+        await using var tx = await new ExpenseFundingService(_db, _business).BeginAsync();
+        await new ExpenseFundingService(_db, _business).EnsureDateOpenAsync(injection.InjectedAt);
         injection.DeletedAt = DateTime.UtcNow;
         injection.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
         await _log.LogAsync(_business.CurrentBusinessId, userId, "DELETE", "CapitalInjectionDraft", injection.Id);
+        if (tx != null) await tx.CommitAsync();
     }
 
     public async Task<CapitalInjectionDto> SubmitInjectionForApprovalAsync(Guid partnerId, Guid injectionId, Guid userId)
     {
         var injection = await GetInjectionForPartnerAsync(partnerId, injectionId);
         EnsureDraft(injection);
+        await using var tx = await new ExpenseFundingService(_db, _business).BeginAsync();
+        await new ExpenseFundingService(_db, _business).EnsureDateOpenAsync(injection.InjectedAt);
         injection.Status = "PENDING_APPROVAL";
         injection.SubmittedAt = DateTime.UtcNow;
         injection.SubmittedBy = userId;
         injection.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
         await _log.LogAsync(_business.CurrentBusinessId, userId, "SUBMIT", "CapitalInjection", injection.Id);
+        if (tx != null) await tx.CommitAsync();
         return ToDto(injection);
     }
 
@@ -123,6 +138,11 @@ public class PartnerCapitalService : IPartnerCapitalService
         }
 
         await using var transaction = await _db.Database.BeginTransactionAsync();
+        await new ExpenseFundingService(_db, _business).LockInExistingTransactionAsync();
+        await _db.Entry(injection).ReloadAsync();
+        if (injection.Status != "PENDING_APPROVAL")
+            throw new InvalidOperationException("This installment has already been decided.");
+        await new ExpenseFundingService(_db, _business).EnsureDateOpenAsync(injection.InjectedAt);
         _db.CapitalInjectionApprovalVotes.Add(new CapitalInjectionApprovalVote
         {
             BusinessId = _business.CurrentBusinessId,
@@ -149,6 +169,7 @@ public class PartnerCapitalService : IPartnerCapitalService
 
     private async Task ApproveInjectionAsync(CapitalInjection injection, Guid userId)
     {
+        await new ExpenseFundingService(_db, _business).EnsureDateOpenAsync(injection.InjectedAt);
         if (injection.ExpenseId.HasValue && !await _db.Expenses.IgnoreQueryFilters().AnyAsync(e =>
             e.Id == injection.ExpenseId && e.BusinessId == _business.CurrentBusinessId && e.DeletedAt == null
             && e.Status == "APPROVED" && e.FundingSource == "PERSONAL" && e.FundingPartnerId == injection.PartnerId
@@ -300,6 +321,15 @@ public class PartnerCapitalService : IPartnerCapitalService
         await _db.CapitalInjections.FirstOrDefaultAsync(i => i.Id == injectionId && i.PartnerId == partnerId)
             ?? throw new KeyNotFoundException("Capital injection not found.");
 
+    private async Task MarkSubmittedAsync(CapitalInjection injection, Guid userId)
+    {
+        if (!await _db.Partners.AnyAsync(p => p.Status == "ACTIVE" && p.PartnerType == "MANAGING"))
+            throw new InvalidOperationException("An active managing partner is required to review the investment.");
+        injection.Status = "PENDING_APPROVAL";
+        injection.SubmittedAt = DateTime.UtcNow;
+        injection.SubmittedBy = userId;
+    }
+
     private static void EnsureDraft(CapitalInjection injection)
     {
         if (injection.ExpenseId.HasValue)
@@ -325,7 +355,7 @@ public class PartnerCapitalService : IPartnerCapitalService
             injection.Status,
             votes.Count(v => v.Decision == "APPROVE"),
             votes.Count(v => v.Decision == "REJECT"),
-            PartnerService.ComputeApprovalThreshold(activeManagingPartnerCount),
+            2, // Installments require two distinct managing partners, regardless of group size.
             activeManagingPartnerCount,
             votes);
     }

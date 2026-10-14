@@ -11,6 +11,8 @@ type ConfirmDialogProps = {
   children?: ReactNode;
   confirmLabel?: string;
   cancelLabel?: string;
+  hideCancel?: boolean;
+  success?: boolean;
   destructive?: boolean;
   busy?: boolean;
   onConfirm: () => void;
@@ -24,6 +26,8 @@ export function ConfirmDialog({
   children,
   confirmLabel = "Confirm",
   cancelLabel = "Cancel",
+  hideCancel = false,
+  success = false,
   destructive = false,
   busy = false,
   onConfirm,
@@ -38,14 +42,14 @@ export function ConfirmDialog({
       <Pressable accessibilityLabel="Close confirmation" disabled={busy} onPress={close} style={StyleSheet.absoluteFill} />
       <SafeAreaView style={[styles.dialog, compact && styles.compactDialog]}>
         <View style={[styles.iconWrap, destructive && styles.dangerIconWrap]}>
-          <Ionicons name={destructive ? "trash-outline" : "help-circle-outline"} size={26} color={destructive ? colors.danger : colors.primary} />
+          <Ionicons name={destructive ? "trash-outline" : success ? "checkmark-circle-outline" : "help-circle-outline"} size={26} color={destructive ? colors.danger : colors.primary} />
         </View>
         <Text accessibilityRole="header" style={styles.title}>{title}</Text>
         <ScrollView style={{ flexShrink: 1 }} contentContainerStyle={{ gap: 12 }}>{children}{!!message && <Text style={styles.message}>{message}</Text>}</ScrollView>
         <View style={[styles.actions, compact && !children && styles.compactActions]}>
-          <Pressable accessibilityRole="button" disabled={busy} onPress={close} style={[styles.button, styles.cancelButton, compact && !children && styles.compactButton]}>
+          {!hideCancel && <Pressable accessibilityRole="button" disabled={busy} onPress={close} style={[styles.button, styles.cancelButton, compact && !children && styles.compactButton]}>
             <Text style={styles.cancelText}>{cancelLabel}</Text>
-          </Pressable>
+          </Pressable>}
           <Pressable accessibilityRole="button" disabled={busy} onPress={onConfirm} style={[styles.button, destructive ? styles.dangerButton : styles.confirmButton, compact && !children && styles.compactButton, busy && styles.disabled]}>
             {busy ? <ActivityIndicator color={colors.white} /> : <Text style={styles.confirmText}>{confirmLabel}</Text>}
           </Pressable>
