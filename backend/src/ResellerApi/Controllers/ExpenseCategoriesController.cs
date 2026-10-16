@@ -10,7 +10,7 @@ namespace ResellerApi.Controllers;
 
 [ApiController]
 [Route("api/v1/expense-categories")]
-[Authorize(Roles = "OWNER")]
+[Authorize]
 public class ExpenseCategoriesController : ControllerBase
 {
     private readonly AppDbContext _db;
@@ -28,7 +28,6 @@ public class ExpenseCategoriesController : ControllerBase
     }
 
     [HttpGet]
-    [Authorize] // staff can read categories (needed when logging expenses)
     public async Task<IActionResult> GetAll()
     {
         var cats = await _db.ExpenseCategories
@@ -40,7 +39,36 @@ public class ExpenseCategoriesController : ControllerBase
         return Ok(cats);
     }
 
+    [HttpPost("defaults")]
+    [Authorize(Roles = "OWNER")]
+    public async Task<IActionResult> AddDefaults()
+    {
+        var businessId = _businessContext.CurrentBusinessId;
+        await using var transaction = await _db.Database.BeginTransactionAsync();
+        // Serialize restoration for this business, including requests from multiple devices.
+        await _db.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT Id FROM businesses WITH (UPDLOCK, HOLDLOCK) WHERE Id = {businessId}");
+        var existing = await _db.ExpenseCategories
+            .Where(c => c.BusinessId == businessId).ToListAsync();
+        var codes = existing.Select(c => c.Code).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var missing = DefaultExpenseCategories.Create(businessId)
+            .Where(c => !codes.Contains(c.Code)).ToList();
+        var hasDefault = existing.Any(c => c.IsDefault);
+        foreach (var category in missing)
+            category.IsDefault = !hasDefault && category.Code == "OFFICE";
+        if (!hasDefault)
+        {
+            var office = existing.FirstOrDefault(c => c.Code == "OFFICE" && c.IsActive);
+            if (office != null) office.IsDefault = true;
+        }
+        _db.ExpenseCategories.AddRange(missing);
+        await _db.SaveChangesAsync();
+        await transaction.CommitAsync();
+        return Ok(new { added = missing.Count });
+    }
+
     [HttpPost]
+    [Authorize(Roles = "OWNER")]
     public async Task<IActionResult> Create([FromBody] ExpenseCategoryRequest req)
     {
         if (string.IsNullOrWhiteSpace(req.Name))
@@ -67,6 +95,7 @@ public class ExpenseCategoriesController : ControllerBase
     }
 
     [HttpPatch("{id:guid}")]
+    [Authorize(Roles = "OWNER")]
     public async Task<IActionResult> Update(Guid id, [FromBody] ExpenseCategoryRequest req)
     {
         if (string.IsNullOrWhiteSpace(req.Name))
@@ -90,6 +119,7 @@ public class ExpenseCategoriesController : ControllerBase
     }
 
     [HttpDelete("{id:guid}")]
+    [Authorize(Roles = "OWNER")]
     public async Task<IActionResult> Delete(Guid id)
     {
         var cat = await _db.ExpenseCategories

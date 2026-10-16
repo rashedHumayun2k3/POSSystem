@@ -29,6 +29,7 @@ public interface IProductService
 
     Task<VariantDto> AddVariantAsync(Guid productId, CreateVariantRequest request, Guid userId);
     Task<VariantDto> UpdateVariantAsync(Guid productId, Guid variantId, UpdateVariantRequest request, Guid userId);
+    Task UpdatePurchaseCostAsync(Guid variantId, UpdatePurchaseCostRequest request, Guid userId);
     Task<VariantDto> RecordExistingStockCostAsync(Guid variantId, RecordExistingStockCostRequest request, Guid userId);
     Task<List<VariantDto>> SplitStockIntoVariantsAsync(Guid productId, SplitStockIntoVariantsRequest request, Guid userId);
 

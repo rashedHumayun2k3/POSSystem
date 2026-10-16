@@ -317,7 +317,8 @@ public class PartnerService : IPartnerService
             p.Id, p.Name, p.Phone, p.PhotoUrl, p.LinkedUserId, p.PartnerType, p.Status, p.DeferredLossPaisa, p.JoinDate, p.Note,
             balance.CapitalBalancePaisa, balance.ProfitBalancePaisa,
             p.NidNumber, p.Address, p.Email, p.BankAccountNumber, p.BankName, p.AgreedProfitSharePct,
-            p.EmergencyContactName, p.EmergencyContactPhone, p.EmergencyContactRelation, canAccessPos);
+            p.EmergencyContactName, p.EmergencyContactPhone, p.EmergencyContactRelation, canAccessPos,
+            balance.CashInstallmentsPaisa, balance.PersonalExpensesPaisa, balance.OtherCapitalPaisa);
     }
 
     private static string? NormalizeOptionalBangladeshMobile(string? value, string fieldName)

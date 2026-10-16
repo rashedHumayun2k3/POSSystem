@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Image, Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
+import { ActivityIndicator, Image, Modal, Platform, Pressable, ScrollView, StyleSheet, TextInput, useWindowDimensions, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Link, router } from "expo-router";
 import * as DocumentPicker from "expo-document-picker";
@@ -11,12 +11,13 @@ import { useLanguage } from "../i18n/LanguageContext";
 import { colors } from "../theme";
 
 type Category = { id: string; name: string; defaultUnit?: string };
-type Row = { rowNumber: number; sku: string; name: string; category: string; categoryId: string | null; quantity: string; buyPrice: string; sellPrice: string; acknowledgedMatches?: string | null };
+type Row = { rowNumber: number; sku: string; name: string; category: string; categoryId: string | null; quantity: string; buyPrice: string; sellPrice: string; showOnMarketplace?: boolean; acknowledgedMatches?: string | null };
 type ProductMatch = { id: string; name: string; sku: string; imageUrl: string | null; category: string; isDeleted: boolean; status: string; skuMatch: boolean; exactNameMatch: boolean; similarNameMatch: boolean };
 type RowMatches = { rowNumber: number; products: ProductMatch[]; total: number; skuCount: number; exactNameCount: number; similarNameCount: number; reviewKey: string | null };
 type RowError = { rowNumber: number; field: string; message: string };
 type Preview = { rows: Row[]; errors: RowError[]; matches?: RowMatches[]; importId?: string };
 const matchSignature = (rows: Row[]) => JSON.stringify(rows.map(r => [r.rowNumber, r.name, r.sku]));
+const positiveQuantity = (value: string) => !value.trim() || Number.isFinite(Number(value)) && Number(value) <= 0 ? "1" : value;
 const mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
 export default function BulkProductsScreen() {
@@ -25,6 +26,8 @@ export default function BulkProductsScreen() {
 }
 
 function ImportScreen() {
+  const { width } = useWindowDimensions();
+  const compactCards = width < 720;
   const auth = useAuth();
   const { lang } = useLanguage();
   const say = (en: string, bn: string) => lang === "bn" ? bn : en;
@@ -33,6 +36,8 @@ function ImportScreen() {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [branchId, setBranchId] = useState(auth.session?.branchId ?? "");
   const [rows, setRows] = useState<Row[]>([]);
+  const [editingRow, setEditingRow] = useState<number | null>(null);
+  const [categoryPickerRequest, setCategoryPickerRequest] = useState(0);
   const [errors, setErrors] = useState<RowError[]>([]);
   const [importId, setImportId] = useState("");
   const [fileName, setFileName] = useState("");
@@ -133,20 +138,27 @@ function ImportScreen() {
       } else base64 = await FileSystem.readAsStringAsync(file.uri, { encoding: FileSystem.EncodingType.Base64 });
       const preview = await auth.api<Preview>("/products/import/preview", { method: "POST", body: JSON.stringify({ fileName: file.name, base64 }) });
       if (!mounted.current) return;
-      acceptMatches(preview);
-      setRows(preview.rows.map(row => ({ ...row, categoryId: categoryId || null, category: categories.find(c => c.id === categoryId)?.name ?? "" }))); setErrors(preview.errors); setImportId(preview.importId!); setFileName(file.name);
+      const defaultedRows = preview.rows.map(row => ({ ...row, quantity: positiveQuantity(row.quantity), categoryId: categoryId || null, category: categories.find(c => c.id === categoryId)?.name ?? "" }));
+      const defaultedQuantities = new Set(preview.rows.filter(row => positiveQuantity(row.quantity) !== row.quantity).map(row => row.rowNumber));
+      acceptMatches({ ...preview, rows: defaultedRows });
+      setRows(defaultedRows); setErrors(preview.errors.filter(issue => issue.field !== "quantity" || !defaultedQuantities.has(issue.rowNumber))); setImportId(preview.importId!); setFileName(file.name);
       setStep(2); setSuccess(null); setOnlyErrors(false); setUncertain(false);
     });
   }
   function edit(rowNumber: number, patch: Partial<Row>) {
+    if (patch.quantity !== undefined) patch.quantity = positiveQuantity(patch.quantity);
     if ("name" in patch || "sku" in patch) patch.acknowledgedMatches = null;
     setRows(previous => previous.map(row => row.rowNumber === rowNumber ? { ...row, ...patch } : row));
     // File duplicates are recalculated from current values so both red cells clear together.
     setErrors(previous => previous.filter(e => e.message !== "SKU appears more than once in this file." && (e.rowNumber !== rowNumber || !(e.field in patch))));
   }
+  function removeRow(rowNumber: number) {
+    setRows(current => current.filter(row => row.rowNumber !== rowNumber));
+    setErrors(current => current.filter(issue => issue.rowNumber !== rowNumber && issue.message !== "SKU appears more than once in this file."));
+  }
   async function review() {
     if (!categoryId || !categories.some(c => c.id === categoryId)) {
-      setError(say("Select a category for all products.", "সব পণ্যের জন্য একটি ক্যাটাগরি নির্বাচন করুন।")); return;
+      setError(say("Select a default category for this upload.", "সব পণ্যের জন্য একটি ক্যাটাগরি নির্বাচন করুন।")); return;
     }
     await run("validate", async () => {
       const preview = await auth.api<Preview>("/products/import/validate", { method: "POST", body: JSON.stringify({ rows, branchId: branchId || null, importId, categoryId }) });
@@ -179,13 +191,16 @@ function ImportScreen() {
     });
   }
   const duplicateSkus = new Set(rows.filter(row => row.sku.trim() && rows.filter(other => other.sku.trim().toLowerCase() === row.sku.trim().toLowerCase()).length > 1).map(row => row.rowNumber));
-  const cellErrors = errors.filter(e => e.field !== "categoryId" && e.message !== "SKU appears more than once in this file.");
+  const cellErrors = errors.filter(e => e.message !== "SKU appears more than once in this file.");
   const invalidRows = new Set([...cellErrors.map(e => e.rowNumber), ...duplicateSkus,
     ...(!matching ? matches.filter(m => m.reviewKey && rows.find(r => r.rowNumber === m.rowNumber)?.acknowledgedMatches !== m.reviewKey).map(m => m.rowNumber) : [])]);
+  const fieldHasError = (rowNumber: number, field: string) =>
+    cellErrors.some(e => e.rowNumber === rowNumber && e.field === field) || field === "sku" && duplicateSkus.has(rowNumber);
   const selectedCategory = categories.find(c => c.id === categoryId);
+  const defaultCategoryPrompt = say("Please select the default category.", "অনুগ্রহ করে সব পণ্যের জন্য ক্যাটাগরি নির্বাচন করুন।");
   const pendingSteps: string[] = [];
   if (!rows.length) pendingSteps.push(say("Please upload at least one product.", "অনুগ্রহ করে অন্তত একটি পণ্য আপলোড করুন।"));
-  if (!selectedCategory) pendingSteps.push(say("Please select the category for all products.", "অনুগ্রহ করে সব পণ্যের জন্য ক্যাটাগরি নির্বাচন করুন।"));
+  if (!selectedCategory) pendingSteps.push(defaultCategoryPrompt);
   if (!branchId) pendingSteps.push(say("Please select the branch for opening stock.", "অনুগ্রহ করে প্রাথমিক স্টকের জন্য শাখা নির্বাচন করুন।"));
   if (duplicateSkus.size) pendingSteps.push(say("Please correct the duplicate SKUs marked in red in your uploaded file.", "আপলোড করা ফাইলে লাল চিহ্নিত একই SKU-গুলো সংশোধন করুন।"));
   if (matching) pendingSteps.push(matchError
@@ -211,7 +226,9 @@ function ImportScreen() {
   const businessName = auth.session?.businesses.find(b => b.id === auth.session?.businessId)?.name;
   const branchName = branches.find(b => b.id === branchId)?.name ?? auth.session?.branchName;
   const disabled = !!busy;
-  const button = (label: string, action: () => void, secondary = false, blocked = false) => <Pressable accessibilityRole="button" disabled={disabled || blocked} onPress={action} style={[s.button, secondary && s.secondaryButton, (disabled || blocked) && s.disabled]}><Text style={[s.buttonText, secondary && s.secondaryText]}>{label}</Text></Pressable>;
+  const rowBeingEdited = rows.find(row => row.rowNumber === editingRow);
+  const renderEditField = (field: typeof fields[number], row: Row) => <View key={field.key} style={s.editField}><Text style={s.label}>{field.label} *</Text><TextInput accessibilityLabel={field.label} value={row[field.key]} onChangeText={value => edit(row.rowNumber,{[field.key]:value})} keyboardType={field.key === "sku" || field.key === "name" ? "default" : "decimal-pad"} autoCapitalize="none" style={[s.input,fieldHasError(row.rowNumber,field.key)&&s.invalidInput]}/>{cellErrors.filter(e => e.rowNumber === row.rowNumber && e.field === field.key).map((issue,i) => <Text key={i} style={s.cellError}>{issue.message}</Text>)}</View>;
+  const button = (label: string, action: () => void, secondary = false, blocked = false, compact = false) => <Pressable accessibilityRole="button" disabled={disabled || blocked} onPress={action} style={[s.button, secondary && s.secondaryButton, compact && s.compactButton, (disabled || blocked) && s.disabled]}><Text style={[s.buttonText, secondary && s.secondaryText, compact && s.compactButtonText]}>{label}</Text></Pressable>;
   if (!isOwner) return <View style={s.content}><Text>{say("Only the business owner can import products.", "শুধু ব্যবসার মালিক পণ্য আপলোড করতে পারবেন।")}</Text></View>;
   return <View style={s.root}>
     <View style={s.header}><Pressable accessibilityLabel="Back to Quick Add Products" disabled={busy === "save" || uncertain} onPress={() => router.replace("/more/catalog-templates")}><Ionicons name="arrow-back" size={23} color={colors.heading} /></Pressable><View style={s.grow}><Text style={s.title}>{say("Bulk Upload Products", "একসাথে পণ্য আপলোড")}</Text><Text style={s.muted}>{say("Excel only · Up to 50 new products", "শুধু Excel · সর্বোচ্চ ৫০টি নতুন পণ্য")}</Text></View></View>
@@ -225,51 +242,34 @@ function ImportScreen() {
           <View style={[s.card, s.uploadCard]}><Ionicons name="cloud-upload-outline" size={38} color={colors.primaryDark} /><Text style={s.title}>{say("Upload your products", "আপনার পণ্য আপলোড করুন")}</Text><Text style={s.muted}>{say(".xlsx only · Maximum 5 MB · Maximum 50 products", "শুধু .xlsx · সর্বোচ্চ ৫ MB · সর্বোচ্চ ৫০টি পণ্য")}</Text>{button(say("Choose Excel File", "Excel ফাইল নির্বাচন"), () => void upload())}</View>
         </>}
         {step === 2 && <>
-          <View style={s.card}>
-            <Text style={s.label}>{say("Category *", "ক্যাটাগরি *")}</Text>
-            <Choice label={say("Select category for all products", "সব পণ্যের ক্যাটাগরি নির্বাচন")} value={categoryId} options={categories} onSelect={id => {
-              setCategoryId(id);
-              setRows(current => current.map(row => ({ ...row, categoryId: id, category: categories.find(c => c.id === id)!.name })));
-              setErrors(current => current.filter(e => e.field !== "categoryId"));
-            }} disabled={disabled} />
-            <Text style={s.muted}>{selectedCategory ? `${say("Applies to all products · Unit", "সব পণ্যের জন্য প্রযোজ্য · একক")}: ${selectedCategory.defaultUnit || "pcs"}` : say("Required. All products in this upload will use this category.", "আবশ্যক। এই আপলোডের সব পণ্য একই ক্যাটাগরিতে যোগ হবে।")}</Text>
-            <Text style={s.label}>{say("Opening stock destination", "প্রাথমিক স্টকের গন্তব্য")}</Text>
-            <Text style={s.muted}>{businessName}</Text>
-            {auth.session?.branchId ? <Text>{branchName}</Text> : <Choice label={say("Select branch", "শাখা নির্বাচন")} value={branchId} options={branches} onSelect={setBranchId} disabled={disabled} />}
-          </View>
           <View style={s.tablePanel}>
             <View style={s.tableToolbar}>
               <Text style={s.title}>{say(`${rows.length} products found`, `${rows.length}টি পণ্য পাওয়া গেছে`)}</Text>
               <Text style={s.muted}>{fileName}</Text>
-              <Text style={s.muted}>{say("Edit cells directly. Red cells need correction. Swipe sideways to see all columns.", "সরাসরি ঘরে সম্পাদনা করুন। লাল ঘরগুলো সংশোধন করুন। সব কলাম দেখতে পাশে স্ক্রল করুন।")}</Text>
-              <View style={s.actions}>{button(say("Replace file", "ফাইল পরিবর্তন"), () => void upload(), true)}{button(onlyErrors ? say("Show all rows", "সব সারি দেখুন") : say("Show rows with errors", "ত্রুটিযুক্ত সারি দেখুন"), () => setOnlyErrors(!onlyErrors), true)}</View>
+              {branchId ? <Text style={s.label}>{say("Branch Name", "শাখার নাম")}: {branchName}</Text> : <Choice label={say("Select branch", "শাখা নির্বাচন")} value={branchId} options={branches} onSelect={setBranchId} disabled={disabled} />}
+              <Text style={s.muted}>{say("Review each product. Use Modify to correct its details.", "প্রতিটি পণ্য যাচাই করুন। সংশোধন করতে পরিবর্তন চাপুন।")}</Text>
+              <View style={s.actions}>{button(say("Replace file", "ফাইল পরিবর্তন"), () => void upload(), true, false, true)}{button(onlyErrors ? say("Show all rows", "সব সারি দেখুন") : say("Show rows with errors", "ত্রুটিযুক্ত সারি দেখুন"), () => setOnlyErrors(!onlyErrors), true, false, true)}</View>
             </View>
-            <ScrollView horizontal keyboardShouldPersistTaps="handled">
-              <View>
-                <View style={[s.tableRow, s.tableHeading]}>
-                  <Text style={[s.columnHeading, { width: 40 }]}>#</Text>
-                  {fields.map(field => <Text key={field.key} style={[s.columnHeading, { width: field.width }]}>{field.label} *</Text>)}
-                  <View style={{ width: 40 }} />
-                </View>
-                {rows.filter(row => !onlyErrors || invalidRows.has(row.rowNumber)).map(row => <View key={row.rowNumber}><View style={s.tableRow}>
-                  <View style={s.rowNumber}><Text style={s.muted}>{row.rowNumber - 1}</Text></View>
-                  {fields.map(field => {
-                    const issues = cellErrors.filter(e => e.rowNumber === row.rowNumber && e.field === field.key);
-                    const invalid = issues.length > 0 || (field.key === "sku" && duplicateSkus.has(row.rowNumber));
-                    return <View key={field.key} style={[s.tableCell, { width: field.width }]}>
-                      <TextInput accessibilityLabel={`Row ${row.rowNumber}: ${field.label}`} accessibilityHint={invalid ? (field.key === "sku" ? say("SKU needs correction", "SKU সংশোধন করুন") : issues.map(e => e.message).join(" ")) : undefined} aria-invalid={invalid} editable={!disabled} value={row[field.key]} onChangeText={value => edit(row.rowNumber, { [field.key]: value })} keyboardType={field.key === "sku" || field.key === "name" ? "default" : "decimal-pad"} autoCapitalize="none" style={[s.cellInput, field.key !== "sku" && field.key !== "name" && s.numericCell, invalid && s.invalidInput]} />
-                      {field.key !== "sku" && issues.map((issue, index) => <Text key={index} style={s.cellError}>{issue.message}</Text>)}
-                    </View>;
-                  })}
-                  <Pressable disabled={disabled} accessibilityLabel={`Remove row ${row.rowNumber}`} onPress={() => {
-                    setRows(current => current.filter(r => r.rowNumber !== row.rowNumber));
-                    setErrors(current => current.filter(e => e.rowNumber !== row.rowNumber && e.message !== "SKU appears more than once in this file."));
-                  }} style={s.removeCell}><Ionicons name="close" size={18} color={colors.secondary} /></Pressable>
-                </View>
-                  {!matching && <MatchNotice match={matches.find(m => m.rowNumber === row.rowNumber)} acknowledged={row.acknowledgedMatches} disabled={disabled} onAcknowledge={key => edit(row.rowNumber, { acknowledgedMatches: key })} />}
-                </View>)}
+            <View style={s.categoryStrip}>
+              <Text style={s.label}>{say("Category *", "ক্যাটাগরি *")}</Text>
+              <Choice searchableModal whiteBackground openRequest={categoryPickerRequest} label={say("Select category for all products", "সব পণ্যের ক্যাটাগরি নির্বাচন")} value={categoryId} options={categories} onSelect={id => {
+                setCategoryId(id);
+                setRows(current => current.map(row => ({ ...row, categoryId: id, category: categories.find(c => c.id === id)!.name })));
+                setErrors(current => current.filter(e => e.field !== "categoryId"));
+              }} disabled={disabled} />
+              <Text style={s.muted}>{selectedCategory ? `${say("Default for all rows · Unit", "সব সারির ডিফল্ট · একক")}: ${selectedCategory.defaultUnit || "pcs"}` : say("Choose a default category, then change individual rows below.", "ডিফল্ট ক্যাটাগরি নির্বাচন করে নিচে প্রতিটি সারির ক্যাটাগরি পরিবর্তন করতে পারবেন।")}</Text>
+            </View>
+            <View style={s.productList}>{rows.filter(row => !onlyErrors || invalidRows.has(row.rowNumber)).map(row => <View key={row.rowNumber} style={[s.productCard, invalidRows.has(row.rowNumber) && s.productCardError]}>
+              <View style={s.productTop}><Text style={s.productIndex}>#{row.rowNumber - 1}</Text>{invalidRows.has(row.rowNumber) && <Text style={s.productErrorBadge}>{say("Needs attention", "সংশোধন প্রয়োজন")}</Text>}<View style={s.productActions}><Pressable accessibilityRole="button" accessibilityLabel={say(`Modify product ${row.rowNumber - 1}`, `${row.rowNumber - 1} নম্বর পণ্য পরিবর্তন`)} disabled={disabled} onPress={() => setEditingRow(row.rowNumber)} style={s.modifyButton}><Ionicons name="pencil-outline" size={15} color={colors.primaryDark}/><Text style={s.modifyText}>{say("Modify", "পরিবর্তন")}</Text></Pressable><Pressable accessibilityRole="button" accessibilityLabel={say(`Remove product ${row.rowNumber - 1}`, `${row.rowNumber - 1} নম্বর পণ্য বাদ দিন`)} disabled={disabled} onPress={() => removeRow(row.rowNumber)} style={s.removeIcon}><Ionicons name="close" size={18} color={colors.dangerText}/></Pressable></View></View>
+              <View style={[s.productSections,compactCards&&s.productSectionsCompact]}>
+                <View style={[s.productIdentity,compactCards&&s.productSectionCompact]}><ProductFact grouped label={say("Product Name", "পণ্যের নাম")} value={row.name} invalid={fieldHasError(row.rowNumber,"name")} onDoublePress={() => setEditingRow(row.rowNumber)}/><ProductFact grouped label={say("SKU", "SKU")} value={row.sku} invalid={fieldHasError(row.rowNumber,"sku")} onDoublePress={() => setEditingRow(row.rowNumber)}/><ProductFact grouped label={say("Category", "ক্যাটাগরি")} value={row.category} invalid={fieldHasError(row.rowNumber,"categoryId")} onDoublePress={() => setEditingRow(row.rowNumber)}/></View>
+                <View style={[s.productPricing,compactCards&&s.productSectionCompact]}><ProductFact grouped label={say("Buy Price", "ক্রয়মূল্য")} value={row.buyPrice} invalid={fieldHasError(row.rowNumber,"buyPrice")} onDoublePress={() => setEditingRow(row.rowNumber)}/><ProductFact grouped label={say("Sell Price", "বিক্রয়মূল্য")} value={row.sellPrice} invalid={fieldHasError(row.rowNumber,"sellPrice")} onDoublePress={() => setEditingRow(row.rowNumber)}/></View>
+                <View style={[s.productAvailability,compactCards&&s.productSectionCompact]}><ProductFact grouped label={say("Initial Qty", "প্রাথমিক পরিমাণ")} value={row.quantity} invalid={fieldHasError(row.rowNumber,"quantity")} onDoublePress={() => setEditingRow(row.rowNumber)}/><Pressable accessibilityRole="checkbox" accessibilityState={{checked:row.showOnMarketplace !== false}} disabled={disabled} onPress={() => edit(row.rowNumber,{showOnMarketplace:row.showOnMarketplace === false})} style={s.marketCheck}><Ionicons name={row.showOnMarketplace !== false ? "checkbox" : "square-outline"} size={21} color={colors.primaryDark}/><Text style={s.factValue}>{say("On Marketplace", "মার্কেটপ্লেসে")}</Text></Pressable></View>
               </View>
-            </ScrollView>
+              {duplicateSkus.has(row.rowNumber) && <Text style={s.cellError}>{say("SKU appears more than once in this file.", "এই ফাইলে একই SKU একাধিকবার আছে।")}</Text>}
+              {cellErrors.filter(e => e.rowNumber === row.rowNumber).map((issue,i) => <Text key={i} style={s.cellError}>{issue.message}</Text>)}
+              {!matching && <MatchNotice match={matches.find(m => m.rowNumber === row.rowNumber)} acknowledged={row.acknowledgedMatches} disabled={disabled} onAcknowledge={key => edit(row.rowNumber, { acknowledgedMatches: key })} />}
+            </View>)}</View>
           </View>
           {matching && !matchError && <Text style={s.muted}>{say("Checking product names and SKUs…", "পণ্যের নাম ও SKU যাচাই হচ্ছে…")}</Text>}
           {!!matchError && <View style={s.errorBox}><Text style={s.error}>{matchError}</Text>{button(say("Retry match check", "আবার মিল যাচাই করুন"), () => setMatchRetry(v => v + 1), true)}</View>}
@@ -277,15 +277,38 @@ function ImportScreen() {
           {onlyErrors && !invalidRows.size && <Text style={s.muted}>{say("No highlighted errors. Check again to validate your changes.", "চিহ্নিত ত্রুটি নেই। পরিবর্তনগুলো আবার যাচাই করুন।")}</Text>}
           {!!pendingSteps.length && <View accessibilityLiveRegion="polite" style={s.pendingBox}>
             <Text style={s.label}>{say("Before you continue", "এগিয়ে যাওয়ার আগে")}</Text>
-            {pendingSteps.map(message => <View key={message} style={s.pendingRow}><Text style={s.matchWarningText}>•</Text><Text style={[s.matchWarningText, s.grow]}>{message}</Text></View>)}
+            {pendingSteps.map(message => message === defaultCategoryPrompt ? <Pressable key={message} accessibilityRole="button" onPress={() => setCategoryPickerRequest(current => current + 1)} style={s.pendingRow}><Text style={s.matchWarningText}>•</Text><Text style={[s.pendingLink,s.grow]}>{message}</Text><Ionicons name="chevron-forward" size={16} color={colors.primaryDark}/></Pressable> : <View key={message} style={s.pendingRow}><Text style={s.matchWarningText}>•</Text><Text style={[s.matchWarningText, s.grow]}>{message}</Text></View>)}
           </View>}
           {button(say("Check & Continue", "যাচাই করে এগিয়ে যান"), () => void review(), false, pendingSteps.length > 0)}
         </>}
-        {step === 3 && <View style={s.card}><Ionicons name="checkmark-done-circle-outline" size={40} color={colors.success} /><Text style={s.title}>{say(`${rows.length} products ready to save`, `${rows.length}টি পণ্য সংরক্ষণের জন্য প্রস্তুত`)}</Text><Text style={s.description}>{businessName} · {branchName} · {selectedCategory?.name}</Text><Text style={s.description}>{say("All rows have valid values and share the selected category. Products, opening stock and buying costs will be saved together. Existing products will not be changed.", "সব সারির তথ্য ও ক্যাটাগরি সঠিক। পণ্য, প্রাথমিক স্টক ও ক্রয়মূল্য একসাথে সংরক্ষিত হবে। বিদ্যমান পণ্য পরিবর্তন হবে না।")}</Text>{button(uncertain ? say("Retry Save Safely", "নিরাপদে আবার সংরক্ষণ করুন") : say(`Save ${rows.length} Products`, `${rows.length}টি পণ্য সংরক্ষণ`), () => void save())}{!uncertain && button(say("Back to Review", "যাচাইয়ে ফিরে যান"), () => setStep(2), true)}</View>}
+        {step === 3 && <View style={s.card}><Ionicons name="checkmark-done-circle-outline" size={40} color={colors.success} /><Text style={s.title}>{say(`${rows.length} products ready to save`, `${rows.length}টি পণ্য সংরক্ষণের জন্য প্রস্তুত`)}</Text><Text style={s.description}>{businessName} · {branchName}</Text><Text style={s.description}>{say("All rows have valid values. Review each product below. Products, opening stock and buying costs will be saved together.", "সব সারির তথ্য সঠিক। নিচে পণ্যগুলো যাচাই করুন। পণ্য, প্রাথমিক স্টক ও ক্রয়মূল্য একসাথে সংরক্ষিত হবে।")}</Text>
+          <View style={s.productList}>{rows.map(row => <View key={row.rowNumber} style={s.productCard}>
+            <Text style={s.productIndex}>#{row.rowNumber - 1}</Text>
+            <View style={[s.productSections,compactCards&&s.productSectionsCompact]}>
+              <View style={[s.productIdentity,compactCards&&s.productSectionCompact]}><ProductFact grouped label={say("Product Name", "পণ্যের নাম")} value={row.name}/><ProductFact grouped label={say("SKU", "SKU")} value={row.sku}/><ProductFact grouped label={say("Category", "ক্যাটাগরি")} value={row.category}/></View>
+              <View style={[s.productPricing,compactCards&&s.productSectionCompact]}><ProductFact grouped label={say("Buy Price", "ক্রয়মূল্য")} value={row.buyPrice}/><ProductFact grouped label={say("Sell Price", "বিক্রয়মূল্য")} value={row.sellPrice}/></View>
+              <View style={[s.productAvailability,compactCards&&s.productSectionCompact]}><ProductFact grouped label={say("Initial Qty", "প্রাথমিক পরিমাণ")} value={row.quantity}/><ProductFact grouped label={say("On Marketplace", "মার্কেটপ্লেসে")} value={row.showOnMarketplace === false ? say("No", "না") : say("Yes", "হ্যাঁ")}/></View>
+            </View>
+          </View>)}</View>
+          {button(uncertain ? say("Retry Save Safely", "নিরাপদে আবার সংরক্ষণ করুন") : say(`Save ${rows.length} Products`, `${rows.length}টি পণ্য সংরক্ষণ`), () => void save())}{!uncertain && button(say("Back to Review", "যাচাইয়ে ফিরে যান"), () => setStep(2), true)}</View>}
       </>}
     </ScrollView>
+    <Modal visible={!!rowBeingEdited} transparent animationType="fade" onRequestClose={() => setEditingRow(null)}>
+      <View style={s.modalBackdrop}><View style={s.modalCard}>
+        <View style={s.modalHeader}><Text style={s.title}>{say("Modify product", "পণ্য পরিবর্তন")} #{rowBeingEdited ? rowBeingEdited.rowNumber - 1 : ""}</Text><Pressable accessibilityRole="button" accessibilityLabel={say("Close", "বন্ধ করুন")} onPress={() => setEditingRow(null)}><Ionicons name="close" size={22} color={colors.secondary}/></Pressable></View>
+        {rowBeingEdited && <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={s.modalBody}>
+          {fields.filter(field => field.key === "sku" || field.key === "name").map(field => renderEditField(field,rowBeingEdited))}
+          <View style={s.priceFields}>{fields.filter(field => field.key === "quantity" || field.key === "buyPrice" || field.key === "sellPrice").map(field => <View key={field.key} style={s.priceField}>{renderEditField(field,rowBeingEdited)}</View>)}</View>
+          <View style={[s.editField,fieldHasError(rowBeingEdited.rowNumber,"categoryId") && s.factInvalid]}><Text style={[s.label,fieldHasError(rowBeingEdited.rowNumber,"categoryId") && s.factErrorText]}>{say("Category", "ক্যাটাগরি")} *</Text><Choice searchableModal label={say("Select category", "ক্যাটাগরি নির্বাচন")} value={rowBeingEdited.categoryId ?? ""} options={categories} onSelect={id => edit(rowBeingEdited.rowNumber,{categoryId:id,category:categories.find(c=>c.id===id)?.name ?? ""})} disabled={disabled}/>{cellErrors.filter(e => e.rowNumber === rowBeingEdited.rowNumber && e.field === "categoryId").map((issue,i) => <Text key={i} style={s.cellError}>{issue.message}</Text>)}</View>
+          <Pressable accessibilityRole="checkbox" accessibilityState={{checked:rowBeingEdited.showOnMarketplace !== false}} onPress={() => edit(rowBeingEdited.rowNumber,{showOnMarketplace:rowBeingEdited.showOnMarketplace === false})} style={s.marketCheck}><Ionicons name={rowBeingEdited.showOnMarketplace !== false ? "checkbox" : "square-outline"} size={22} color={colors.primaryDark}/><Text style={s.factValue}>{say("On Marketplace", "মার্কেটপ্লেসে")}</Text></Pressable>
+          <View style={s.modalActions}><Pressable accessibilityRole="button" onPress={() => setEditingRow(null)} style={s.button}><Text style={s.buttonText}>{say("Done", "সম্পন্ন")}</Text></Pressable></View>
+        </ScrollView>}
+      </View></View>
+    </Modal>
   </View>;
 }
+
+function ProductFact({label,value,wide,grouped,invalid,onDoublePress}:{label:string;value:string;wide?:boolean;grouped?:boolean;invalid?:boolean;onDoublePress?:()=>void}){const lastPress=useRef(0);return <Pressable disabled={!onDoublePress} accessibilityRole={onDoublePress?"button":undefined} accessibilityHint={onDoublePress?"Double-tap to modify this product":undefined} onPress={() => {const now=Date.now();if(now-lastPress.current<350)onDoublePress?.();lastPress.current=now;}} style={[s.fact,wide&&s.factWide,grouped&&s.groupFact,invalid&&s.factInvalid]}><Text style={[s.factLabel,invalid&&s.factErrorText]}>{label}: <Text style={[s.factValue,invalid&&s.factErrorText]}>{value || "—"}</Text></Text></Pressable>}
 
 function MatchNotice({ match, acknowledged, disabled, onAcknowledge }: { match?: RowMatches; acknowledged?: string | null; disabled: boolean; onAcknowledge: (key: string | null) => void }) {
   const [expanded, setExpanded] = useState(false);
@@ -295,13 +318,13 @@ function MatchNotice({ match, acknowledged, disabled, onAcknowledge }: { match?:
   if (!match?.total) return null;
   const blocked = match.skuCount > 0 || match.exactNameCount > 0;
   const reviewed = !!match.reviewKey && acknowledged === match.reviewKey;
-  return <View style={[s.matchNotice, blocked ? s.matchBlocked : s.matchWarning]}>
+  return <View style={[s.matchNotice, blocked ? s.matchBlocked : reviewed ? s.matchReviewed : s.matchWarning]}>
     <Pressable accessibilityRole="button" accessibilityLabel={`Database matches for row ${match.rowNumber}`} accessibilityState={{ expanded }} onPress={() => setExpanded(!expanded)} style={s.matchToggle}>
-      <Ionicons name={blocked ? "alert-circle-outline" : "information-circle-outline"} size={19} color={blocked ? colors.danger : colors.warningText} />
+      <Ionicons name={blocked ? "alert-circle-outline" : reviewed ? "checkmark-circle-outline" : "information-circle-outline"} size={19} color={blocked ? colors.danger : reviewed ? colors.successText : colors.warningText} />
       <View style={s.grow}>
         {match.skuCount > 0 && <Text style={s.error}>{say("SKU matched with database", "ডেটাবেসে SKU মিলে গেছে")}</Text>}
         {match.exactNameCount > 0 && <Text style={s.error}>{say(`${match.exactNameCount} exact product name match(es)`, `${match.exactNameCount}টি পণ্যের নাম হুবহু মিলে গেছে`)}</Text>}
-        {match.similarNameCount > 0 && <Text style={s.matchWarningText}>{say(`${match.similarNameCount} similar product names found`, `${match.similarNameCount}টি পণ্যের নাম আংশিক মিলে গেছে`)}{reviewed ? say(" · Reviewed", " · যাচাই করা হয়েছে") : ""}</Text>}
+        {match.similarNameCount > 0 && <Text style={[s.matchWarningText,reviewed&&s.matchReviewedText]}>{say(`${match.similarNameCount} similar product names found`, `${match.similarNameCount}টি পণ্যের নাম আংশিক মিলে গেছে`)}{reviewed ? say(" · Reviewed", " · যাচাই করা হয়েছে") : ""}</Text>}
       </View><Ionicons name={expanded ? "chevron-up" : "chevron-down"} size={18} color={colors.secondary} />
     </Pressable>
     {expanded && <View style={s.matchDetails}>
@@ -330,27 +353,43 @@ function MatchImage({ url }: { url: string | null }) {
   return source && !failed ? <Image accessibilityLabel="Matched product" source={{ uri: source }} style={s.matchImage} onError={() => setFailed(true)} /> : <View style={s.matchImage}><Ionicons name="cube-outline" size={24} color={colors.muted} /></View>;
 }
 
-function Choice({ label, value, options, onSelect, disabled }: { label: string; value?: string; options: { id: string; name: string }[]; onSelect: (id: string) => void; disabled: boolean }) {
+function Choice({ label, value, options, onSelect, disabled, searchableModal = false, whiteBackground = false, openRequest = 0 }: { label: string; value?: string; options: { id: string; name: string }[]; onSelect: (id: string) => void; disabled: boolean; searchableModal?: boolean; whiteBackground?: boolean; openRequest?: number }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  useEffect(() => { if (openRequest > 0) { setQuery(""); setOpen(true); } }, [openRequest]);
   const { lang } = useLanguage();
-  return <View><Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ expanded: open }} disabled={disabled} onPress={() => { setOpen(!open); setQuery(""); }} style={s.select}><Text style={s.grow}>{options.find(o => o.id === value)?.name || label}</Text><Ionicons name={open ? "chevron-up" : "chevron-down"} size={18} color={colors.secondary} /></Pressable>{open && <View style={s.choices}><TextInput accessibilityLabel={label} placeholder={lang === "bn" ? "খুঁজুন…" : "Search…"} value={query} onChangeText={setQuery} style={s.input} /><ScrollView style={{ maxHeight: 200 }} nestedScrollEnabled keyboardShouldPersistTaps="handled">{options.filter(o => o.name.toLowerCase().includes(query.toLowerCase())).map(o => <Pressable key={o.id} disabled={disabled} onPress={() => { onSelect(o.id); setOpen(false); }} style={s.option}><Text>{o.name}</Text></Pressable>)}{!options.filter(o => o.name.toLowerCase().includes(query.toLowerCase())).length && <Text style={s.muted}>{lang === "bn" ? "কোনো ফল পাওয়া যায়নি" : "No matching options"}</Text>}</ScrollView></View>}</View>;
+  const filtered = options.filter(o => o.name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
+  const list = <><TextInput accessibilityLabel={label} placeholder={lang === "bn" ? "ক্যাটাগরি খুঁজুন…" : "Search categories…"} value={query} onChangeText={setQuery} style={s.input} /><ScrollView style={{ maxHeight: 240 }} nestedScrollEnabled keyboardShouldPersistTaps="handled">{filtered.map(o => <Pressable key={o.id} disabled={disabled} onPress={() => { onSelect(o.id); setOpen(false); }} style={s.option}><Text>{o.name}</Text>{o.id === value && <Ionicons name="checkmark" size={17} color={colors.primaryDark}/>}</Pressable>)}{!filtered.length && <Text style={s.muted}>{lang === "bn" ? "কোনো ফল পাওয়া যায়নি" : "No matching options"}</Text>}</ScrollView></>;
+  return <View><Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ expanded: open }} disabled={disabled} onPress={() => { setOpen(!open); setQuery(""); }} style={[s.select,whiteBackground&&s.whiteSelect]}><Text style={s.grow}>{options.find(o => o.id === value)?.name || label}</Text><Ionicons name={open ? "chevron-up" : "chevron-down"} size={18} color={colors.secondary} /></Pressable>{searchableModal ? <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}><View style={s.modalBackdrop}><View style={s.categoryPicker}><View style={s.modalHeader}><Text style={s.label}>{label}</Text><Pressable accessibilityRole="button" accessibilityLabel={lang === "bn" ? "বন্ধ করুন" : "Close"} onPress={() => setOpen(false)}><Ionicons name="close" size={21} color={colors.secondary}/></Pressable></View><View style={s.categoryPickerBody}>{list}</View></View></View></Modal> : open && <View style={s.choices}>{list}</View>}</View>;
 }
 
 const s = StyleSheet.create({
+  productList: { padding: 8, gap: 7 }, productCard: { padding: 10, gap: 7, borderRadius: 12, borderWidth: 1, borderColor: colors.divider, backgroundColor: colors.white }, productCardError: { borderColor: colors.danger },
+  productTop: { flexDirection: "row", alignItems: "center", gap: 7 }, productIndex: { fontSize: 12, fontWeight: "700", color: colors.secondary }, productErrorBadge: { fontSize: 11, fontWeight: "700", color: colors.dangerText }, productActions: { marginLeft: "auto", flexDirection: "row", alignItems: "center", gap: 5 }, modifyButton: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 9, paddingVertical: 5, borderRadius: 8, backgroundColor: colors.primaryLight }, modifyText: { color: colors.primaryDark, fontSize: 12, fontWeight: "700" }, removeIcon: { width: 29, height: 29, alignItems: "center", justifyContent: "center", borderRadius: 8, backgroundColor: colors.dangerBackground },
+  productSections: { flexDirection: "row", borderTopWidth: 1, borderColor: colors.divider, paddingTop: 7 },
+  productSectionsCompact: { flexDirection: "column" },
+  productIdentity: { flex: 2, gap: 4, paddingRight: 10, minWidth: 0, borderRightWidth: 1, borderColor: colors.divider },
+  productPricing: { flex: 1, gap: 5, paddingHorizontal: 10, minWidth: 0, borderRightWidth: 1, borderColor: colors.divider },
+  productAvailability: { flex: 1, gap: 5, paddingLeft: 10, minWidth: 0 },
+  productSectionCompact: { flex: 0, width: "100%", paddingHorizontal: 0, paddingVertical: 6, borderRightWidth: 0, borderBottomWidth: 1 },
+  productLine: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 16 }, fact: { minWidth: 90, flexGrow: 1, flexBasis: 110, gap: 3 }, factWide: { flexGrow: 2, flexBasis: 200 }, groupFact: { minWidth: 0, flexGrow: 0, flexBasis: "auto" }, factInvalid: { padding: 4, borderRadius: 7, backgroundColor: colors.dangerBackground, borderWidth: 1, borderColor: colors.danger }, factLabel: { fontSize: 11, color: colors.secondary }, factValue: { fontSize: 13, fontWeight: "600", color: colors.heading }, factErrorText: { color: colors.dangerText }, marketCheck: { flexDirection: "row", alignItems: "center", gap: 5, minHeight: 26 },
+  modalBackdrop: { flex: 1, justifyContent: "center", alignItems: "center", padding: 16, backgroundColor: "rgba(15,23,42,0.5)" }, modalCard: { width: "100%", maxWidth: 540, maxHeight: "90%", borderRadius: 16, backgroundColor: colors.white, overflow: "hidden" }, modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 18, borderBottomWidth: 1, borderColor: colors.divider }, modalBody: { padding: 18, gap: 14 }, editField: { gap: 6 }, priceFields: { flexDirection: "row", alignItems: "flex-start", gap: 10 }, priceField: { flex: 1, minWidth: 0 }, modalActions: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: 12, marginTop: 8 },
+  categoryPicker: { width: "100%", maxWidth: 460, maxHeight: "80%", borderRadius: 14, backgroundColor: colors.white, overflow: "hidden" }, categoryPickerBody: { padding: 14, gap: 10 },
+  previewCell: { fontSize: 11, padding: 6, color: colors.heading, borderRightWidth: 1, borderColor: colors.divider },
   pendingBox: { padding: 14, gap: 10, borderRadius: 10, backgroundColor: colors.warningBackground, borderWidth: 1, borderColor: colors.warning },
-  pendingRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
-  matchNotice: { width: 720, borderBottomWidth: 1, borderColor: colors.divider }, matchBlocked: { backgroundColor: "#FFF5F5" }, matchWarning: { backgroundColor: "#FFFBEB" },
+  pendingRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 }, pendingLink: { color: colors.primaryDark, fontSize: 13, fontWeight: "700", textDecorationLine: "underline" },
+  matchNotice: { width: "100%", borderRadius: 8, overflow: "hidden" }, matchBlocked: { backgroundColor: "#FFF5F5" }, matchWarning: { backgroundColor: "#FFFBEB" }, matchReviewed: { backgroundColor: colors.successBackground, borderWidth: 1, borderColor: colors.success }, matchReviewedText: { color: colors.successText },
   matchToggle: { flexDirection: "row", alignItems: "center", gap: 10, padding: 12 }, matchWarningText: { color: colors.warningText, fontSize: 13 }, matchDetails: { paddingHorizontal: 14, paddingBottom: 12, gap: 10 },
   matchProduct: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 10, borderBottomWidth: 1, borderColor: colors.divider }, matchImage: { width: 46, height: 46, borderRadius: 6, backgroundColor: colors.disabled, alignItems: "center", justifyContent: "center" }, matchLink: { flexDirection: "row", alignItems: "center", gap: 4 },
   root: { flex: 1, backgroundColor: colors.background }, header: { flexDirection: "row", alignItems: "center", gap: 14, padding: 18, backgroundColor: colors.white, borderBottomWidth: 1, borderColor: colors.divider },
   content: { padding: 16, gap: 16, paddingBottom: 40, width: "100%", maxWidth: 1100, alignSelf: "center" }, grow: { flex: 1 }, title: { fontSize: 20, fontWeight: "700", color: colors.heading }, muted: { fontSize: 12, color: colors.secondary, lineHeight: 19 }, description: { fontSize: 14, lineHeight: 22, color: colors.secondary },
   steps: { flexDirection: "row", gap: 6 }, step: { flex: 1, borderRadius: 9, paddingVertical: 12, paddingHorizontal: 6, backgroundColor: colors.disabled }, activeStep: { backgroundColor: colors.primaryLight }, stepText: { textAlign: "center", color: colors.secondary, fontSize: 12, fontWeight: "600" }, activeText: { color: colors.primaryDark },
   card: { padding: 20, gap: 14, borderRadius: 16, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.divider }, icon: { alignSelf: "flex-start", padding: 12, backgroundColor: colors.primaryLight, borderRadius: 12 }, uploadCard: { borderStyle: "dashed", borderColor: colors.primary, alignItems: "center", paddingVertical: 30 },
-  button: { minHeight: 46, paddingVertical: 12, paddingHorizontal: 18, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: colors.primary }, secondaryButton: { backgroundColor: colors.white, borderWidth: 1, borderColor: colors.border }, buttonText: { color: colors.white, fontWeight: "700", fontSize: 14 }, secondaryText: { color: colors.primaryDark }, disabled: { opacity: 0.5 },
+  button: { minHeight: 46, paddingVertical: 12, paddingHorizontal: 18, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: colors.primary }, secondaryButton: { backgroundColor: colors.white, borderWidth: 1, borderColor: colors.border }, compactButton: { minHeight: 36, paddingVertical: 7, paddingHorizontal: 12 }, buttonText: { color: colors.white, fontWeight: "700", fontSize: 14 }, compactButtonText: { fontSize: 12 }, secondaryText: { color: colors.primaryDark }, disabled: { opacity: 0.5 },
   divider: { height: 1, backgroundColor: colors.divider }, label: { fontWeight: "600", color: colors.heading, fontSize: 13 }, inline: { flexDirection: "row", alignItems: "center", gap: 10 }, actions: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  fields: { flexDirection: "row", flexWrap: "wrap", gap: 12 }, field: { flexGrow: 1, flexBasis: 180, gap: 6 }, input: { borderWidth: 1, borderColor: colors.divider, borderRadius: 8, minHeight: 44, paddingHorizontal: 12, color: colors.heading, backgroundColor: colors.white }, select: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 46, paddingHorizontal: 12, borderWidth: 1, borderColor: colors.border, borderRadius: 8 }, choices: { padding: 10, gap: 8, borderWidth: 1, borderColor: colors.border, borderRadius: 8 }, option: { padding: 12, borderBottomWidth: 1, borderColor: colors.divider },
+  fields: { flexDirection: "row", flexWrap: "wrap", gap: 12 }, field: { flexGrow: 1, flexBasis: 180, gap: 6 }, input: { borderWidth: 1, borderColor: colors.divider, borderRadius: 8, minHeight: 44, paddingHorizontal: 12, color: colors.heading, backgroundColor: colors.white }, select: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 46, paddingHorizontal: 12, borderWidth: 1, borderColor: colors.border, borderRadius: 8 }, whiteSelect: { backgroundColor: colors.white }, choices: { padding: 10, gap: 8, borderWidth: 1, borderColor: colors.border, borderRadius: 8 }, option: { padding: 12, borderBottomWidth: 1, borderColor: colors.divider },
   tablePanel: { borderWidth: 1, borderColor: colors.divider, borderRadius: 12, overflow: "hidden", backgroundColor: colors.white },
+  categoryStrip: { paddingHorizontal: 16, paddingVertical: 12, gap: 7, borderTopWidth: 1, borderBottomWidth: 1, borderColor: colors.divider, backgroundColor: colors.cardSecondary },
   tableToolbar: { padding: 16, gap: 10 }, tableRow: { flexDirection: "row", alignItems: "stretch", borderBottomWidth: 1, borderColor: colors.divider },
   tableHeading: { backgroundColor: colors.cardSecondary }, columnHeading: { padding: 12, fontSize: 12, fontWeight: "700", color: colors.heading, borderRightWidth: 1, borderColor: colors.divider },
   tableCell: { padding: 3, borderRightWidth: 1, borderColor: colors.divider }, cellInput: { minHeight: 42, paddingHorizontal: 9, borderWidth: 1, borderColor: "transparent", borderRadius: 3, color: colors.heading, fontSize: 14 },

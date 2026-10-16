@@ -140,7 +140,7 @@ public class ExpenseFundingService(AppDbContext db, IBusinessContext business)
     {
         var balance = await BalanceAsync();
         var partner = await PartnerAsync(userId);
-        var canInvest = await db.Partners.AnyAsync(p => p.Status == "ACTIVE" && p.PartnerType == "MANAGING");
+        var canInvest = await IsOnlyApprovingMemberAsync(userId) || await db.Partners.AnyAsync(p => p.Status == "ACTIVE" && p.PartnerType == "MANAGING");
         return new(true, canViewBalance ? balance / 100m : null,
             canInvest ? partner?.Id : null, canInvest ? partner?.Name : null, false);
     }
@@ -151,15 +151,66 @@ public class ExpenseFundingService(AppDbContext db, IBusinessContext business)
             throw new InvalidOperationException("Insufficient business capital balance. Refresh the balance or choose a personal payment.");
     }
 
+    public async Task<bool> IsOnlyApprovingMemberAsync(Guid userId)
+    {
+        var members = await db.BusinessUsers.AsNoTracking()
+            .Where(b => b.BusinessId == business.CurrentBusinessId && b.User.IsActive && b.User.DeletedAt == null)
+            .Select(b => new { b.UserId, b.User.Role }).ToListAsync();
+        if (members.Count != 1 || members[0].UserId != userId) return false;
+        // A partner without a login is still another member of the business.
+        if (await db.Partners.AnyAsync(p => p.Status == "ACTIVE" && p.LinkedUserId != userId)) return false;
+        return members[0].Role == Roles.Owner || await db.Partners.AnyAsync(p =>
+            p.LinkedUserId == userId && p.Status == "ACTIVE" && p.PartnerType == "MANAGING");
+    }
+
+    private async Task ApprovePersonalInvestmentAsync(CapitalInjection injection, Guid userId)
+    {
+        var posted = await db.CapitalLedgerEntries.Where(l => l.ReferenceType == "CapitalInjection" && l.ReferenceId == injection.Id)
+            .SumAsync(l => (long?)l.AmountPaisa) ?? 0;
+        var amount = injection.AmountPaisa - posted;
+        if (amount != 0) {
+            var balance = await db.CapitalLedgerEntries.Where(l => l.PartnerId == injection.PartnerId && l.Bucket == "CAPITAL")
+                .SumAsync(l => (long?)l.AmountPaisa) ?? 0;
+            db.CapitalLedgerEntries.Add(new CapitalLedgerEntry { BusinessId = business.CurrentBusinessId,
+                PartnerId = injection.PartnerId, EntryType = "CAPITAL_INJECTION", Bucket = "CAPITAL", AmountPaisa = amount,
+                BalanceAfterPaisa = balance + amount, ReferenceType = "CapitalInjection", ReferenceId = injection.Id,
+                Note = "Personal investment approved with its linked expense.", CreatedBy = userId });
+        }
+        injection.Status = "APPROVED"; injection.ApprovedBy = userId; injection.ApprovedAt = DateTime.UtcNow;
+        injection.UpdatedAt = DateTime.UtcNow;
+    }
+
+    public async Task ReconcileApprovedPersonalInvestmentsAsync()
+    {
+        var hasLegacyPending = await db.CapitalInjections.AnyAsync(i =>
+            i.BusinessId == business.CurrentBusinessId && i.ExpenseId != null && i.Status == "PENDING_APPROVAL" &&
+            i.Expense != null && i.Expense.Status == "APPROVED" && i.Expense.FundingSource == "PERSONAL");
+        if (!hasLegacyPending) return;
+        await using var tx = await BeginAsync();
+        var pending = await db.CapitalInjections.Include(i => i.Expense).Where(i =>
+            i.BusinessId == business.CurrentBusinessId && i.ExpenseId != null && i.Status == "PENDING_APPROVAL" &&
+            i.Expense != null && i.Expense.Status == "APPROVED" && i.Expense.FundingSource == "PERSONAL" &&
+            i.Expense.FundingPartnerId == i.PartnerId && i.Expense.Amount * 100 == i.AmountPaisa).ToListAsync();
+        foreach (var injection in pending)
+            await ApprovePersonalInvestmentAsync(injection, injection.Expense!.ApprovedBy ?? injection.Expense.CreatedBy);
+        await db.SaveChangesAsync();
+        if (tx != null) await tx.CommitAsync();
+    }
+
     public async Task AddPersonalInvestmentAsync(Expense expense)
     {
         if (expense.FundingSource != "PERSONAL") return;
         if (!await db.Partners.AnyAsync(p => p.Id == expense.FundingPartnerId && p.Status == "ACTIVE"))
             throw new InvalidOperationException("The paying partner must be active.");
-        if (!await db.Partners.AnyAsync(p => p.Status == "ACTIVE" && p.PartnerType == "MANAGING"))
+        if (!await IsOnlyApprovingMemberAsync(expense.CreatedBy) && !await db.Partners.AnyAsync(p => p.Status == "ACTIVE" && p.PartnerType == "MANAGING"))
             throw new InvalidOperationException("An active managing partner is required to review the investment.");
-        if (await db.CapitalInjections.AnyAsync(i => i.ExpenseId == expense.Id)) return;
-        db.CapitalInjections.Add(new CapitalInjection
+        var existing = await db.CapitalInjections.FirstOrDefaultAsync(i => i.ExpenseId == expense.Id);
+        if (existing != null) {
+            if (existing.Status is "PENDING_EXPENSE" or "PENDING_APPROVAL")
+                await ApprovePersonalInvestmentAsync(existing, expense.ApprovedBy ?? expense.CreatedBy);
+            return;
+        }
+        var injection = new CapitalInjection
         {
             BusinessId = expense.BusinessId, PartnerId = expense.FundingPartnerId!.Value,
             ExpenseId = expense.Id, AmountPaisa = ToPaisa(expense.Amount),
@@ -168,6 +219,8 @@ public class ExpenseFundingService(AppDbContext db, IBusinessContext business)
             Note = $"Personal payment for expense {expense.Id}. Supplier paid directly; no business cash received.",
             Status = "PENDING_APPROVAL", SubmittedAt = DateTime.UtcNow, SubmittedBy = expense.CreatedBy,
             CreatedBy = expense.CreatedBy
-        });
+        };
+        db.CapitalInjections.Add(injection);
+        await ApprovePersonalInvestmentAsync(injection, expense.ApprovedBy ?? expense.CreatedBy);
     }
 }

@@ -324,6 +324,7 @@ export default function NewExpensePage() {
   const { lang, t } = useLanguage();
   const qc = useQueryClient();
   const currentBranchId = useAuthStore((s) => s.currentBranchId);
+  const currentBusinessId = useAuthStore((s) => s.currentBusinessId);
   const canSeeCosts = useAuthStore((s) => s.canSeeCosts());
 
   const [step, setStep] = useState<Step>('category');
@@ -357,9 +358,10 @@ export default function NewExpensePage() {
     localStorage.setItem(HOT_COST_STORAGE_KEY, JSON.stringify(next));
   };
 
-  const { data: cats = [], isLoading: catsLoading } = useQuery({
-    queryKey: ['expense-categories'],
+  const { data: cats = [], isLoading: catsLoading, isError: catsError, refetch: retryCats } = useQuery({
+    queryKey: ['expense-categories', currentBusinessId],
     queryFn: getExpenseCategories,
+    enabled: !!currentBusinessId,
   });
 
   // Last-30-days total per category — shown right on the category tiles so staff can see at a
@@ -647,6 +649,13 @@ export default function NewExpensePage() {
             />
             {catsLoading ? (
               <div className="h-40 flex items-center justify-center text-gray-400 text-sm">{t('common.loading')}</div>
+            ) : catsError ? (
+              <div className="h-28 flex flex-col items-center justify-center gap-2 rounded-2xl border border-red-200 bg-red-50 text-sm text-red-700">
+                <span>{lang === 'bn' ? 'খরচের ক্যাটাগরি লোড করা যায়নি।' : 'Could not load expense categories.'}</span>
+                <button type="button" onClick={() => void retryCats()} className="font-semibold underline">
+                  {lang === 'bn' ? 'আবার চেষ্টা করুন' : 'Retry'}
+                </button>
+              </div>
             ) : categorySearchResult.length === 0 ? (
               <div className="h-28 flex items-center justify-center rounded-2xl border border-dashed border-gray-200 text-gray-400 text-sm">
                 {lang === 'bn' ? 'এই নামে কোনো খরচ পাওয়া যায়নি।' : 'No matching cost category found.'}

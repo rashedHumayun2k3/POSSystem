@@ -644,6 +644,21 @@ public class ProductService : IProductService
         await _log.LogAsync(_business.CurrentBusinessId, userId, "UPDATE", "ProductVariant", variantId);
     }
 
+    public async Task UpdatePurchaseCostAsync(Guid variantId, UpdatePurchaseCostRequest request, Guid userId)
+    {
+        if (request.CostPerUnit < 0 || request.CostPerUnit > 999999999999.99m || decimal.Round(request.CostPerUnit, 2) != request.CostPerUnit)
+            throw new ArgumentException("Enter a non-negative purchase cost with at most two decimal places.");
+        var variant = await _db.ProductVariants.FirstOrDefaultAsync(v => v.Id == variantId)
+            ?? throw new KeyNotFoundException("Variant not found.");
+        if (variant.AvgLandedCost != request.ExpectedCost)
+            throw new DbUpdateConcurrencyException("Purchase cost changed. Reload the product and try again.");
+        var previous = variant.AvgLandedCost;
+        variant.AvgLandedCost = request.CostPerUnit;
+        await _db.SaveChangesAsync();
+        await _log.LogAsync(_business.CurrentBusinessId, userId, "UPDATE", "ProductPurchaseCost", variantId,
+            new { CostPerUnit = previous }, new { request.CostPerUnit });
+    }
+
     // "I already own this" — for a variant that has never had any real purchase cost recorded
     // (AvgLandedCost == 0). Only usable once per variant in that state; once real cost exists,
     // restocking goes through the normal Purchases flow instead, so genuine cost history never
@@ -698,6 +713,8 @@ public class ProductService : IProductService
 
         ValidateWholesaleTier(request.WholesaleMinQty, request.WholesaleUnitPrice, request.SellingPrice);
 
+        if (!await _db.Categories.AnyAsync(c => c.Id == request.CategoryId))
+            throw new ArgumentException("Select an available category.");
         product.CategoryId = request.CategoryId;
         product.Name = request.Name.Trim();
         if (!string.Equals(product.ImageUrl, request.ImageUrl, StringComparison.Ordinal))

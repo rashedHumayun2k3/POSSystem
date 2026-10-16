@@ -1,4 +1,5 @@
 import HomeInstallmentApprovals from "../components/HomeInstallmentApprovals";
+import HomePartnerApprovals from "../components/HomePartnerApprovals";
 import { Text } from "../i18n/LocalizedText";
 import { colors } from "../theme";import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Animated, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
@@ -7,6 +8,8 @@ import { Link, router, type Href } from "expo-router";
 import { useAuth } from "../auth/AuthContext";
 import PageTitle from "../components/PageTitle";
 import TaskWidget from "../tasks/TaskWidget";
+import type { Partner } from "../types/partners";
+import { useLanguage } from "../i18n/LanguageContext";
 
 type Point = { label: string; value: number };
 type Summary = {
@@ -24,9 +27,11 @@ const cash = (value: number | null | undefined) => `৳${Number(value ?? 0).toLo
 
 export default function HomeScreen() {
   const auth = useAuth();
+  const { t } = useLanguage();
   const [data, setData] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [partnershipPending, setPartnershipPending] = useState(false);
   const [reload, setReload] = useState(0);
   const [hot, setHot] = useState(false);
   const [todayMetrics, setTodayMetrics] = useState<TodayMetrics | null>(null);
@@ -34,8 +39,21 @@ export default function HomeScreen() {
   const [metricsError, setMetricsError] = useState("");
   const metricsOpacity = useMemo(() => new Animated.Value(0), []);
   useEffect(() => {
-    let active = true; setLoading(true); setError("");
-    auth.api<Summary>("/reports/home-summary").then(value => { if (active) setData(value); }).catch(e => { if (active) setError(e.message); }).finally(() => { if (active) setLoading(false); });
+    let active = true; setLoading(true); setError(""); setData(null);
+    void (async () => {
+      try {
+        if (["OWNER", "PARTNER"].includes(auth.session?.user.role ?? "")) {
+          const partners = await auth.api<Partner[]>("/partners");
+          if (!active) return;
+          const pending = partners.some(partner => partner.linkedUserId === auth.session?.user.id && partner.status === "PENDING_APPROVAL");
+          setPartnershipPending(pending);
+          if (pending) return;
+        } else setPartnershipPending(false);
+        const summary = await auth.api<Summary>("/reports/home-summary");
+        if (active) setData(summary);
+      } catch (e) { if (active) setError(e instanceof Error ? e.message : String(e)); }
+      finally { if (active) setLoading(false); }
+    })();
     return () => { active = false; };
   }, [auth.session?.businessId, auth.session?.branchId, reload]);
   useEffect(() => { setTodayMetrics(null); setMetricsError(""); }, [auth.session?.businessId, auth.session?.branchId]);
@@ -63,7 +81,8 @@ export default function HomeScreen() {
     data.todayReturns > 0 && { icon: "return-down-back-outline" as Icon, title: `${data.todayReturns} returns today`, detail: "Review returned orders.", action: () => router.push({ pathname: "/orders", params: { tab: "RETURNED" } }) },
   ].filter(Boolean) as { icon: Icon; title: string; detail: string; action?: () => void }[] : [], [data, stockAlerts]);
 
-  if (loading && !data) return <View style={s.state}><ActivityIndicator color={colors.primary} size="large" /><Text style={s.muted}>Loading dashboard…</Text></View>;
+  if (loading) return <View style={s.state}><ActivityIndicator color={colors.primary} size="large" /><Text style={s.muted}>Loading dashboard…</Text></View>;
+  if (partnershipPending && !error) return <View style={s.state}><Ionicons name="time-outline" size={40} color={colors.primaryDark} /><Text style={s.heading}>{t("homePartnership.title")}</Text><Text style={s.muted}>{t("homePartnership.message")}</Text><Pressable style={s.retry} onPress={refresh}><Text style={s.retryText}>{t("homePartnership.checkAgain")}</Text></Pressable></View>;
   if (error || !data) return <View style={s.state}><Ionicons name="warning-outline" size={36} color={colors.danger} /><Text style={s.heading}>Could not load dashboard</Text><Text style={s.muted}>{error}</Text><Pressable style={s.retry} onPress={refresh}><Text style={s.retryText}>Try again</Text></Pressable></View>;
 
   const actions: { label: string; icon: Icon; color: string; press?: () => void }[] = [
@@ -75,6 +94,7 @@ export default function HomeScreen() {
     { label: "Customers", icon: "people-outline", color: colors.primary, press: () => router.push("/more/customers") },
   ];
   return <ScrollView style={s.root} contentContainerStyle={s.content} refreshControl={<RefreshControl refreshing={loading} onRefresh={refresh} />}>
+    <HomePartnerApprovals />
     <HomeInstallmentApprovals />
     <View style={s.welcome}><Text style={s.welcomeText}>Welcome back, {auth.session?.user.name}</Text><View style={s.businessRow}><PageTitle numberOfLines={1} style={s.business}>{business?.name ?? "LavLokshan"}</PageTitle><Text style={s.date}>{date}</Text></View></View>
     <View style={s.body}>

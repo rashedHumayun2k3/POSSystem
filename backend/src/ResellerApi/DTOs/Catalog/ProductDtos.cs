@@ -305,3 +305,5 @@ public record UpdateVariantRequest(
     bool IsDefault,
     byte[] RowVer
 );
+
+public record UpdatePurchaseCostRequest(decimal CostPerUnit, decimal ExpectedCost);

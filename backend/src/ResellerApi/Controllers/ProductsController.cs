@@ -354,6 +354,20 @@ public class ProductsController : ControllerBase
         catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
     }
 
+    [HttpPut("variants/{variantId:guid}/purchase-cost")]
+    [Authorize(Roles = "OWNER")]
+    public async Task<IActionResult> UpdatePurchaseCost(Guid variantId, [FromBody] UpdatePurchaseCostRequest request)
+    {
+        try
+        {
+            await _svc.UpdatePurchaseCostAsync(variantId, request, _user.UserId);
+            return NoContent();
+        }
+        catch (ArgumentException ex) { return BadRequest(new { message = ex.Message }); }
+        catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
+        catch (Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException) { return Conflict(new { message = "Purchase cost changed. Reload the product and try again." }); }
+    }
+
     [HttpPost("variants/{variantId:guid}/existing-stock-cost")]
     [Authorize(Roles = "OWNER")]
     public async Task<IActionResult> RecordExistingStockCost(Guid variantId, [FromBody] RecordExistingStockCostRequest request)

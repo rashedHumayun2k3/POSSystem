@@ -2,7 +2,8 @@ namespace ResellerApi.DTOs.Catalog;
 
 public record ProductImportUpload(string FileName, string Base64);
 public record ProductImportRow(int RowNumber, string Sku, string Name, string Category,
-    Guid? CategoryId, string Quantity, string BuyPrice, string SellPrice, string? AcknowledgedMatches = null);
+    Guid? CategoryId, string Quantity, string BuyPrice, string SellPrice, string? AcknowledgedMatches = null,
+    bool ShowOnMarketplace = true);
 public record ProductImportRequest(List<ProductImportRow> Rows, Guid? BranchId, Guid ImportId, Guid? CategoryId = null);
 public record ProductImportError(int RowNumber, string Field, string Message);
 public record ProductImportMatch(Guid Id, string Name, string Sku, string? ImageUrl, string Category,

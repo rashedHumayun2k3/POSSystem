@@ -37,8 +37,13 @@ public record ExpenseDto(
     string? FundingSource = null,
     string? FundingPartnerName = null,
     Guid? FundingPartnerId = null,
-    Guid? PersonalInvestmentId = null
-);
+    Guid? PersonalInvestmentId = null,
+    DateTime UpdatedAt = default,
+    bool IsAccountingPeriodClosed = false
+)
+{
+    public Guid? LastCorrectedBy { get; init; }
+}
 
 // ── Create ────────────────────────────────────────────────────────────────────
 public record CreateExpenseRequest(

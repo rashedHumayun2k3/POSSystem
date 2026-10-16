@@ -35,10 +35,11 @@ public class PartnerCapitalService : IPartnerCapitalService
         await using var tx = await new ExpenseFundingService(_db, _business).BeginAsync();
         await new ExpenseFundingService(_db, _business).EnsureDateOpenAsync(request.InjectedAt ?? DateTime.UtcNow);
         var injection = BuildInjection(partnerId, request, userId);
-        if (request.SubmitForApproval) await MarkSubmittedAsync(injection, userId);
+        var autoApprove = request.SubmitForApproval && await MarkSubmittedAsync(injection, userId);
 
         _db.CapitalInjections.Add(injection);
         await _db.SaveChangesAsync();
+        if (autoApprove) await ApproveInjectionAsync(injection, userId);
 
         await _log.LogAsync(_business.CurrentBusinessId, userId, "CREATE", "CapitalInjectionDraft", injection.Id);
         if (tx != null) await tx.CommitAsync();
@@ -69,9 +70,10 @@ public class PartnerCapitalService : IPartnerCapitalService
         injection.ProofImageUrl = request.ProofImageUrl?.Trim();
         injection.Note = request.Note?.Trim();
         injection.UpdatedAt = DateTime.UtcNow;
-        if (request.SubmitForApproval) await MarkSubmittedAsync(injection, userId);
+        var autoApprove = request.SubmitForApproval && await MarkSubmittedAsync(injection, userId);
 
         await _db.SaveChangesAsync();
+        if (autoApprove) await ApproveInjectionAsync(injection, userId);
         await _log.LogAsync(_business.CurrentBusinessId, userId, "UPDATE", "CapitalInjectionDraft", injection.Id);
         if (tx != null) await tx.CommitAsync();
         return ToDto(injection);
@@ -96,11 +98,10 @@ public class PartnerCapitalService : IPartnerCapitalService
         EnsureDraft(injection);
         await using var tx = await new ExpenseFundingService(_db, _business).BeginAsync();
         await new ExpenseFundingService(_db, _business).EnsureDateOpenAsync(injection.InjectedAt);
-        injection.Status = "PENDING_APPROVAL";
-        injection.SubmittedAt = DateTime.UtcNow;
-        injection.SubmittedBy = userId;
+        var autoApprove = await MarkSubmittedAsync(injection, userId);
         injection.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
+        if (autoApprove) await ApproveInjectionAsync(injection, userId);
         await _log.LogAsync(_business.CurrentBusinessId, userId, "SUBMIT", "CapitalInjection", injection.Id);
         if (tx != null) await tx.CommitAsync();
         return ToDto(injection);
@@ -117,6 +118,10 @@ public class PartnerCapitalService : IPartnerCapitalService
         var injection = await GetInjectionForPartnerAsync(partnerId, injectionId);
         if (injection.Status != "PENDING_APPROVAL")
             throw new InvalidOperationException("Only submitted capital injections can be approved or rejected.");
+
+        if (injection.CreatedBy == userId || injection.SubmittedBy == userId || (injection.ExpenseId.HasValue &&
+            await _db.Expenses.AnyAsync(e => e.Id == injection.ExpenseId && e.CreatedBy == userId)))
+            throw new InvalidOperationException("You cannot approve or reject your own installment or expense.");
 
         var decision = request.Decision.Trim().ToUpperInvariant();
         if (!ValidApprovalDecisions.Contains(decision))
@@ -137,9 +142,10 @@ public class PartnerCapitalService : IPartnerCapitalService
             throw new InvalidOperationException("This managing partner has already recorded a different decision on this capital injection.");
         }
 
-        await using var transaction = await _db.Database.BeginTransactionAsync();
-        await new ExpenseFundingService(_db, _business).LockInExistingTransactionAsync();
+        await using var transaction = await new ExpenseFundingService(_db, _business).BeginAsync();
         await _db.Entry(injection).ReloadAsync();
+        if (injection.CreatedBy == userId || injection.SubmittedBy == userId)
+            throw new InvalidOperationException("Another managing partner must review your installment or correction.");
         if (injection.Status != "PENDING_APPROVAL")
             throw new InvalidOperationException("This installment has already been decided.");
         await new ExpenseFundingService(_db, _business).EnsureDateOpenAsync(injection.InjectedAt);
@@ -155,15 +161,13 @@ public class PartnerCapitalService : IPartnerCapitalService
 
         await _db.SaveChangesAsync();
 
-        var status = await BuildApprovalStatusAsync(injection);
-        var outcome = PartnerService.ComputeOutcome(status.ApproveCount, status.RejectCount, status.RequiredVotes, status.ActiveManagingPartnerCount);
-        if (outcome == "ACTIVE")
+        if (decision == "APPROVE")
             await ApproveInjectionAsync(injection, userId);
-        else if (outcome == "REJECTED")
+        else
             await RejectInjectionAsync(injection, userId, request.Note);
 
         var result = await BuildApprovalStatusAsync(injection);
-        await transaction.CommitAsync();
+        if (transaction != null) await transaction.CommitAsync();
         return result;
     }
 
@@ -175,9 +179,9 @@ public class PartnerCapitalService : IPartnerCapitalService
             && e.Status == "APPROVED" && e.FundingSource == "PERSONAL" && e.FundingPartnerId == injection.PartnerId
             && e.Amount * 100 == injection.AmountPaisa))
             throw new InvalidOperationException("The linked personal expense is not valid for investment approval.");
-        var ledgerAlreadyExists = await _db.CapitalLedgerEntries.AnyAsync(entry =>
-            entry.ReferenceType == "CapitalInjection" && entry.ReferenceId == injection.Id);
-        if (!ledgerAlreadyExists)
+        var posted = await _db.CapitalLedgerEntries.Where(entry =>
+            entry.ReferenceType == "CapitalInjection" && entry.ReferenceId == injection.Id).SumAsync(entry => (long?)entry.AmountPaisa) ?? 0;
+        if (posted != injection.AmountPaisa)
         {
             var currentCapitalBalance = await SumBucketAsync(injection.PartnerId, "CAPITAL");
             _db.CapitalLedgerEntries.Add(new CapitalLedgerEntry
@@ -186,8 +190,8 @@ public class PartnerCapitalService : IPartnerCapitalService
                 PartnerId = injection.PartnerId,
                 EntryType = "CAPITAL_INJECTION",
                 Bucket = "CAPITAL",
-                AmountPaisa = injection.AmountPaisa,
-                BalanceAfterPaisa = ComputeBalanceAfter(currentCapitalBalance, injection.AmountPaisa),
+                AmountPaisa = injection.AmountPaisa - posted,
+                BalanceAfterPaisa = ComputeBalanceAfter(currentCapitalBalance, injection.AmountPaisa - posted),
                 ReferenceType = "CapitalInjection",
                 ReferenceId = injection.Id,
                 Note = BuildLedgerNote(injection.PaymentMethod, injection.PaidTo, injection.PaymentReference, injection.Note),
@@ -216,19 +220,25 @@ public class PartnerCapitalService : IPartnerCapitalService
 
     public async Task<List<CapitalInjectionDto>> ListInjectionsAsync(Guid partnerId)
     {
+        var closedThrough = (await new ExpenseFundingService(_db, _business).LatestClosingAsync())?.PeriodEnd;
         return await _db.CapitalInjections.AsNoTracking()
             .Where(i => i.PartnerId == partnerId)
-            .OrderByDescending(i => i.InjectedAt)
+            .OrderByDescending(i => i.CreatedAt)
+            .ThenByDescending(i => i.Id)
             .Select(i => new CapitalInjectionDto(
                 i.Id, i.PartnerId, i.AmountPaisa, i.InjectedAt, i.LockInMonths, i.LockInExpiresAt,
                 i.PaymentMethod, i.PaidTo, i.BankName, i.BankAccountNumber, i.ChequeNumber,
                 i.PaymentReference, i.ProofImageUrl, i.Note, i.Status, i.SubmittedAt, i.ApprovedAt,
-                i.RejectedAt, i.RejectionReason))
+                i.RejectedAt, i.RejectionReason, i.CreatedBy, i.UpdatedAt, i.ExpenseId, i.SubmittedBy,
+                closedThrough.HasValue && (i.InjectedAt.Date <= closedThrough.Value.Date ||
+                    i.Expense != null && i.Expense.ExpenseDate.Date <= closedThrough.Value.Date)))
             .ToListAsync();
     }
 
     public async Task<List<CapitalInjectionDto>> ListPendingInjectionsAsync()
     {
+        await new ExpenseFundingService(_db, _business).ReconcileApprovedPersonalInvestmentsAsync();
+        var closedThrough = (await new ExpenseFundingService(_db, _business).LatestClosingAsync())?.PeriodEnd;
         return await _db.CapitalInjections.AsNoTracking()
             .Where(i => i.Status == "PENDING_APPROVAL")
             .OrderByDescending(i => i.SubmittedAt)
@@ -236,7 +246,9 @@ public class PartnerCapitalService : IPartnerCapitalService
                 i.Id, i.PartnerId, i.AmountPaisa, i.InjectedAt, i.LockInMonths, i.LockInExpiresAt,
                 i.PaymentMethod, i.PaidTo, i.BankName, i.BankAccountNumber, i.ChequeNumber,
                 i.PaymentReference, i.ProofImageUrl, i.Note, i.Status, i.SubmittedAt, i.ApprovedAt,
-                i.RejectedAt, i.RejectionReason))
+                i.RejectedAt, i.RejectionReason, i.CreatedBy, i.UpdatedAt, i.ExpenseId, i.SubmittedBy,
+                closedThrough.HasValue && (i.InjectedAt.Date <= closedThrough.Value.Date ||
+                    i.Expense != null && i.Expense.ExpenseDate.Date <= closedThrough.Value.Date)))
             .ToListAsync();
     }
 
@@ -260,7 +272,18 @@ public class PartnerCapitalService : IPartnerCapitalService
 
         var capital = await SumBucketAsync(partnerId, "CAPITAL");
         var profit = await SumBucketAsync(partnerId, "PROFIT");
-        return new PartnerBalanceDto(capital, profit, partner.DeferredLossPaisa);
+        var contributions = await _db.CapitalLedgerEntries.AsNoTracking()
+            .Where(l => l.PartnerId == partnerId && l.Bucket == "CAPITAL" && l.ReferenceType == "CapitalInjection")
+            .Join(_db.CapitalInjections.IgnoreQueryFilters().AsNoTracking(),
+                l => l.ReferenceId, i => (Guid?)i.Id,
+                (l, i) => new { l.AmountPaisa, IsPersonal = i.ExpenseId != null })
+            .GroupBy(x => x.IsPersonal)
+            .Select(g => new { IsPersonal = g.Key, AmountPaisa = g.Sum(x => x.AmountPaisa) })
+            .ToListAsync();
+        var cash = contributions.Where(x => !x.IsPersonal).Sum(x => x.AmountPaisa);
+        var personal = contributions.Where(x => x.IsPersonal).Sum(x => x.AmountPaisa);
+        return new PartnerBalanceDto(capital, profit, partner.DeferredLossPaisa,
+            cash, personal, capital - cash - personal);
     }
 
     private async Task<long> SumBucketAsync(Guid partnerId, string bucket)
@@ -275,7 +298,7 @@ public class PartnerCapitalService : IPartnerCapitalService
             i.Id, i.PartnerId, i.AmountPaisa, i.InjectedAt, i.LockInMonths, i.LockInExpiresAt,
             i.PaymentMethod, i.PaidTo, i.BankName, i.BankAccountNumber, i.ChequeNumber,
             i.PaymentReference, i.ProofImageUrl, i.Note, i.Status, i.SubmittedAt, i.ApprovedAt,
-            i.RejectedAt, i.RejectionReason);
+            i.RejectedAt, i.RejectionReason, i.CreatedBy, i.UpdatedAt, i.ExpenseId, i.SubmittedBy);
 
     private CapitalInjection BuildInjection(Guid partnerId, CreateCapitalInjectionRequest request, Guid userId)
     {
@@ -321,13 +344,17 @@ public class PartnerCapitalService : IPartnerCapitalService
         await _db.CapitalInjections.FirstOrDefaultAsync(i => i.Id == injectionId && i.PartnerId == partnerId)
             ?? throw new KeyNotFoundException("Capital injection not found.");
 
-    private async Task MarkSubmittedAsync(CapitalInjection injection, Guid userId)
+    private async Task<bool> MarkSubmittedAsync(CapitalInjection injection, Guid userId)
     {
-        if (!await _db.Partners.AnyAsync(p => p.Status == "ACTIVE" && p.PartnerType == "MANAGING"))
-            throw new InvalidOperationException("An active managing partner is required to review the investment.");
+        var activeCount = await _db.Partners.CountAsync(p => p.Status == "ACTIVE");
+        if (activeCount == 0)
+            throw new InvalidOperationException("An active partner is required to record an installment.");
+        if (activeCount > 1 && !await _db.Partners.AnyAsync(p => p.Status == "ACTIVE" && p.PartnerType == "MANAGING" && p.LinkedUserId != userId))
+            throw new InvalidOperationException("Another active managing partner is required to review the installment.");
         injection.Status = "PENDING_APPROVAL";
         injection.SubmittedAt = DateTime.UtcNow;
         injection.SubmittedBy = userId;
+        return activeCount == 1;
     }
 
     private static void EnsureDraft(CapitalInjection injection)
@@ -355,7 +382,7 @@ public class PartnerCapitalService : IPartnerCapitalService
             injection.Status,
             votes.Count(v => v.Decision == "APPROVE"),
             votes.Count(v => v.Decision == "REJECT"),
-            2, // Installments require two distinct managing partners, regardless of group size.
+            1, // One managing partner other than the creator decides the installment.
             activeManagingPartnerCount,
             votes);
     }

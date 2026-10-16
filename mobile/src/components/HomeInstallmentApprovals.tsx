@@ -7,6 +7,7 @@ import {Text} from "../i18n/LocalizedText";
 import {colors} from "../theme";
 import type {Approval, Injection, Partner} from "../types/partners";
 import {InjectionDetails} from "../screens/PartnerDetailScreen";
+import {detail} from "../screens/InstallmentDetailsStyles";
 import BottomSheet from "./BottomSheet";
 
 type Pending = {item: Injection; approval: Approval};
@@ -34,11 +35,13 @@ export default function HomeInstallmentApprovals() {
     void (async () => {
       try {
         const all = await api.current<Partner[]>("/partners");
+        if (all.filter(p => p.status === "ACTIVE").length <= 1) return;
         const me = all.find(p => p.linkedUserId === userId && p.status === "ACTIVE" && p.partnerType === "MANAGING");
         if (!me || run !== generation.current) return;
         const pending = await api.current<Injection[]>("/partners/capital-injections/awaiting-approval");
         const eligible: Pending[] = [];
         for (const item of pending) {
+          if (item.createdBy === userId || item.submittedBy === userId) continue;
           if (run !== generation.current) return;
           const approval = await api.current<Approval>(`/partners/${item.partnerId}/capital-injections/${item.id}/approval`);
           if (approval.status === "PENDING_APPROVAL" && !approval.votes.some(v => v.votedByPartnerId === me.id))
@@ -47,7 +50,7 @@ export default function HomeInstallmentApprovals() {
         if (run === generation.current) { setPartners(all); setQueue(eligible); }
       } catch (e) { if (run === generation.current) setError((e as Error).message); }
     })();
-    return () => { ++generation.current; };
+    return () => { ++generation.current; setQueue([]); };
   }, [userId, auth.session?.businessId, role, retry]));
 
   const current = queue[0];
@@ -72,12 +75,11 @@ export default function HomeInstallmentApprovals() {
   };
 
   if (!current) return error ? <View style={{padding:12,gap:8}}><Text>{t("homeApproval.failed")}</Text><Pressable accessibilityRole="button" onPress={()=>setRetry(n=>n+1)}><Text>{t("partnerSummary.retry")}</Text></Pressable></View> : null;
-  return <BottomSheet visible close={later} title={t("partners.injectionDetailsTitle")} mobile={width<768}
-    footer={<Pressable accessibilityRole="button" disabled={busy} onPress={later} style={{padding:12,alignItems:"center"}}><Text style={{color:colors.primaryDark,fontWeight:"700"}}>{t("homeApproval.later")}</Text></Pressable>}>
-    <Text style={{fontWeight:"700",color:colors.heading}}>{partners.find(p=>p.id===current.item.partnerId)?.name}</Text>
-    <Text>{t("homeApproval.remaining",{count:queue.length})}</Text>
+  return <BottomSheet visible close={later} title={t("partners.injectionDetailsTitle")} subtitle={t("installmentDesign.subtitle")} variant="installment" mobile={width<768}
+    footer={<Pressable accessibilityRole="button" disabled={busy} onPress={later} style={({pressed})=>[detail.footerButton,pressed&&detail.pressed,busy&&detail.disabled]}><Text style={detail.footerButtonText}>{t("installmentDesign.close")}</Text></Pressable>}>
+    {queue.length>1&&<Text style={detail.sectionHint}>{t("homeApproval.remaining",{count:queue.length})}</Text>}
     {!!error && <Text accessibilityRole="alert" style={{color:colors.dangerText}}>{error}</Text>}
-    <InjectionDetails item={current.item} approval={current.approval}
+    <InjectionDetails activePartnerCount={partners.filter(p=>p.status==="ACTIVE").length} item={current.item} partnerName={partners.find(p=>p.id===current.item.partnerId)?.name} approval={current.approval}
       managers={partners.filter(p=>p.partnerType==="MANAGING"&&p.status==="ACTIVE")}
       userId={userId} reasons={reasons} setReasons={setReasons} vote={(d,k)=>void vote(d,k)}
       edit={()=>{}} submit={()=>{}} busy={busy} t={t}/>

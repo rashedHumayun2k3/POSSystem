@@ -21,7 +21,7 @@ public class ProductImportService(AppDbContext db, IBusinessContext business, IP
             ? await db.Categories.AsNoTracking().FirstOrDefaultAsync(c => c.Id == request.CategoryId)
             : null;
         if (category is null) throw new ArgumentException("Select one available category for all products.");
-        var preview = await ValidateAsync(request.Rows.Select(row => row with { CategoryId = category.Id, Category = category.Name }).ToList());
+        var preview = await ValidateAsync(request.Rows.Select(row => row.CategoryId.HasValue ? row : row with { CategoryId = category.Id, Category = category.Name }).ToList());
         foreach (var match in preview.Matches ?? [])
             if (match.ReviewKey is not null && preview.Rows.First(r => r.RowNumber == match.RowNumber).AcknowledgedMatches != match.ReviewKey)
                 preview.Errors.Add(new(match.RowNumber, "matches", "Review and acknowledge the similar product names before continuing."));
@@ -136,6 +136,8 @@ public class ProductImportService(AppDbContext db, IBusinessContext business, IP
                 WarrantyDurationValue: null, WarrantyDurationUnit: null, WholesaleMinQty: null, WholesaleUnitPrice: null,
                 WholesaleNote: null, Sku: row.Sku), userId);
             ids.Add(product.Id);
+            if (!row.ShowOnMarketplace)
+                await products.SetShowOnMarketplaceAsync(product.Id, false, userId);
         }
         var result = new ProductImportResult(ids);
         // Receipt and products commit together; a timeout/retry can return the original result.

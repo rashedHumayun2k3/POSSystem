@@ -12,6 +12,7 @@ type ConfirmDialogProps = {
   confirmLabel?: string;
   cancelLabel?: string;
   hideCancel?: boolean;
+  showClose?: boolean;
   success?: boolean;
   destructive?: boolean;
   busy?: boolean;
@@ -27,6 +28,7 @@ export function ConfirmDialog({
   confirmLabel = "Confirm",
   cancelLabel = "Cancel",
   hideCancel = false,
+  showClose = false,
   success = false,
   destructive = false,
   busy = false,
@@ -41,6 +43,9 @@ export function ConfirmDialog({
     <View style={styles.overlay}>
       <Pressable accessibilityLabel="Close confirmation" disabled={busy} onPress={close} style={StyleSheet.absoluteFill} />
       <SafeAreaView style={[styles.dialog, compact && styles.compactDialog]}>
+        {showClose && <Pressable accessibilityRole="button" accessibilityLabel="Close popup" disabled={busy} onPress={close} style={styles.closeButton}>
+          <Ionicons name="close" size={22} color={colors.heading} />
+        </Pressable>}
         <View style={[styles.iconWrap, destructive && styles.dangerIconWrap]}>
           <Ionicons name={destructive ? "trash-outline" : success ? "checkmark-circle-outline" : "help-circle-outline"} size={26} color={destructive ? colors.danger : colors.primary} />
         </View>
@@ -63,6 +68,7 @@ const styles = StyleSheet.create({
   overlay: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.overlay, padding: 20 },
   dialog: { width: "100%", maxWidth: 440, maxHeight: "90%", borderWidth: 1, borderColor: colors.divider, borderRadius: 20, backgroundColor: colors.card, padding: 24, shadowColor: colors.heading, shadowOpacity: .2, shadowRadius: 22, shadowOffset: { width: 0, height: 10 }, elevation: 12 },
   compactDialog: { borderRadius: 18, padding: 20 },
+  closeButton: { position: "absolute", top: 12, right: 12, zIndex: 1, width: 36, height: 36, alignItems: "center", justifyContent: "center" },
   iconWrap: { width: 52, height: 52, alignItems: "center", justifyContent: "center", borderRadius: 26, backgroundColor: colors.primaryLight, marginBottom: 18 },
   dangerIconWrap: { backgroundColor: colors.dangerBackground },
   title: { color: colors.heading, fontSize: 21, fontWeight: "800", marginBottom: 8 },

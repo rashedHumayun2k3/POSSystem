@@ -101,6 +101,31 @@ public class ProductImportTests
         }
     }
 
+    private sealed class CostLog : ResellerApi.Services.Interfaces.IActivityLogService
+    {
+        public int Calls;
+        public Task LogAsync(Guid businessId, Guid userId, string action, string entityType, Guid? entityId = null, object? before = null, object? after = null)
+        { Calls++; return Task.CompletedTask; }
+    }
+
+    [Fact]
+    public async Task PurchaseCostEditChecksScopeAndStaleValuesAndLogsChange()
+    {
+        var business = new BusinessContext { CurrentBusinessId = Guid.NewGuid() };
+        await using var db = new TestDb(new DbContextOptionsBuilder<AppDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options, business);
+        var variant = new ProductVariant { BusinessId = business.CurrentBusinessId, Sku = "COST", Barcode = "COST", AvgLandedCost = 10 };
+        var foreign = new ProductVariant { BusinessId = Guid.NewGuid(), Sku = "OTHER", Barcode = "OTHER", AvgLandedCost = 10 };
+        db.ProductVariants.AddRange(variant, foreign); await db.SaveChangesAsync();
+        var log = new CostLog();
+        var service = new ProductService(db, business, log, null!, null!);
+        await service.UpdatePurchaseCostAsync(variant.Id, new(15, 10), Guid.NewGuid());
+        Assert.Equal(15, variant.AvgLandedCost); Assert.Equal(1, log.Calls);
+        await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() => service.UpdatePurchaseCostAsync(variant.Id, new(20, 10), Guid.NewGuid()));
+        await Assert.ThrowsAsync<ArgumentException>(() => service.UpdatePurchaseCostAsync(variant.Id, new(-1, 15), Guid.NewGuid()));
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => service.UpdatePurchaseCostAsync(foreign.Id, new(20, 10), Guid.NewGuid()));
+        Assert.Equal(15, variant.AvgLandedCost);
+    }
+
     private static ProductImportRow Row(int number = 2, string sku = "NEW-1", string name = "New product") => new(number, sku, name, "Clothing", null, "1", "0", "10");
 
     [Fact]
@@ -174,19 +199,24 @@ public class ProductImportTests
     }
 
     [Fact]
-    public async Task BatchRequiresOneCategoryAndAppliesItToEveryRow()
+    public async Task BatchDefaultsMissingCategoriesAndPreservesRowOverrides()
     {
         var business = new BusinessContext { CurrentBusinessId = Guid.NewGuid() };
         await using var db = new TestDb(new DbContextOptionsBuilder<AppDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options, business);
         var category = new Category { BusinessId = business.CurrentBusinessId, Name = "Clothing" };
-        db.Categories.Add(category); await db.SaveChangesAsync();
+        var other = new Category { BusinessId = business.CurrentBusinessId, Name = "Shoes" };
+        db.Categories.AddRange(category, other); await db.SaveChangesAsync();
         var service = new ProductImportService(db, business, null!);
-        var request = new ProductImportRequest([Row(), Row(3, "NEW-2", "Second product") with { CategoryId = Guid.NewGuid(), Category = "Wrong category" }], null, Guid.NewGuid());
+        var request = new ProductImportRequest([Row(), Row(3, "NEW-2", "Second product") with { CategoryId = other.Id, Category = "Old label" }], null, Guid.NewGuid());
         await Assert.ThrowsAsync<ArgumentException>(() => service.ValidateBatchAsync(request));
         await Assert.ThrowsAsync<ArgumentException>(() => service.ValidateBatchAsync(request with { CategoryId = Guid.NewGuid() }));
         var result = await service.ValidateBatchAsync(request with { CategoryId = category.Id });
         Assert.Empty(result.Errors);
-        Assert.All(result.Rows, row => { Assert.Equal(category.Id, row.CategoryId); Assert.Equal("Clothing", row.Category); });
+        Assert.Equal(category.Id, result.Rows[0].CategoryId);
+        Assert.Equal(other.Id, result.Rows[1].CategoryId);
+        Assert.Equal("Shoes", result.Rows[1].Category);
+        var invalid = await service.ValidateBatchAsync(request with { CategoryId = category.Id, Rows = [Row() with { CategoryId = Guid.NewGuid() }] });
+        Assert.Contains(invalid.Errors, e => e.Field == "categoryId");
     }
 
     [Fact]

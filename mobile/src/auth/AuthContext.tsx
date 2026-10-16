@@ -29,7 +29,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     if (!response.ok) throw Object.assign(new Error(body.message || (response.status === 401 ? "Your session expired. Please sign in again." : `Request failed (${response.status}).`)), { status: response.status, data: body });
     return body;
   } catch (error) {
-    if (error instanceof TypeError || (error as Error).name === "AbortError") throw new Error("Cannot reach the server. Check your internet connection and try again.");
+    if (error instanceof TypeError || (error as Error).name === "AbortError") throw new Error("We couldn’t connect to the server. Please check your internet connection and try again. If the problem continues, please try again shortly.");
     throw error;
   } finally { clearTimeout(timer); }
 }

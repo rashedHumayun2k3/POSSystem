@@ -24,7 +24,10 @@ public record PartnerDto(
     string? EmergencyContactName,
     string? EmergencyContactPhone,
     string? EmergencyContactRelation,
-    bool CanAccessPos = false
+    bool CanAccessPos = false,
+    long CashInstallmentsPaisa = 0,
+    long PersonalExpensesPaisa = 0,
+    long OtherCapitalPaisa = 0
 );
 
 public record CreatePartnerRequest(
@@ -102,7 +105,10 @@ public record PartnerApprovalStatusDto(
 public record PartnerBalanceDto(
     long CapitalBalancePaisa,
     long ProfitBalancePaisa,
-    long DeferredLossPaisa
+    long DeferredLossPaisa,
+    long CashInstallmentsPaisa = 0,
+    long PersonalExpensesPaisa = 0,
+    long OtherCapitalPaisa = 0
 );
 
 public record CapitalInjectionDto(
@@ -124,7 +130,12 @@ public record CapitalInjectionDto(
     DateTime? SubmittedAt,
     DateTime? ApprovedAt,
     DateTime? RejectedAt,
-    string? RejectionReason
+    string? RejectionReason,
+    Guid CreatedBy,
+    DateTime UpdatedAt,
+    Guid? ExpenseId,
+    Guid? SubmittedBy,
+    bool IsAccountingPeriodClosed = false
 );
 
 public record CreateCapitalInjectionRequest(

@@ -249,6 +249,9 @@ public class AuthService : IAuthService
             };
             _db.Businesses.Add(business);
 
+            // Provision the system categories atomically with signup for every new business.
+            _db.ExpenseCategories.AddRange(DefaultExpenseCategories.Create(business.Id));
+
             owner = new User
             {
                 CompanyId = company.Id,

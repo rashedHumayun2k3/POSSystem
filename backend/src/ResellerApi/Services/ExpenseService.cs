@@ -87,6 +87,21 @@ public class ExpenseService : IExpenseService
             .Select(e => MapDto(e))
             .ToListAsync();
 
+        var itemIds = items.Select(e => e.Id).ToList();
+        var corrections = await _db.ActivityLogs.AsNoTracking()
+            .Where(l => l.BusinessId == _business.CurrentBusinessId && l.EntityType == "Expense" &&
+                l.Action == "CORRECT" && l.EntityId.HasValue && itemIds.Contains(l.EntityId.Value))
+            .OrderByDescending(l => l.CreatedAt)
+            .ThenByDescending(l => l.Id)
+            .Select(l => new { ExpenseId = l.EntityId!.Value, l.UserId })
+            .ToListAsync();
+        var lastCorrectors = corrections.GroupBy(l => l.ExpenseId)
+            .ToDictionary(group => group.Key, group => group.First().UserId);
+        items = items.Select(e => e with { LastCorrectedBy = lastCorrectors.TryGetValue(e.Id, out var editor) ? (Guid?)editor : null }).ToList();
+
+        var closing = await Funding.LatestClosingAsync();
+        if (closing != null)
+            items = items.Select(e => e with { IsAccountingPeriodClosed = e.ExpenseDate.Date <= closing.PeriodEnd.Date }).ToList();
         return new PagedResult<ExpenseDto>(items, total, page, pageSize);
     }
 
@@ -105,7 +120,9 @@ public class ExpenseService : IExpenseService
                 .Where(i => i.BusinessId == _business.CurrentBusinessId && i.ExpenseId == e.Id && i.DeletedAt == null)
                 .Select(i => (Guid?)i.Id).FirstOrDefaultAsync()
             : null;
-        return MapDto(e) with { FundingPartnerId = e.FundingPartnerId, PersonalInvestmentId = investmentId };
+        var closing = await Funding.LatestClosingAsync();
+        return MapDto(e) with { FundingPartnerId = e.FundingPartnerId, PersonalInvestmentId = investmentId,
+            IsAccountingPeriodClosed = closing != null && e.ExpenseDate.Date <= closing.PeriodEnd.Date };
     }
 
     public async Task<ExpenseDto> CreateAsync(CreateExpenseRequest req, Guid userId, bool isOwner)
@@ -137,12 +154,11 @@ public class ExpenseService : IExpenseService
                 return await GetAsync(previous.Id);
             }
         }
+        var autoApprove = await Funding.IsOnlyApprovingMemberAsync(userId);
         var partner = source == "PERSONAL" ? await Funding.PartnerAsync(userId) : null;
-        var managingPartner = partner ?? await Funding.PartnerAsync(userId);
-        var autoApprove = isOwner || managingPartner?.PartnerType == "MANAGING";
         if (source == "PERSONAL" && partner == null)
             throw new InvalidOperationException("Your account must be linked to an active business partner to record a personal investment.");
-        if (source == "PERSONAL" && !await _db.Partners.AnyAsync(p => p.Status == "ACTIVE" && p.PartnerType == "MANAGING"))
+        if (source == "PERSONAL" && !autoApprove && !await _db.Partners.AnyAsync(p => p.Status == "ACTIVE" && p.PartnerType == "MANAGING"))
             throw new InvalidOperationException("An active managing partner is required to review the investment.");
         if (source != "PERSONAL" && (autoApprove || source == "BUSINESS" || req.PettyCashBoxId.HasValue))
             await Funding.CheckBusinessPaymentAsync(req.Amount);
@@ -199,8 +215,8 @@ public class ExpenseService : IExpenseService
             });
         }
 
-        if (autoApprove) await Funding.AddPersonalInvestmentAsync(expense);
         await _db.SaveChangesAsync();
+        if (autoApprove) { await Funding.AddPersonalInvestmentAsync(expense); await _db.SaveChangesAsync(); }
         await _log.LogAsync(_business.CurrentBusinessId, userId, "CREATE", "Expense", expense.Id,
             null, new { expense.Amount, expense.SubType, expense.FundingSource, expense.FundingPartnerId });
         if (tx != null) await tx.CommitAsync();
@@ -213,6 +229,8 @@ public class ExpenseService : IExpenseService
         await using var tx = await Funding.BeginAsync();
         var expense = await _db.Expenses.FirstOrDefaultAsync(e => e.Id == id)
             ?? throw new KeyNotFoundException("Expense not found.");
+        if (expense.CreatedBy != userId)
+            throw new UnauthorizedAccessException("Only the creator can edit this expense.");
 
         if (expense.FundingSource != null)
             throw new InvalidOperationException("Expenses with a recorded funding source cannot be edited or deleted. Record a separate correction instead.");
@@ -254,6 +272,8 @@ public class ExpenseService : IExpenseService
         await using var tx = await Funding.BeginAsync();
         var expense = await _db.Expenses.FirstOrDefaultAsync(e => e.Id == id)
             ?? throw new KeyNotFoundException("Expense not found.");
+        if (expense.CreatedBy != userId)
+            throw new UnauthorizedAccessException("Only the creator can delete this expense.");
 
         if (expense.FundingSource != null)
             throw new InvalidOperationException("Expenses with a recorded funding source cannot be edited or deleted. Record a separate correction instead.");
@@ -277,6 +297,8 @@ public class ExpenseService : IExpenseService
 
         if (expense.Status != "PENDING")
             throw new InvalidOperationException("Only PENDING expenses can be approved.");
+
+        await EnsureReviewerAsync(expense, userId);
 
         if (expense.FundingSource != "PERSONAL" && !expense.PettyCashBoxId.HasValue)
             await Funding.CheckBusinessPaymentAsync(expense.Amount);
@@ -307,6 +329,8 @@ public class ExpenseService : IExpenseService
         if (expense.Status != "PENDING")
             throw new InvalidOperationException("Only PENDING expenses can be rejected.");
 
+        await EnsureReviewerAsync(expense, userId);
+
         if (expense.PettyCashBoxId.HasValue)
         {
             var box = await _db.PettyCashBoxes.FirstAsync(b => b.Id == expense.PettyCashBoxId.Value);
@@ -322,6 +346,20 @@ public class ExpenseService : IExpenseService
         await _log.LogAsync(_business.CurrentBusinessId, userId, "REJECT", "Expense", expense.Id);
         if (tx != null) await tx.CommitAsync();
         return MapDto(expense);
+    }
+
+    private async Task EnsureReviewerAsync(Expense expense, Guid userId)
+    {
+        if (expense.CreatedBy == userId)
+            throw new InvalidOperationException("You cannot approve or reject your own expense.");
+        var editor = await _db.ActivityLogs.Where(l => l.EntityType == "Expense" && l.EntityId == expense.Id && l.Action == "CORRECT")
+            .OrderByDescending(l => l.CreatedAt).Select(l => (Guid?)l.UserId).FirstOrDefaultAsync();
+        if (editor == userId) throw new InvalidOperationException("Another user must review your correction.");
+        var owner = await _db.Users.AnyAsync(u => u.Id == userId && u.IsActive && u.Role == Roles.Owner);
+        var manager = await _db.Partners.AnyAsync(p => p.LinkedUserId == userId &&
+            p.Status == "ACTIVE" && p.PartnerType == "MANAGING");
+        if (!owner && !manager)
+            throw new InvalidOperationException("Only an owner or active managing partner can review expenses.");
     }
 
     private static ExpenseDto MapDto(Expense e) => new(
@@ -348,6 +386,9 @@ public class ExpenseService : IExpenseService
         e.RejectionReason,
         e.CreatedAt,
         e.FundingSource,
-        e.FundingPartnerName
+        e.FundingPartnerName,
+        e.FundingPartnerId,
+        null,
+        e.UpdatedAt
     );
 }

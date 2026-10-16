@@ -27,6 +27,17 @@ public class ExpensesController : ControllerBase
     [HttpGet("funding")]
     public async Task<IActionResult> Funding() => Ok(await _funding.GetAsync(_user.UserId, _user.IsOwner, _user.CanSeeCosts || _user.IsPartner));
 
+    [HttpGet("summary")]
+    [Authorize(Roles = "OWNER,PARTNER")]
+    public async Task<IActionResult> Summary([FromServices] ResellerApi.Data.AppDbContext db,
+        [FromServices] IBusinessContext business)
+    {
+        var totalExpense = await db.Expenses.AsNoTracking()
+            .Where(e => e.BusinessId == business.CurrentBusinessId && e.Status == "APPROVED")
+            .SumAsync(e => (decimal?)e.Amount) ?? 0m;
+        return Ok(new { totalExpense });
+    }
+
     [HttpGet("funding/closings")]
     [Authorize(Roles = Roles.Owner)]
     public async Task<IActionResult> Closings([FromServices] ResellerApi.Data.AppDbContext db) =>
@@ -88,6 +99,7 @@ public class ExpensesController : ControllerBase
     public async Task<IActionResult> Update(Guid id, [FromBody] UpdateExpenseRequest req)
     {
         try { return Ok(await _svc.UpdateAsync(id, req, _user.UserId)); }
+        catch (UnauthorizedAccessException ex) { return StatusCode(403, new { message = ex.Message }); }
         catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
         catch (ArgumentException ex) { return BadRequest(new { message = ex.Message }); }
         catch (InvalidOperationException ex) { return Conflict(new { message = ex.Message }); }
@@ -97,12 +109,13 @@ public class ExpensesController : ControllerBase
     public async Task<IActionResult> Delete(Guid id)
     {
         try { await _svc.DeleteAsync(id, _user.UserId); return NoContent(); }
+        catch (UnauthorizedAccessException ex) { return StatusCode(403, new { message = ex.Message }); }
         catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
         catch (InvalidOperationException ex) { return Conflict(new { message = ex.Message }); }
     }
 
     [HttpPost("{id:guid}/approve")]
-    [Authorize(Roles = Roles.Owner)]
+    [Authorize(Roles = "OWNER,PARTNER")]
     public async Task<IActionResult> Approve(Guid id, [FromBody] ApproveExpenseRequest req)
     {
         try { return Ok(await _svc.ApproveAsync(id, _user.UserId, req.Note)); }
@@ -111,7 +124,7 @@ public class ExpensesController : ControllerBase
     }
 
     [HttpPost("{id:guid}/reject")]
-    [Authorize(Roles = Roles.Owner)]
+    [Authorize(Roles = "OWNER,PARTNER")]
     public async Task<IActionResult> Reject(Guid id, [FromBody] RejectExpenseRequest req)
     {
         try { return Ok(await _svc.RejectAsync(id, _user.UserId, req.Reason)); }
