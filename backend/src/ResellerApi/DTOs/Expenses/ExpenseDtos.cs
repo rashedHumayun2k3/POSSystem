@@ -43,6 +43,7 @@ public record ExpenseDto(
 )
 {
     public Guid? LastCorrectedBy { get; init; }
+    public string? Title { get; init; }
 }
 
 // ── Create ────────────────────────────────────────────────────────────────────
@@ -60,7 +61,8 @@ public record CreateExpenseRequest(
     string? Note,
     Guid? BranchId = null,
     string? FundingSource = null,
-    Guid? RequestId = null
+    Guid? RequestId = null,
+    string? Title = null
 );
 
 public record ExpenseFundingDto(bool Initialized, decimal? Balance, Guid? PartnerId, string? PartnerName, bool CanInitialize);

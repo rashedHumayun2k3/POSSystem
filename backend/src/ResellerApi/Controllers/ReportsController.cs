@@ -122,7 +122,7 @@ public class ReportsController : ControllerBase
         var totalItems = await rows.CountAsync();
         var items = await rows.OrderByDescending(e => e.ExpenseDate).ThenByDescending(e => e.CreatedAt)
             .Skip((page - 1) * pageSize).Take(pageSize)
-            .Select(e => new ExpenseReportItemDto(e.Id, e.ExpenseDate, e.SubType, e.Category.Name,
+            .Select(e => new ExpenseReportItemDto(e.Id, e.ExpenseDate, e.SubType, e.Title, e.Category.Name,
                 e.Amount, e.Status, e.FundingSource, e.CreatedByUser.Name, e.Note))
             .ToListAsync();
         var approvedTotal = statusTotals.FirstOrDefault(x => x.Status == "APPROVED");

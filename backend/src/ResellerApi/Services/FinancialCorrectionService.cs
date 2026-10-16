@@ -6,7 +6,7 @@ using ResellerApi.Services.Interfaces;
 
 namespace ResellerApi.Services;
 
-public record FinancialCorrectionRequest(decimal? Amount, bool Cancel, DateTime ExpectedUpdatedAt);
+public record FinancialCorrectionRequest(decimal? Amount, bool Cancel, DateTime ExpectedUpdatedAt, string? Title = null);
 
 public class FinancialCorrectionService(AppDbContext db, IBusinessContext business, IActivityLogService log)
 {
@@ -14,6 +14,8 @@ public class FinancialCorrectionService(AppDbContext db, IBusinessContext busine
     {
         if (!request.Cancel && (!request.Amount.HasValue || request.Amount <= 0))
             throw new ArgumentException("Enter an amount greater than zero.");
+        if (request.Title?.Trim().Length > 150)
+            throw new ArgumentException("Title must be 150 characters or fewer.");
         var paisa = request.Cancel ? 0 : ExpenseFundingService.ToPaisa(request.Amount!.Value);
         var funding = new ExpenseFundingService(db, business);
         await using var tx = await funding.BeginAsync();
@@ -46,7 +48,7 @@ public class FinancialCorrectionService(AppDbContext db, IBusinessContext busine
             throw new InvalidOperationException("This capital has already been spent. Restore sufficient business funds before changing it.");
         var votes = injection == null ? new List<CapitalInjectionApprovalVote>() : await db.CapitalInjectionApprovalVotes.Where(v => v.CapitalInjectionId == injection.Id).ToListAsync();
         var before = new {
-            Expense = expense == null ? null : new { expense.Id, expense.Amount, expense.Status, expense.ApprovedBy, expense.PaidAt, expense.CreatedBy },
+            Expense = expense == null ? null : new { expense.Id, expense.Title, expense.Amount, expense.Status, expense.ApprovedBy, expense.PaidAt, expense.CreatedBy },
             Installment = injection == null ? null : new { injection.Id, injection.AmountPaisa, injection.Status, injection.ApprovedBy, injection.ApprovedAt, injection.RejectionReason, injection.CreatedBy },
             Votes = votes.Select(v => new { v.Id, v.VotedByPartnerId, v.Decision, v.Note, v.VotedAt }).ToArray()
         };
@@ -82,7 +84,10 @@ public class FinancialCorrectionService(AppDbContext db, IBusinessContext busine
                 if (adjustment != 0) db.PettyCashTxns.Add(new PettyCashTxn { BusinessId = business.CurrentBusinessId, BoxId = box.Id,
                     TxnType = adjustment > 0 ? "FUND_IN" : "SPEND", Amount = Math.Abs(adjustment), ExpenseId = expense.Id, UserId = userId, Note = "Expense correction" });
             }
-            if (!request.Cancel) expense.Amount = request.Amount!.Value;
+            if (!request.Cancel) {
+                expense.Amount = request.Amount!.Value;
+                if (!installment && request.Title != null) expense.Title = string.IsNullOrWhiteSpace(request.Title) ? null : request.Title.Trim();
+            }
             expense.Status = request.Cancel ? "CANCELLED" : "PENDING";
             expense.ApprovedBy = null; expense.PaidAt = null; expense.RejectionReason = null;
         }
@@ -96,7 +101,7 @@ public class FinancialCorrectionService(AppDbContext db, IBusinessContext busine
             await db.SaveChangesAsync();
         }
         var action = request.Cancel ? "CANCEL" : "CORRECT";
-        var after = new { request.Amount, request.Cancel, ExpenseStatus = expense?.Status, InstallmentStatus = injection?.Status };
+        var after = new { request.Amount, request.Title, request.Cancel, ExpenseStatus = expense?.Status, InstallmentStatus = injection?.Status };
         if (expense != null) await log.LogAsync(business.CurrentBusinessId, userId, action, "Expense", expense.Id, before, after);
         if (injection != null) await log.LogAsync(business.CurrentBusinessId, userId, action, "CapitalInjection", injection.Id, before, after);
         if (tx != null) await tx.CommitAsync();

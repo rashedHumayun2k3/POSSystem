@@ -1049,6 +1049,7 @@ public class AppDbContext : DbContext
             e.HasKey(x => x.Id);
             e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
             e.Property(x => x.SubType).HasMaxLength(100).IsRequired();
+            e.Property(x => x.Title).HasMaxLength(150);
             e.Property(x => x.Amount).HasColumnType("DECIMAL(14,2)");
             e.Property(x => x.Status).HasMaxLength(20).IsRequired();
             e.Property(x => x.PhotoUrl).HasMaxLength(500);

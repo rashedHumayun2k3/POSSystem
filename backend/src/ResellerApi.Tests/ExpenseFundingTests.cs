@@ -56,6 +56,24 @@ public class ExpenseFundingTests
     }
 
     [Fact]
+    public async Task ExpenseTitleAndAmountCorrectionRequiresFreshReview()
+    {
+        await using var f = new Fixture(); await f.Seed();
+        var created = await f.Expenses.CreateAsync(f.Request() with { Title = "New lock and fan" }, f.User, true);
+        Assert.Equal("New lock and fan", created.Title);
+        await f.Expenses.ApproveAsync(created.Id, f.Reviewer, null);
+        var approved = await f.Expenses.GetAsync(created.Id);
+        await new FinancialCorrectionService(f.Db, f.Business, new ActivityLogService(f.Db))
+            .CorrectAsync(created.Id, false, new(120, false, approved.UpdatedAt, "New lock"), f.User, false);
+        var corrected = await f.Expenses.GetAsync(created.Id);
+        Assert.Equal("New lock", corrected.Title);
+        Assert.Equal(120, corrected.Amount);
+        Assert.Equal("PENDING", corrected.Status);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => f.Expenses.ApproveAsync(created.Id, f.User, null));
+        Assert.Equal("APPROVED", (await f.Expenses.ApproveAsync(created.Id, f.Reviewer, null)).Status);
+    }
+
+    [Fact]
     public async Task BalanceUsesApprovedCashInvestmentsAcrossBusinessWithoutOpening()
     {
         await using var f = new Fixture(); await f.Seed(null);

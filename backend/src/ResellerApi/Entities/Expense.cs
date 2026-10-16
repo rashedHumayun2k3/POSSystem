@@ -16,6 +16,7 @@ public class Expense : BusinessScopedEntity, IBranchScoped
     public ExpenseCategory Category { get; set; } = null!;
 
     public string SubType { get; set; } = null!;         // free text sub-category
+    public string? Title { get; set; }
     public decimal Amount { get; set; }
     public DateTime ExpenseDate { get; set; }
 

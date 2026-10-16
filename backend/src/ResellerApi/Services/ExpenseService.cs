@@ -131,6 +131,8 @@ public class ExpenseService : IExpenseService
             throw new ArgumentException("Amount must be greater than zero.");
         if (string.IsNullOrWhiteSpace(req.SubType))
             throw new ArgumentException("SubType is required.");
+        if (req.Title?.Trim().Length > 150)
+            throw new ArgumentException("Title must be 150 characters or fewer.");
 
         ExpenseFundingService.ToPaisa(req.Amount);
         var source = req.FundingSource?.Trim().ToUpperInvariant();
@@ -177,6 +179,7 @@ public class ExpenseService : IExpenseService
             BranchId         = req.BranchId ?? _business.CurrentBranchId,
             CategoryId       = req.CategoryId,
             SubType          = NormalizeSubType(cat.Code, req.SubType),
+            Title            = string.IsNullOrWhiteSpace(req.Title) ? null : req.Title.Trim(),
             Amount           = req.Amount,
             ExpenseDate      = req.ExpenseDate.Date,
             StaffId          = req.StaffId,
@@ -390,5 +393,5 @@ public class ExpenseService : IExpenseService
         e.FundingPartnerId,
         null,
         e.UpdatedAt
-    );
+    ) { Title = e.Title };
 }
