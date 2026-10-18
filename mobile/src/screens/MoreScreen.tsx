@@ -24,8 +24,10 @@ const items: MenuItem[] = [
   { key: "partner-approvals", title: "Business Partner", description: "Review partnership and investment requests", icon: "people-outline", roles: ["PARTNER"], webPath: "/more/settings/partners" },
   { key: "categories", title: "Categories", description: "Product categories & fields", icon: "pricetag-outline", roles: ["OWNER"], webPath: "/more/categories" },
   { key: "catalog-templates", title: "Quick Add Products", description: "Add ready-made categories & products to your shop in a few taps", icon: "albums-outline", roles: ["OWNER"], webPath: "/more/catalog-templates" },
-  { key: "purchases", title: "Purchases", description: "Lots & landed cost", icon: "cart-outline", roles: ["OWNER", "MANAGER", "WAREHOUSE"], webPath: "/more/purchases" },
-  { key: "storeroom", title: "Storeroom", description: "Cartons & labeling", icon: "archive-outline", roles: ["OWNER", "WAREHOUSE"], webPath: "/more/storeroom" },
+  // Temporarily hidden from navigation. Keep the purchase routes and feature code intact.
+  // { key: "purchases", title: "Purchases", description: "Lots & landed cost", icon: "cart-outline", roles: ["OWNER", "MANAGER", "WAREHOUSE"], webPath: "/more/purchases" },
+  // Temporarily hidden from navigation. Keep the storeroom routes and feature code intact.
+  // { key: "storeroom", title: "Storeroom", description: "Cartons & labeling", icon: "archive-outline", roles: ["OWNER", "WAREHOUSE"], webPath: "/more/storeroom" },
   { key: "barcodes", title: "Print Barcodes", description: "Product barcode labels and sticker printing", icon: "barcode-outline", roles: ["OWNER", "MANAGER", "WAREHOUSE"], webPath: "/more/barcodes" },
   { key: "deliveries", title: "Deliveries", description: "Courier board", icon: "car-outline", roles: ["OWNER", "MANAGER", "STAFF"], webPath: "/more/deliveries" },
   { key: "expenses", title: "Expenses", description: "Costs & petty cash", icon: "wallet-outline", roles: ["OWNER", "MANAGER"], webPath: "/more/expenses" },
