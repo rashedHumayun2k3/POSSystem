@@ -1,4 +1,11 @@
 {
+  "poPaymentAmounts": {"products": "পণ্যের খরচ", "costs": "পিওর অতিরিক্ত খরচ", "total": "পিওর মোট টাকা", "available": "ব্যবসার ব্যবহারযোগ্য ব্যালেন্স", "failed": "ব্যবসার ব্যালেন্স লোড করা যায়নি। আবার চেষ্টা করুন।"},
+  "poPayment": {"add": "পেমেন্ট যোগ করুন", "question": "পেমেন্টের টাকা কোথা থেকে দেওয়া হবে?", "business": "ব্যবসার টাকা থেকে", "businessHint": "ব্যবসার তহবিল থেকে পেমেন্ট করুন।", "personal": "নিজের টাকা থেকে", "personalHint": "আপনার ব্যক্তিগত টাকা থেকে পেমেন্ট করুন।", "previewNotice": "উৎস বেছে নিলে কোনো পেমেন্ট রেকর্ড হবে না। পেমেন্ট সংরক্ষণ এখনো চালু হয়নি।"},
+  "expenseTitlePlaceholder": "যেমন: নতুন তালা ও ফ্যান কেনা",
+  "newExpensePopupTitles": {"addNewExpense": "নতুন খরচ যোগ করুন", "alreadySpentToday": "আজ ইতোমধ্যে খরচ হয়েছে", "titleOfCostOptional": "খরচের শিরোনাম (ঐচ্ছিক)"},
+  "expenseTitleValidation": {"title": "খরচের সঠিক শিরোনাম দিন", "message": "অনুগ্রহ করে আপনার খরচের একটি সঠিক শিরোনাম দিন। টাকার পরিমাণ শিরোনামে না লিখে পরিমাণের ঘরে লিখুন। শিরোনাম থেকে সংখ্যাটি মুছে দেওয়া হয়েছে।"},
+  "menuPrintBarcodes": "বারকোড প্রিন্ট করুন",
+  "customExpenseCategoryTitles": {"productPurchase": "পণ্য ক্রয়", "miscellaneousExpenses": "বিবিধ খরচ"},
   "installmentDesign": {"subtitle": "পেমেন্ট ও অনুমোদনের বিবরণ", "summaryLabel": "ইনস্টলমেন্টের সারাংশ", "capitalInstallment": "মূলধন ইনস্টলমেন্ট", "paymentInformation": "পেমেন্টের তথ্য", "approvalTitle": "ম্যানেজিং পার্টনারের অনুমোদন", "approvalSubtitle": "অন্য একজন ম্যানেজিং পার্টনারের অনুমোদন প্রয়োজন।", "approvalProgress": "অনুমোদনের অগ্রগতি: {approved}/{required}", "ownRequest": "নিজের অনুরোধ", "confirmReject": "প্রত্যাখ্যান নিশ্চিত করুন", "proof": "পেমেন্টের প্রমাণ", "close": "বন্ধ করুন"},
   "expenseApprovalStatus": {"pendingForApproval": "অনুমোদনের অপেক্ষায়", "createdBy": "তৈরি করেছেন"},
   "capitalConfirm": {"title": "বিনিয়োগ নিশ্চিত করুন", "addMessage": "আপনি অংশীদার {name}-এর জন্য {amount} বিনিয়োগ যোগ করছেন। আপনি কি নিশ্চিত?", "editMessage": "আপনি অংশীদার {name}-এর বিনিয়োগের পরিমাণ {amount} করছেন। আপনি কি নিশ্চিত?", "confirm": "হ্যাঁ, সংরক্ষণ করুন"},

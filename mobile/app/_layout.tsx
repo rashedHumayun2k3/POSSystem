@@ -50,6 +50,7 @@ const moreItems: MoreNavItem[] = [
   { key: "barcodes", label: "Print Barcodes", icon: "barcode-outline", roles: ["OWNER", "MANAGER", "WAREHOUSE"] },
   { key: "deliveries", label: "Deliveries", icon: "car-outline", roles: ["OWNER", "MANAGER", "STAFF"] },
   { key: "expenses", label: "Expenses", icon: "wallet-outline", roles: ["OWNER", "MANAGER"] },
+  { key: "add-expense", label: "Add Expense", icon: "add-circle-outline", roles: ["OWNER", "MANAGER"] },
   { key: "reports", label: "Reports", icon: "bar-chart-outline", roles: ["OWNER", "MANAGER"] },
   { key: "customers", label: "Customers", icon: "people-outline", roles: ["OWNER", "MANAGER"] },
   { key: "settings", label: "Settings", icon: "settings-outline", roles: ["OWNER", "MANAGER", "WAREHOUSE", "STAFF"] },
@@ -86,7 +87,7 @@ const openEnvironmentPath = (path: string) => {
 const frontendPaths: Record<string, string> = {
   tasks: "/more/tasks",
   "pre-orders": "/more/pre-orders",
-  "quick-add": "/more/catalog-templates", purchases: "/more/purchases", "supplier-returns": "/more/supplier-returns", storeroom: "/more/storeroom", deliveries: "/more/deliveries", expenses: "/more/expenses", baki: "/more/baki", customers: "/more/customers", faq: "/more/faq", feedback: "/more/feedback",
+  "quick-add": "/more/catalog-templates", purchases: "/more/purchases", "supplier-returns": "/more/supplier-returns", storeroom: "/more/storeroom", deliveries: "/more/deliveries", expenses: "/more/expenses", "add-expense": "/more/expenses/new", baki: "/more/baki", customers: "/more/customers", faq: "/more/faq", feedback: "/more/feedback",
   "report-dashboard": "/more/reports/dashboard", "report-invoices": "/more/reports/invoices", "report-daily": "/more/reports/daily-closing", "report-sales": "/more/reports/sales", "report-inventory": "/more/reports/inventory", "report-financial": "/more/reports/financial", "report-orders": "/more/reports/orders", "report-stock-valuation": "/more/reports/stock-valuation",
   staff: "/more/settings/staff", couriers: "/more/settings/couriers", "expense-categories": "/more/settings/expense-categories", "business-config": "/more/settings/config", "shop-type": "/more/settings/shop-type", branches: "/more/settings/branches", partners: "/more/settings/partners", subscription: "/more/settings/subscription", storefront: "/more/settings/storefront", "external-orders": "/more/settings/external-orders",
 };
@@ -156,7 +157,7 @@ function AppShell() {
   </Pressable>;});
   const visibleMoreItems = moreItems.filter(item => !item.roles || item.roles.includes(role));
   const menuQuery = menuSearch.trim().toLocaleLowerCase();
-  const menuMatches = (label: string, key = "") => !menuQuery || `${t(label)} ${label} ${key}`.toLocaleLowerCase().includes(menuQuery);
+  const menuMatches = (label: string, key = "") => !menuQuery || `${t(label)} ${label} ${key} ${key === "add-expense" ? "khoroch khoroc khorco kharch খরচ খরচ যোগ করুন" : ""}`.toLocaleLowerCase().includes(menuQuery);
   const drawerTabs = tabs.filter(tab => menuMatches(tab.label, tab.href));
   const drawerReports = reportItems.filter(item => menuMatches(item.label, item.key));
   const drawerSettings = (role === "OWNER" ? [...basicSettings, ...ownerSettings] : basicSettings).filter(item => menuMatches(item.label, item.key));

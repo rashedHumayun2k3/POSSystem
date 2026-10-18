@@ -100,6 +100,7 @@ builder.Services.AddScoped<ExpenseFundingService>();
 builder.Services.AddScoped<IPettyCashService, PettyCashService>();
 // Phase 10 — Reports
 builder.Services.AddScoped<IReportService, ReportService>();
+builder.Services.AddScoped<ResellerApi.Features.BusinessBriefing.BriefingService>();
 // Media upload/download now lives entirely in the standalone ResellerApi.MediaService app.
 // Subscriptions & billing
 builder.Services.AddHttpClient<IBkashPaymentService, BkashPaymentService>();

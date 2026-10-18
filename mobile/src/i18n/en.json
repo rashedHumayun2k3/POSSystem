@@ -1,4 +1,11 @@
 {
+  "poPaymentAmounts": {"products": "Product cost", "costs": "Additional PO costs", "total": "PO total", "available": "Available business balance", "failed": "Could not load the business balance. Please try again."},
+  "poPayment": {"add": "Add Payment", "question": "Where will the payment come from?", "business": "Business funds", "businessHint": "Pay using the business’s money.", "personal": "Own money", "personalHint": "Pay using your own money.", "previewNotice": "Selecting a source does not record a payment. Payment saving is not available yet."},
+  "expenseTitlePlaceholder": "e.g. Buy new lock and new fan",
+  "newExpensePopupTitles": {"addNewExpense": "Add New Expense", "alreadySpentToday": "Already spent today", "titleOfCostOptional": "Title Of Cost (optional)"},
+  "expenseTitleValidation": {"title": "Invalid expense title", "message": "Please give a proper title for your expense. Enter the cost in the amount field, not in Title Of Cost. The number has been cleared from the title."},
+  "menuPrintBarcodes": "Print Barcodes",
+  "customExpenseCategoryTitles": {"productPurchase": "Product Purchase", "miscellaneousExpenses": "Miscellaneous Expenses"},
   "installmentDesign": {"subtitle": "Payment and approval overview", "summaryLabel": "Installment summary", "capitalInstallment": "Capital installment", "paymentInformation": "Payment information", "approvalTitle": "Managing partner approval", "approvalSubtitle": "One other managing partner must approve this installment.", "approvalProgress": "Approval progress: {approved}/{required}", "ownRequest": "Own request", "confirmReject": "Confirm rejection", "proof": "Payment proof", "close": "Close"},
   "expenseApprovalStatus": {"pendingForApproval": "Pending for approval", "createdBy": "Created by"},
   "capitalConfirm": {"title": "Confirm investment", "addMessage": "You are adding an investment of {amount} for partner {name}. Are you sure?", "editMessage": "You are changing partner {name}'s investment amount to {amount}. Are you sure?", "confirm": "Yes, save"},

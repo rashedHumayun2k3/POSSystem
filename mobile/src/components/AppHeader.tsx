@@ -3,7 +3,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Image, Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
 import UserAvatar from "./UserAvatar";
 import TaskBell from "../tasks/TaskBell";
-import { AIButton } from "../features/ai-assistant";
+import { BriefingButton } from "../features/business-briefing";
 import { Text } from "../i18n/LocalizedText";
 import { colors } from "../theme";
 import { useAuth } from "../auth/AuthContext";
@@ -19,7 +19,7 @@ export default function AppHeader({ onMenuPress }: { onMenuPress?: () => void })
     {mobile ? <View style={s.mobileBrand}><Pressable accessibilityRole="button" accessibilityLabel="Open navigation" onPress={onMenuPress} style={s.menuButton}><Ionicons name="menu" size={27} color={colors.heading} /></Pressable><Pressable accessibilityRole="button" accessibilityLabel="Go to Home" onPress={() => router.replace("/")}><Image source={require("../../assets/logo.png")} resizeMode="contain" style={s.mobileLogo} /></Pressable></View> : <Pressable accessibilityRole="button" accessibilityLabel="Go to Home" onPress={() => router.replace("/")}><Image source={require("../../assets/logo.png")} resizeMode="contain" style={s.logo} /></Pressable>}
     <View style={s.actions}>
       {!mobile && <View accessibilityLabel="Online" style={s.online} />}
-      <AIButton />
+      <BriefingButton />
       <Pressable onPress={toggleLang} accessibilityRole="button" accessibilityLabel={t("Switch language")} style={s.language}><Text style={s.languageText}>{lang === "bn" ? "EN" : "বাং"}</Text></Pressable>
       <TaskBell />
       <Pressable accessibilityRole="button" accessibilityLabel={t("profile.title")} onPress={() => router.push("/profile")}>
