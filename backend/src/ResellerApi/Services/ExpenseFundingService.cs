@@ -47,7 +47,7 @@ public class ExpenseFundingService(AppDbContext db, IBusinessContext business)
     public async Task<AccountingPeriodClosing?> LatestClosingAsync() => await db.AccountingPeriodClosings
         .AsNoTracking().OrderByDescending(x => x.PeriodEnd).FirstOrDefaultAsync();
 
-    private async Task<(long Capital, long Expenses, List<CapitalInjection> Injections, List<Expense> ExpenseRows)> MovementsAsync(DateTime start, DateTime end)
+    private async Task<(long Capital, long Expenses, List<CapitalInjection> Injections, List<Expense> ExpenseRows, List<PurchasePayment> PurchaseRows)> MovementsAsync(DateTime start, DateTime end)
     {
         var id = business.CurrentBusinessId;
         var investments = await db.CapitalInjections.IgnoreQueryFilters().AsNoTracking()
@@ -59,7 +59,9 @@ public class ExpenseFundingService(AppDbContext db, IBusinessContext business)
                 && (e.Status == "APPROVED" || e.PettyCashBoxId != null && e.Status == "PENDING")
                 && e.ExpenseDate >= start && e.ExpenseDate < end)
             .ToListAsync();
-        return (investments.Sum(i => i.AmountPaisa), expenses.Sum(e => ToPaisa(e.Amount)), investments, expenses);
+        var purchases = await db.PurchasePayments.IgnoreQueryFilters().AsNoTracking()
+            .Where(p => p.BusinessId == id && p.DeletedAt == null && p.FundingSource == "BUSINESS" && p.PaidAt >= start && p.PaidAt < end).ToListAsync();
+        return (investments.Sum(i => i.AmountPaisa), expenses.Sum(e => ToPaisa(e.Amount)) + purchases.Sum(p => ToPaisa(p.Amount)), investments, expenses, purchases);
     }
 
     public async Task<long> BalanceAsync()
@@ -120,6 +122,13 @@ public class ExpenseFundingService(AppDbContext db, IBusinessContext business)
                 PostingDate = item.ExpenseDate.Date, OriginalDate = item.ExpenseDate.Date,
                 MovementType = "BUSINESS_EXPENSE", AmountPaisa = -ToPaisa(item.Amount),
                 SourceType = "Expense", SourceId = item.Id, CreatedBy = userId
+            });
+        foreach (var payment in movements.PurchaseRows)
+            db.BusinessFundLedgerEntries.Add(new BusinessFundLedgerEntry {
+                BusinessId = business.CurrentBusinessId, ClosingId = closing.Id,
+                PostingDate = payment.PaidAt.Date, OriginalDate = payment.PaidAt.Date,
+                MovementType = "PURCHASE_PAYMENT", AmountPaisa = -ToPaisa(payment.Amount),
+                SourceType = "PurchasePayment", SourceId = payment.Id, CreatedBy = userId
             });
         await db.SaveChangesAsync();
         if (tx != null) await tx.CommitAsync();

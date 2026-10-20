@@ -7,9 +7,11 @@ import { useLanguage } from "../i18n/LanguageContext";
 import { useAuth } from "../auth/AuthContext";
 import { colors } from "../theme";
 
+export type PurchasePayment = { id: string; tripId: string; costKey: string; amount: number; fundingSource: "BUSINESS" | "PERSONAL"; paidAt: string };
+const requestId = () => "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => { const r = Math.random()*16|0; return (c === "x" ? r : (r&3)|8).toString(16); });
 type Source = "BUSINESS" | "PERSONAL";
 type Funding = { initialized: boolean; balance: number | null; partnerId: string | null; partnerName: string | null; canInitialize: boolean };
-export default function PurchasePaymentSource({ poNumber, productAmount, additionalCosts }: { poNumber: string; productAmount: number; additionalCosts: number }) {
+export default function PurchasePaymentSource({ tripId, costKey, poNumber, itemTitle, amount, onPaid }: { tripId: string; costKey: string; poNumber: string; itemTitle: string; amount: number; onPaid: (payment: PurchasePayment) => void }) {
   const auth = useAuth();
   const api = useRef(auth.api); api.current = auth.api;
   const [funding, setFunding] = useState<Funding | null>(null);
@@ -20,6 +22,20 @@ export default function PurchasePaymentSource({ poNumber, productAmount, additio
   const { width } = useWindowDimensions();
   const [open, setOpen] = useState(false);
   const [source, setSource] = useState<Source | null>(null);
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  const [saveError, setSaveError] = useState("");
+  const request = useRef(requestId());
+  const close = () => { if (!savingRef.current) setOpen(false); };
+  const pay = async () => {
+    if (!source || savingRef.current) return;
+    savingRef.current = true; setSaving(true); setSaveError("");
+    try {
+      const result = await api.current<PurchasePayment>(`/purchase-trips/${tripId}/payments`, { method: "POST", body: JSON.stringify({costKey, expectedAmount: amount, fundingSource: source, requestId: request.current}) });
+      onPaid(result); setOpen(false);
+    } catch (e) { setSaveError((e as Error).message); }
+    finally { savingRef.current = false; setSaving(false); }
+  };
   useEffect(() => {
     if (!open) return;
     let active = true;
@@ -37,15 +53,14 @@ export default function PurchasePaymentSource({ poNumber, productAmount, additio
     <Pressable accessibilityRole="button" accessibilityLabel={t("poPayment.add")} onPress={() => setOpen(true)} style={s.add}>
       <Ionicons name="add" size={20} color={colors.white}/><Text style={s.addText}>{t("poPayment.add")}</Text>
     </Pressable>
-    <BottomSheet visible={open} close={() => setOpen(false)} title={t("poPayment.add")} mobile={width < 768}>
+    <BottomSheet visible={open} close={close} title={t("poPayment.add")} mobile={width < 768}>
       <Text style={s.po}>{poNumber}</Text>
       <View style={s.summary}>
-        <View style={s.summaryRow}><Text style={s.hint}>{t("poPaymentAmounts.products")}</Text><Text style={s.label}>{money(productAmount)}</Text></View>
-        <View style={s.summaryRow}><Text style={s.hint}>{t("poPaymentAmounts.costs")}</Text><Text style={s.label}>{money(additionalCosts)}</Text></View>
-        <View style={s.summaryRow}><Text style={s.label}>{t("poPaymentAmounts.total")}</Text><Text style={s.total}>{money(productAmount + additionalCosts)}</Text></View>
+        <Text style={s.label}>{t(itemTitle)}</Text>
+        <View style={s.summaryRow}><Text style={s.hint}>{t("poCostPayment.amount")}</Text><Text style={s.total}>{money(amount)}</Text></View>
       </View>
       <Text style={s.heading}>{t("poPayment.question")}</Text>
-      {options.map(option => <Pressable key={option.value} accessibilityRole="radio" accessibilityLabel={t(option.label)} accessibilityState={{ checked: source === option.value }} onPress={() => setSource(option.value)} style={[s.option, source === option.value && s.selected]}>
+      {options.map(option => <Pressable key={option.value} accessibilityRole="radio" accessibilityLabel={t(option.label)} accessibilityState={{ checked: source === option.value, disabled: saving }} disabled={saving} onPress={() => { if(source !== option.value) request.current = requestId(); setSource(option.value); setSaveError(""); }} style={[s.option, source === option.value && s.selected]}>
         <Ionicons name={option.icon} size={24} color={colors.primaryDark}/>
         <View style={s.copy}><Text style={s.label}>{t(option.label)}</Text><Text style={s.hint}>{t(option.hint)}</Text>
           {option.value === "BUSINESS" && <View style={s.balanceRow}><Text style={s.hint}>{t("poPaymentAmounts.available")}</Text>{loading ? <ActivityIndicator size="small" color={colors.primary}/> : <Text style={s.balance}>{!funding ? t("expenseOpening.unavailable") : !funding.initialized ? t("expenseOpening.notSet") : funding.balance == null ? t("expenseOpening.private") : money(funding.balance)}</Text>}</View>}
@@ -54,7 +69,9 @@ export default function PurchasePaymentSource({ poNumber, productAmount, additio
         <Ionicons name={source === option.value ? "radio-button-on" : "radio-button-off"} size={22} color={colors.primary}/>
       </Pressable>)}
       {error && <View><Text accessibilityRole="alert" style={s.hint}>{t("poPaymentAmounts.failed")}</Text><Pressable accessibilityRole="button" onPress={() => setRetry(value => value + 1)} style={s.retry}><Text style={s.balance}>{t("common.retry")}</Text></Pressable></View>}
-      <Text style={s.hint}>{t("poPayment.previewNotice")}</Text>
+      <Text style={s.hint}>{t("poCostPayment.confirmHint")}</Text>
+      {!!saveError && <Text accessibilityRole="alert" style={{color: colors.dangerText}}>{saveError}</Text>}
+      <Pressable accessibilityRole="button" disabled={!source || saving} onPress={() => void pay()} style={[s.add, (!source || saving) && {opacity: 0.5}]}>{saving ? <ActivityIndicator color={colors.white}/> : <Text style={s.addText}>{t("poCostPayment.confirm")}</Text>}</Pressable>
     </BottomSheet>
   </>;
 }

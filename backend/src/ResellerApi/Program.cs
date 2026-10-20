@@ -97,6 +97,7 @@ builder.Services.AddScoped<IPartnerService, PartnerService>();
 // Phase 7 — Expenses & Petty Cash
 builder.Services.AddScoped<IExpenseService, ExpenseService>();
 builder.Services.AddScoped<ExpenseFundingService>();
+builder.Services.AddScoped<PurchasePaymentService>();
 builder.Services.AddScoped<IPettyCashService, PettyCashService>();
 // Phase 10 — Reports
 builder.Services.AddScoped<IReportService, ReportService>();

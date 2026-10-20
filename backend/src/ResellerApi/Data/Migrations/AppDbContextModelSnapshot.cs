@@ -3781,6 +3781,77 @@ namespace ResellerApi.Data.Migrations
                     b.ToTable("purchase_items", (string)null);
                 });
 
+            modelBuilder.Entity("ResellerApi.Entities.PurchasePayment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<Guid?>("BranchId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("BusinessId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("CostKey")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("CreatedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("FundingSource")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)");
+
+                    b.Property<DateTime>("PaidAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("PartnerId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RequestId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<byte[]>("RowVer")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<Guid>("TripId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PartnerId");
+
+                    b.HasIndex("TripId");
+
+                    b.HasIndex("BusinessId", "PaidAt");
+
+                    b.HasIndex("BusinessId", "RequestId")
+                        .IsUnique();
+
+                    b.HasIndex("BusinessId", "TripId", "CostKey")
+                        .IsUnique();
+
+                    b.ToTable("purchase_payments", (string)null);
+                });
+
             modelBuilder.Entity("ResellerApi.Entities.PurchaseReceiveItem", b =>
                 {
                     b.Property<Guid>("Id")
@@ -6439,6 +6510,28 @@ namespace ResellerApi.Data.Migrations
                     b.Navigation("Trip");
 
                     b.Navigation("Variant");
+                });
+
+            modelBuilder.Entity("ResellerApi.Entities.PurchasePayment", b =>
+                {
+                    b.HasOne("ResellerApi.Entities.Business", "Business")
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("ResellerApi.Entities.Partner", null)
+                        .WithMany()
+                        .HasForeignKey("PartnerId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("ResellerApi.Entities.PurchaseTrip", null)
+                        .WithMany()
+                        .HasForeignKey("TripId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Business");
                 });
 
             modelBuilder.Entity("ResellerApi.Entities.PurchaseReceiveItem", b =>

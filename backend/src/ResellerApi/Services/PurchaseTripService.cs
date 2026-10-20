@@ -153,6 +153,10 @@ public class PurchaseTripService : IPurchaseTripService
 
     public async Task<PurchaseItemDto> AddItemAsync(Guid tripId, AddPurchaseItemRequest request, Guid userId)
     {
+        await using var paymentLock = await new ExpenseFundingService(_db, _business).BeginAsync();
+        if (await _db.PurchasePayments.AnyAsync(p => p.TripId == tripId && p.CostKey == Guid.Empty))
+            throw new InvalidOperationException("This purchase has a recorded payment. Paid amounts cannot be changed or cancelled.");
+
         var trip = await RequireDraftTripAsync(tripId);
         if (request.UnitWeightGrams < 0)
             throw new InvalidOperationException("Unit weight cannot be negative.");
@@ -185,6 +189,7 @@ public class PurchaseTripService : IPurchaseTripService
         };
         _db.PurchaseItems.Add(item);
         await _db.SaveChangesAsync();
+        if (paymentLock != null) await paymentLock.CommitAsync();
         await _log.LogAsync(_business.CurrentBusinessId, userId, "CREATE", "PurchaseItem", item.Id);
 
         await _db.Entry(item).Reference(i => i.Variant).LoadAsync();
@@ -195,6 +200,10 @@ public class PurchaseTripService : IPurchaseTripService
 
     public async Task<PurchaseItemDto> UpdateItemAsync(Guid tripId, Guid itemId, UpdatePurchaseItemRequest request, Guid userId)
     {
+        await using var paymentLock = await new ExpenseFundingService(_db, _business).BeginAsync();
+        if (await _db.PurchasePayments.AnyAsync(p => p.TripId == tripId && p.CostKey == Guid.Empty))
+            throw new InvalidOperationException("This purchase has a recorded payment. Paid amounts cannot be changed or cancelled.");
+
         await RequireDraftTripAsync(tripId);
         if (request.UnitWeightGrams < 0)
             throw new InvalidOperationException("Unit weight cannot be negative.");
@@ -228,16 +237,22 @@ public class PurchaseTripService : IPurchaseTripService
         item.DueAmount = request.DueAmount;
         item.PromisedDate = request.PromisedDate;
         await _db.SaveChangesAsync();
+        if (paymentLock != null) await paymentLock.CommitAsync();
         return MapItem(item);
     }
 
     public async Task RemoveItemAsync(Guid tripId, Guid itemId, Guid userId)
     {
+        await using var paymentLock = await new ExpenseFundingService(_db, _business).BeginAsync();
+        if (await _db.PurchasePayments.AnyAsync(p => p.TripId == tripId && p.CostKey == Guid.Empty))
+            throw new InvalidOperationException("This purchase has a recorded payment. Paid amounts cannot be changed or cancelled.");
+
         await RequireDraftTripAsync(tripId);
         var item = await _db.PurchaseItems.FirstOrDefaultAsync(i => i.Id == itemId && i.TripId == tripId)
             ?? throw new KeyNotFoundException("Purchase item not found.");
         item.DeletedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
+        if (paymentLock != null) await paymentLock.CommitAsync();
     }
 
     // ── Costs ─────────────────────────────────────────────────────────────────
@@ -271,6 +286,10 @@ public class PurchaseTripService : IPurchaseTripService
 
     public async Task RemoveCostAsync(Guid tripId, Guid costId, Guid userId)
     {
+        await using var paymentLock = await new ExpenseFundingService(_db, _business).BeginAsync();
+        if (await _db.PurchasePayments.AnyAsync(p => p.TripId == tripId && p.CostKey == costId))
+            throw new InvalidOperationException("This purchase has a recorded payment. Paid amounts cannot be changed or cancelled.");
+
         var trip = await _db.PurchaseTrips.FirstOrDefaultAsync(t => t.Id == tripId)
             ?? throw new KeyNotFoundException("Purchase trip not found.");
         if (trip.Status == "CANCELLED")
@@ -284,6 +303,7 @@ public class PurchaseTripService : IPurchaseTripService
 
         cost.DeletedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
+        if (paymentLock != null) await paymentLock.CommitAsync();
     }
 
     public async Task<PurchaseShipmentDto?> GetShipmentAsync(Guid tripId)
@@ -296,6 +316,10 @@ public class PurchaseTripService : IPurchaseTripService
 
     public async Task<PurchaseShipmentDto> SaveShipmentAsync(Guid tripId, SavePurchaseShipmentRequest request, Guid userId)
     {
+        await using var paymentLock = await new ExpenseFundingService(_db, _business).BeginAsync();
+        if (await _db.PurchasePayments.AnyAsync(p => p.TripId == tripId && _db.PurchaseShipments.Any(sh => sh.TripId == tripId && sh.PurchaseTripCostId == p.CostKey)))
+            throw new InvalidOperationException("This purchase has a recorded payment. Paid amounts cannot be changed or cancelled.");
+
         var trip = await _db.PurchaseTrips.FirstOrDefaultAsync(t => t.Id == tripId)
             ?? throw new KeyNotFoundException("Purchase trip not found.");
         if (trip.Status != "DRAFT" && trip.Status != "RECEIVING")
@@ -331,12 +355,17 @@ public class PurchaseTripService : IPurchaseTripService
         shipment.PurchaseTripCost.Amount = amount;
         shipment.PurchaseTripCost.Note = $"{company.Name} · {method} · {request.BillableQuantity:0.###} kg × ৳{rate.RateAmount:0.##}";
         await _db.SaveChangesAsync();
+        if (paymentLock != null) await paymentLock.CommitAsync();
         await _log.LogAsync(_business.CurrentBusinessId, userId, "UPDATE", "PurchaseShipment", shipment.Id);
         return MapShipment(shipment);
     }
 
     public async Task RemoveShipmentAsync(Guid tripId, Guid userId)
     {
+        await using var paymentLock = await new ExpenseFundingService(_db, _business).BeginAsync();
+        if (await _db.PurchasePayments.AnyAsync(p => p.TripId == tripId && _db.PurchaseShipments.Any(sh => sh.TripId == tripId && sh.PurchaseTripCostId == p.CostKey)))
+            throw new InvalidOperationException("This purchase has a recorded payment. Paid amounts cannot be changed or cancelled.");
+
         var trip = await _db.PurchaseTrips.FirstOrDefaultAsync(t => t.Id == tripId)
             ?? throw new KeyNotFoundException("Purchase trip not found.");
         if (trip.Status != "DRAFT" && trip.Status != "RECEIVING")
@@ -346,6 +375,7 @@ public class PurchaseTripService : IPurchaseTripService
         shipment.DeletedAt = DateTime.UtcNow;
         shipment.PurchaseTripCost.DeletedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
+        if (paymentLock != null) await paymentLock.CommitAsync();
         await _log.LogAsync(_business.CurrentBusinessId, userId, "DELETE", "PurchaseShipment", shipment.Id);
     }
 
@@ -365,26 +395,39 @@ public class PurchaseTripService : IPurchaseTripService
 
     public async Task<PurchaseTripDetailDto> ApproveAsync(Guid tripId, string? note, Guid userId)
     {
+        await using var paymentLock = await new ExpenseFundingService(_db, _business).BeginAsync();
         var trip = await _db.PurchaseTrips.FirstOrDefaultAsync(t => t.Id == tripId)
             ?? throw new KeyNotFoundException("Purchase trip not found.");
         if (trip.Status != "PENDING_APPROVAL")
             throw new InvalidOperationException("Only PENDING_APPROVAL trips can be approved.");
+        var paymentRows = await _db.PurchasePayments.Where(p => p.TripId == tripId).ToListAsync();
+        var productTotal = await _db.PurchaseItems.Where(i => i.TripId == tripId).SumAsync(i => (decimal?)i.TotalCost) ?? 0;
+        var costs = await _db.PurchaseTripCosts.Where(c => c.TripId == tripId).ToListAsync();
+        if ((productTotal > 0 && !paymentRows.Any(p => p.CostKey == Guid.Empty && p.Amount == productTotal)) ||
+            costs.Any(c => c.Amount > 0 && !paymentRows.Any(p => p.CostKey == c.Id && p.Amount == c.Amount)))
+            throw new InvalidOperationException("Record payment for every PO cost before approving this purchase.");
         trip.Status = "RECEIVING";
         trip.ApprovedBy = userId;
         trip.ApprovalNote = string.IsNullOrWhiteSpace(note) ? null : note.Trim();
         await _db.SaveChangesAsync();
+        if (paymentLock != null) await paymentLock.CommitAsync();
         await _log.LogAsync(_business.CurrentBusinessId, userId, "UPDATE", "PurchaseTrip", trip.Id);
         return await GetAsync(trip.Id);
     }
 
     public async Task<PurchaseTripDetailDto> CancelAsync(Guid tripId, Guid userId)
     {
+        await using var paymentLock = await new ExpenseFundingService(_db, _business).BeginAsync();
+        if (await _db.PurchasePayments.AnyAsync(p => p.TripId == tripId))
+            throw new InvalidOperationException("This purchase has a recorded payment. Paid amounts cannot be changed or cancelled.");
+
         var trip = await _db.PurchaseTrips.FirstOrDefaultAsync(t => t.Id == tripId)
             ?? throw new KeyNotFoundException("Purchase trip not found.");
         if (trip.Status == "COMPLETED")
             throw new InvalidOperationException("Completed trips cannot be cancelled.");
         trip.Status = "CANCELLED";
         await _db.SaveChangesAsync();
+        if (paymentLock != null) await paymentLock.CommitAsync();
         await _log.LogAsync(_business.CurrentBusinessId, userId, "UPDATE", "PurchaseTrip", trip.Id);
         return await GetAsync(trip.Id);
     }

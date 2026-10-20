@@ -45,14 +45,13 @@ const moreItems: MoreNavItem[] = [
   { key: "pre-orders", label: "Pre-orders", icon: "time-outline", roles: ["OWNER", "MANAGER", "STAFF"] },
   { key: "categories", label: "Categories", icon: "pricetag-outline", roles: ["OWNER"], route: "/more/categories" },
   { key: "quick-add", label: "Quick Add Products", icon: "albums-outline", roles: ["OWNER"] },
-  // Temporarily hidden from navigation. Keep the purchase routes and feature code intact.
-  // { key: "purchases", label: "Purchases", icon: "cart-outline", roles: ["OWNER", "MANAGER", "WAREHOUSE"] },
+  { key: "purchases", label: "Purchases", icon: "cart-outline", roles: ["OWNER", "MANAGER", "WAREHOUSE"] },
   // Temporarily hidden from navigation. Keep the storeroom routes and feature code intact.
   // { key: "storeroom", label: "Storeroom", icon: "archive-outline", roles: ["OWNER", "WAREHOUSE"] },
   { key: "barcodes", label: "Print Barcodes", icon: "barcode-outline", roles: ["OWNER", "MANAGER", "WAREHOUSE"] },
   { key: "deliveries", label: "Deliveries", icon: "car-outline", roles: ["OWNER", "MANAGER", "STAFF"] },
   { key: "expenses", label: "Expenses", icon: "wallet-outline", roles: ["OWNER", "MANAGER"] },
-  { key: "add-expense", label: "Add Expense", icon: "add-circle-outline", roles: ["OWNER", "MANAGER"] },
+
   { key: "reports", label: "Reports", icon: "bar-chart-outline", roles: ["OWNER", "MANAGER"] },
   { key: "customers", label: "Customers", icon: "people-outline", roles: ["OWNER", "MANAGER"] },
   { key: "settings", label: "Settings", icon: "settings-outline", roles: ["OWNER", "MANAGER", "WAREHOUSE", "STAFF"] },
@@ -68,6 +67,14 @@ const reportItems: MoreNavItem[] = [
   { key: "report-financial", label: "Financial Reports", icon: "cash-outline" },
   { key: "report-orders", label: "Order Reports", icon: "receipt-outline", route: "/orders" },
   { key: "report-stock-valuation", label: "Stock Valuation", icon: "scale-outline" },
+];
+const expenseSubmenu: MoreNavItem[] = [
+  { key: "add-expense", label: "Add New Expense", icon: "add-circle-outline" },
+  { key: "expense-history", label: "Expense History", icon: "time-outline" },
+];
+const purchaseSubmenu: MoreNavItem[] = [
+  { key: "add-purchase", label: "Add New Purchase", icon: "add-circle-outline" },
+  { key: "purchase-history", label: "Purchase History", icon: "time-outline" },
 ];
 const basicSettings: MoreNavItem[] = [
   { key: "staff", label: "Staff", icon: "people-outline" },
@@ -87,6 +94,7 @@ const openEnvironmentPath = (path: string) => {
   void ExpoLinking.openURL(ExpoLinking.createURL(path));
 };
 const frontendPaths: Record<string, string> = {
+  "expense-history": "/more/expenses", "add-purchase": "/more/purchases/new", "purchase-history": "/more/purchases",
   tasks: "/more/tasks",
   "pre-orders": "/more/pre-orders",
   "quick-add": "/more/catalog-templates", purchases: "/more/purchases", "supplier-returns": "/more/supplier-returns", storeroom: "/more/storeroom", deliveries: "/more/deliveries", expenses: "/more/expenses", "add-expense": "/more/expenses/new", baki: "/more/baki", customers: "/more/customers", faq: "/more/faq", feedback: "/more/feedback",
@@ -109,6 +117,8 @@ function AppShell() {
   const [reportsOpen, setReportsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [quickAddOpen, setQuickAddOpen] = useState(path === "/more/bulk-products" || path === "/more/catalog-templates");
+  const [expensesOpen, setExpensesOpen] = useState(path.startsWith("/more/expenses"));
+  const [purchasesOpen, setPurchasesOpen] = useState(path.startsWith("/more/purchases"));
   const [menuSearch, setMenuSearch] = useState("");
   const role = (auth.session?.user.role || "STAFF").toUpperCase();
   const currentBusiness = auth.session?.businesses.find(business => business.id === auth.session?.businessId);
@@ -140,6 +150,10 @@ function AppShell() {
   const openMoreItem = (item: MoreNavItem) => {
     setDrawerOpen(false);
     setMenuSearch("");
+    if (item.key === "add-expense") return router.push("/more/expenses/new");
+    if (item.key === "expense-history") return router.push("/more/expenses");
+    if (item.key === "add-purchase") return router.push("/more/purchases/new");
+    if (item.key === "purchase-history") return router.push("/more/purchases");
     if (item.key === "tasks") return router.push("/more/tasks");
     if (item.key === "categories") return router.push("/more/categories");
     if (item.key === "quick-add") return router.push("/more/catalog-templates");
@@ -152,7 +166,7 @@ function AppShell() {
   };
   const openQuickAction=(key:string)=>{setQuickActionsOpen(false);if(key==="task")return router.push({pathname:"/more/tasks",params:{new:"1"}});if(key==="pre-order")return openEnvironmentPath("/more/pre-orders");if(key==="sale")return router.push("/sale");if(key==="order"||key==="customer")return router.push("/orders/new");if(key==="supplier")return setSupplierFormOpen(true);if(key==="purchase")return router.push("/more/purchases/new");if(key==="category")return router.push({pathname:"/more/categories",params:{new:"1"}});if(key==="product")return router.push("/products/new");if(key==="expense")return openEnvironmentPath("/more/expenses/new")};
   const itemPath = (item: MoreNavItem) => item.key === "bulk-products" ? "/more/bulk-products" : item.key === "categories" ? "/more/categories" : item.key === "quick-add" ? "/more/catalog-templates" : item.key === "purchases" ? "/more/purchases" : item.key === "barcodes" ? "/more/barcodes" : frontendPaths[item.key] ?? item.route;
-  const itemActive = (item: MoreNavItem) => { const target = itemPath(item); return !!target && (target === "/" ? path === "/" : path === target || path.startsWith(`${target}/`)); };
+  const itemActive = (item: MoreNavItem) => { const target = itemPath(item); return !!target && ((item.key === "expense-history" || item.key === "purchase-history") ? path === target : target === "/" ? path === "/" : path === target || path.startsWith(`${target}/`)); };
   const moreRows = (entries: MoreNavItem[], nested = false) => entries.map(item => { const active=itemActive(item); return <Pressable key={item.key} accessibilityState={{selected:active}} onPress={() => openMoreItem(item)} style={({ pressed }) => [s.moreRow, nested && s.nestedRow, active&&s.activeMoreRow, pressed && s.pressed]}>
     <Ionicons name={item.icon} size={nested ? 17 : 19} color={active?colors.primaryDark:colors.neutralIcon} />
     <Text numberOfLines={1} style={[s.moreLabel, nested && s.nestedLabel,active&&s.activeMoreLabel]}>{t(item.label)}</Text>
@@ -163,7 +177,7 @@ function AppShell() {
   const drawerTabs = tabs.filter(tab => menuMatches(tab.label, tab.href));
   const drawerReports = reportItems.filter(item => menuMatches(item.label, item.key));
   const drawerSettings = (role === "OWNER" ? [...basicSettings, ...ownerSettings] : basicSettings).filter(item => menuMatches(item.label, item.key));
-  const drawerMoreItems = visibleMoreItems.filter(item => menuMatches(item.label, item.key) || (item.key === "quick-add" && menuMatches("Bulk Upload Products")) || (item.key === "reports" && drawerReports.length > 0) || (item.key === "settings" && drawerSettings.length > 0));
+  const drawerMoreItems = visibleMoreItems.filter(item => menuMatches(item.label, item.key) || (item.key === "expenses" && expenseSubmenu.some(child => menuMatches(child.label, child.key))) || (item.key === "purchases" && purchaseSubmenu.some(child => menuMatches(child.label, child.key))) || (item.key === "quick-add" && menuMatches("Bulk Upload Products")) || (item.key === "reports" && drawerReports.length > 0) || (item.key === "settings" && drawerSettings.length > 0));
   const drawerHasResults = drawerTabs.length > 0 || drawerMoreItems.length > 0;
   const desktopPrimaryNavigation = drawerTabs.map(tab => {
     const href = tab.href;
@@ -177,6 +191,18 @@ function AppShell() {
   });
   const drawerMorePanel = <View style={s.moreList}>
     {drawerMoreItems.map(item => {
+      if (item.key === "expenses" || item.key === "purchases") {
+        const isExpense = item.key === "expenses";
+        const expanded = !!menuQuery || (isExpense ? expensesOpen : purchasesOpen);
+        const toggle = isExpense ? setExpensesOpen : setPurchasesOpen;
+        const children = isExpense ? expenseSubmenu : purchaseSubmenu;
+        return <View key={item.key}>
+          <Pressable accessibilityRole="button" accessibilityState={{ expanded }} disabled={!!menuQuery} onPress={() => toggle(value => !value)} style={s.moreRow}>
+            <Ionicons name={item.icon} size={19} color={colors.neutralIcon} /><Text style={s.moreLabel}>{t(item.label)}</Text><Ionicons name={expanded ? "chevron-down" : "chevron-forward"} size={14} color={colors.muted} />
+          </Pressable>
+          {expanded && <View style={s.nestedList}>{moreRows(children, true)}</View>}
+        </View>;
+      }
       if (item.key === "quick-add") return <View key={item.key}>
         <Pressable onPress={() => setQuickAddOpen(value => !value)} style={s.moreRow} accessibilityState={{ expanded: quickAddOpen || !!menuQuery }}><Ionicons name={item.icon} size={19} color={colors.neutralIcon} /><Text style={s.moreLabel}>{t(item.label)}</Text><Ionicons name={quickAddOpen || menuQuery ? "chevron-down" : "chevron-forward"} size={14} color={colors.muted} /></Pressable>
         {(quickAddOpen || !!menuQuery) && <View style={s.nestedList}>{moreRows([{ key: "quick-add", label: "Suggested Products", icon: "albums-outline" }, { key: "bulk-products", label: "Bulk Upload Products", icon: "cloud-upload-outline" }], true)}</View>}

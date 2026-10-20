@@ -89,8 +89,7 @@ export default function HomeScreen() {
     { label: "New Order", icon: "clipboard-outline", color: colors.primary, press: () => router.push("/orders/new") },
     { label: "New Sale", icon: "cart-outline", color: colors.primary, press: () => router.push("/sale") },
     { label: "Sales Record", icon: "cash-outline", color: colors.primary, press: () => router.push("/more/reports/sales") },
-    // Temporarily hidden from Quick Actions. Keep the purchase route and feature code intact.
-    // { label: "New Purchase", icon: "car-outline", color: colors.primary, press: () => router.push("/more/purchases/new") },
+    { label: "New Purchase", icon: "car-outline", color: colors.primary, press: () => router.push("/more/purchases/new") },
     { label: "Add Expense", icon: "logo-usd", color: colors.primary, press: () => router.push("/more/expenses/new") },
     { label: "Customers", icon: "people-outline", color: colors.primary, press: () => router.push("/more/customers") },
   ];

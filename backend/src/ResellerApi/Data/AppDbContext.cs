@@ -58,6 +58,7 @@ public class AppDbContext : DbContext
 
     // ── Phase 3 ───────────────────────────────────────────────────────────
     public DbSet<Supplier> Suppliers => Set<Supplier>();
+    public DbSet<PurchasePayment> PurchasePayments => Set<PurchasePayment>();
     public DbSet<PurchaseTrip> PurchaseTrips => Set<PurchaseTrip>();
     public DbSet<PurchaseItem> PurchaseItems => Set<PurchaseItem>();
     public DbSet<PurchaseTripCost> PurchaseTripCosts => Set<PurchaseTripCost>();
@@ -1030,6 +1031,19 @@ public class AppDbContext : DbContext
                 .HasForeignKey(x => x.CourierId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne(x => x.RecordedByUser).WithMany()
                 .HasForeignKey(x => x.RecordedBy).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<PurchasePayment>(e =>
+        {
+            e.ToTable("purchase_payments");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Amount).HasPrecision(18, 2);
+            e.Property(x => x.FundingSource).HasMaxLength(16).IsRequired();
+            e.HasIndex(x => new { x.BusinessId, x.TripId, x.CostKey }).IsUnique();
+            e.HasIndex(x => new { x.BusinessId, x.RequestId }).IsUnique();
+            e.HasIndex(x => new { x.BusinessId, x.PaidAt });
+            e.HasOne<PurchaseTrip>().WithMany().HasForeignKey(x => x.TripId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<Partner>().WithMany().HasForeignKey(x => x.PartnerId).OnDelete(DeleteBehavior.Restrict);
         });
 
         // ── ExpenseCategory ──────────────────────────────────────────────────

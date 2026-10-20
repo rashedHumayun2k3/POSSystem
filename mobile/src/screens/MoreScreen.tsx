@@ -9,6 +9,14 @@ import { colors } from "../theme";
 type IconName = keyof typeof Ionicons.glyphMap;
 type MenuItem = { key: string; title: string; description: string; icon: IconName; roles?: string[]; webPath: string };
 type ChildItem = { key: string; title: string; description: string; icon: IconName; webPath: string };
+const expenseItems: ChildItem[] = [
+  { key: "new-expense", title: "Add New Expense", description: "Record a new expense", icon: "add-circle-outline", webPath: "/more/expenses/new" },
+  { key: "expense-history", title: "Expense History", description: "View your recorded expenses", icon: "time-outline", webPath: "/more/expenses" },
+];
+const purchaseItems: ChildItem[] = [
+  { key: "new-purchase", title: "Add New Purchase", description: "Create a new purchase order", icon: "add-circle-outline", webPath: "/more/purchases/new" },
+  { key: "purchase-history", title: "Purchase History", description: "View your purchase orders", icon: "time-outline", webPath: "/more/purchases" },
+];
 const quickAddItems: ChildItem[] = [
   { key: "suggested-products", title: "Suggested Products", description: "Choose from ready-made categories and products", icon: "albums-outline", webPath: "/more/catalog-templates" },
   { key: "bulk-products", title: "Bulk Upload Products", description: "Import up to 50 new products from Excel", icon: "cloud-upload-outline", webPath: "/more/bulk-products" },
@@ -24,8 +32,7 @@ const items: MenuItem[] = [
   { key: "partner-approvals", title: "Business Partner", description: "Review partnership and investment requests", icon: "people-outline", roles: ["PARTNER"], webPath: "/more/settings/partners" },
   { key: "categories", title: "Categories", description: "Product categories & fields", icon: "pricetag-outline", roles: ["OWNER"], webPath: "/more/categories" },
   { key: "catalog-templates", title: "Quick Add Products", description: "Add ready-made categories & products to your shop in a few taps", icon: "albums-outline", roles: ["OWNER"], webPath: "/more/catalog-templates" },
-  // Temporarily hidden from navigation. Keep the purchase routes and feature code intact.
-  // { key: "purchases", title: "Purchases", description: "Lots & landed cost", icon: "cart-outline", roles: ["OWNER", "MANAGER", "WAREHOUSE"], webPath: "/more/purchases" },
+  { key: "purchases", title: "Purchases", description: "Lots & landed cost", icon: "cart-outline", roles: ["OWNER", "MANAGER", "WAREHOUSE"], webPath: "/more/purchases" },
   // Temporarily hidden from navigation. Keep the storeroom routes and feature code intact.
   // { key: "storeroom", title: "Storeroom", description: "Cartons & labeling", icon: "archive-outline", roles: ["OWNER", "WAREHOUSE"], webPath: "/more/storeroom" },
   { key: "barcodes", title: "Print Barcodes", description: "Product barcode labels and sticker printing", icon: "barcode-outline", roles: ["OWNER", "MANAGER", "WAREHOUSE"], webPath: "/more/barcodes" },
@@ -75,6 +82,8 @@ export default function MoreScreen() {
   const [reportsOpen, setReportsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
+  const [purchasesOpen, setPurchasesOpen] = useState(false);
+  const [expensesOpen, setExpensesOpen] = useState(false);
   const query = search.trim().toLocaleLowerCase();
   const settings = role === "OWNER" ? [...baseSettings, ...ownerSettings] : baseSettings;
   const visibleReports = reports.filter(item => !query || includes(item, query));
@@ -83,12 +92,18 @@ export default function MoreScreen() {
     if (item.roles && !item.roles.includes(role)) return false;
     if (!query || includes(item, query)) return true;
     if (item.key === "catalog-templates") return quickAddItems.some(child => includes(child, query));
+    if (item.key === "purchases") return purchaseItems.some(child => includes(child, query));
+    if (item.key === "expenses") return expenseItems.some(child => includes(child, query));
     if (item.key === "reports") return visibleReports.length > 0;
     if (item.key === "settings") return visibleSettings.length > 0;
     return false;
   }), [query, role, visibleReports.length, visibleSettings.length]);
 
   const openChild = (item: ChildItem) => {
+    if (item.key === "new-expense") return router.push("/more/expenses/new");
+    if (item.key === "expense-history") return router.push("/more/expenses");
+    if (item.key === "new-purchase") return router.push("/more/purchases/new");
+    if (item.key === "purchase-history") return router.push("/more/purchases");
     if (item.key === "suggested-products") return router.push("/more/catalog-templates");
     if (item.key === "bulk-products") return router.push("/more/bulk-products");
     if (item.key === "staff") return router.push("/more/settings/staff");
@@ -116,11 +131,11 @@ export default function MoreScreen() {
     if (item.key === "settings") return setSettingsOpen(value => !value);
     if (item.key === "categories") return router.push("/more/categories");
     if (item.key === "catalog-templates") return setQuickAddOpen(value => !value);
-    if (item.key === "purchases") return router.push("/more/purchases");
+    if (item.key === "purchases") return setPurchasesOpen(value => !value);
     if (item.key === "storeroom") return router.push("/more/storeroom" as never);
     if (item.key === "barcodes") return router.push("/more/barcodes");
     if (item.key === "deliveries") return router.push("/more/deliveries");
-    if (item.key === "expenses") return router.push("/more/expenses");
+    if (item.key === "expenses") return setExpensesOpen(value => !value);
     if (item.key === "customers") return router.push("/more/customers");
     openEnvironmentPath(item.webPath);
   };
@@ -133,9 +148,9 @@ export default function MoreScreen() {
     </View>
     {!visibleItems.length && <View style={s.empty}><Text style={s.emptyText}>No menus found. Try a different search.</Text></View>}
     {visibleItems.map(item => {
-      const expandable = item.key === "reports" || item.key === "settings" || item.key === "catalog-templates";
-      const expanded = query ? true : item.key === "reports" ? reportsOpen : item.key === "settings" ? settingsOpen : quickAddOpen;
-      const children = item.key === "catalog-templates" ? quickAddItems : item.key === "reports" ? visibleReports : visibleSettings;
+      const expandable = item.key === "reports" || item.key === "settings" || item.key === "catalog-templates" || item.key === "purchases" || item.key === "expenses";
+      const expanded = query ? true : item.key === "expenses" ? expensesOpen : item.key === "purchases" ? purchasesOpen : item.key === "reports" ? reportsOpen : item.key === "settings" ? settingsOpen : quickAddOpen;
+      const children = item.key === "expenses" ? expenseItems : item.key === "purchases" ? purchaseItems : item.key === "catalog-templates" ? quickAddItems : item.key === "reports" ? visibleReports : visibleSettings;
       return <View key={item.key} style={[s.card, expandable && s.accordion]}>
         <Pressable onPress={() => openMenu(item)} disabled={!!query && expandable} style={({ pressed }) => [s.row, pressed && !query && s.pressed]}>
           <View style={[s.iconBox, expandable && s.accordionIcon]}><Ionicons name={item.icon} size={21} color={colors.primaryDark} /></View>
