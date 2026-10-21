@@ -24,10 +24,8 @@ public static class BanglaNarrative
     {
         var local = TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), TimeZoneInfo.FindSystemTimeZoneById(settings.TimeZone));
         var businessDate = DateOnly.FromDateTime(local.AddHours(-settings.BusinessDayCutoffHour));
-        var morning = local.Hour >= 5 && local.Hour < 12;
-        var date = morning ? businessDate.AddDays(-1) : businessDate;
-        var label = date.ToDateTime(TimeOnly.MinValue).ToString("dddd", CultureInfo.GetCultureInfo("bn-BD")) + ", " + Number(date.Day) + " " + date.ToDateTime(TimeOnly.MinValue).ToString("MMMM", CultureInfo.GetCultureInfo("bn-BD")) + " " + Number(date.Year);
-        return new(date, morning, label + (morning ? " দিনের হিসাব" : " দিনের এখন পর্যন্ত হিসাব"));
+        var label = businessDate.ToDateTime(TimeOnly.MinValue).ToString("dddd", CultureInfo.GetCultureInfo("bn-BD")) + ", " + Number(businessDate.Day) + " " + businessDate.ToDateTime(TimeOnly.MinValue).ToString("MMMM", CultureInfo.GetCultureInfo("bn-BD"));
+        return new(businessDate, false, label);
     }
     public static string Greeting(DateTime utc, BriefingPreferences settings)
     {
@@ -37,30 +35,58 @@ public static class BanglaNarrative
     }
     public static List<BriefingSegment> Compose(BriefingMetrics m, BriefingPeriod period, string scope, string mode)
     {
-        var segments = new List<BriefingSegment> { new("period", scope + "। " + period.Label + " জানাচ্ছি।") };
-        if (m.OutOfStockVariants > 0) segments.Add(new("stockout", "আগে স্টকের একটি খবর বলি। " + Number(m.OutOfStockVariants) + "টি পণ্যের ভ্যারিয়েন্টে বিক্রির উপযোগী স্টক নেই।"));
-        segments.Add(new("sales", "নথিভুক্ত বিক্রি " + Money(m.Sales) + "। এই হিসাবে ছাড় বাদ দেওয়া হয়েছে, ডেলিভারি চার্জ যোগ করা হয়েছে। ফেরত ও রিফান্ড বাদ দেওয়া হয়নি।"));
-        if (m.PreviousSales > 0 && period.PeriodEnded)
+        var segments = new List<BriefingSegment>();
+
+        // Urgent stock news comes first, but is not repeated in the stock summary below.
+        if (m.OutOfStockVariants > 0)
+            segments.Add(new("urgent-stock", "জরুরি খবর। " + Number(m.OutOfStockVariants) + "টি পণ্যের স্টক শেষ।"));
+
+        segments.Add(new("start", scope + "-এর আজকের হিসাব বলছি। আজ " + period.Label + "।"));
+        if (m.Sales <= 0)
+            segments.Add(new("sales", "এখন পর্যন্ত আজ কোনো বিক্রি হয়নি।"));
+        else
         {
-            var percent = decimal.Round((m.Sales - m.PreviousSales.Value) / m.PreviousSales.Value * 100, 0, MidpointRounding.AwayFromZero);
-            segments.Add(new("comparison", percent == 0 ? "আগের দিনের তুলনায় বিক্রি প্রায় একই আছে।" : "আগের দিনের তুলনায় বিক্রি প্রায় " + Number((long)decimal.Abs(percent)) + " শতাংশ " + (percent > 0 ? "বেড়েছে।" : "কমেছে।")));
+            var sales = "এখন পর্যন্ত " + Number(m.Orders) + "টি অর্ডারে মোট বিক্রি হয়েছে " + Money(m.Sales) + "।";
+            if (m.PreviousSales.HasValue)
+            {
+                var difference = m.Sales - m.PreviousSales.Value;
+                sales += difference == 0
+                    ? " গতকালের এই সময়ের সমান বিক্রি হয়েছে।"
+                    : " গতকালের এই সময়ের চেয়ে বিক্রি " + Money(decimal.Abs(difference)) + (difference > 0 ? " বেশি।" : " কম।");
+            }
+            segments.Add(new("sales", sales));
         }
-        segments.Add(new("orders", "এই দিনের " + Number(m.Orders) + "টি বাতিল না হওয়া অর্ডারের মধ্যে " + Number(m.DeliveredFromPeriod) + "টি এখন পর্যন্ত ডেলিভারি হয়েছে।"));
-        if (m.PendingDeliveries > 0) segments.Add(new("delivery", "আগের দিনগুলোসহ সব মিলিয়ে " + Number(m.PendingDeliveries) + "টি অর্ডারের ডেলিভারি বাকি আছে।"));
-        if (mode != "quick")
+
+        segments.Add(new("profit", "আজ আনুমানিক লাভ হয়েছে " + Money(m.Profit) + "।"));
+
+        var collection = new List<string>();
+        if (m.CashReceived > 0) collection.Add("নগদ পেয়েছেন " + Money(m.CashReceived));
+        if (m.MobileReceived > 0) collection.Add("বিকাশ-নগদে এসেছে " + Money(m.MobileReceived));
+        if (collection.Count > 0) segments.Add(new("collection", string.Join(", ", collection) + "।"));
+        if (m.CreditSales > 0) segments.Add(new("credit-sales", "আজ বাকিতে বিক্রি হয়েছে " + Money(m.CreditSales) + "।"));
+        if (m.CustomerDue > 0) segments.Add(new("customer-due", "কাস্টমারদের কাছে মোট বাকি আছে " + Money(m.CustomerDue) + "।"));
+        if (m.SupplierDue > 0) segments.Add(new("supplier-due", "সাপ্লায়ারদের দিতে হবে " + Money(m.SupplierDue) + "।"));
+
+        if (m.PendingDeliveries > 0) segments.Add(new("pending", Number(m.PendingDeliveries) + "টি অর্ডার এখনো ডেলিভারি হয়নি।"));
+        if (m.CancelledOrders > 0) segments.Add(new("cancelled", Number(m.CancelledOrders) + "টি অর্ডার বাতিল হয়েছে।"));
+        if (m.ReturnedOrders > 0)
+            segments.Add(new("returned", Number(m.ReturnedOrders) + "টি পণ্য ফেরত এসেছে" + (m.RefundedAmount > 0 ? ", ফেরত দিয়েছেন " + Money(m.RefundedAmount) : "") + "।"));
+
+        if (m.LowStockVariants > 0) segments.Add(new("low-stock", "আরও " + Number(m.LowStockVariants) + "টি পণ্যের স্টক কমে গেছে।"));
+        if (!string.IsNullOrWhiteSpace(m.TopProduct) && m.TopProduct.Length <= 60 && !m.TopProduct.Any(char.IsControl))
+            segments.Add(new("top-product", "আজ সবচেয়ে বেশি বিক্রি হয়েছে " + m.TopProduct + "।"));
+
+        var expenseLines = new List<string>
         {
-            if (!string.IsNullOrWhiteSpace(m.TopProduct) && m.TopProduct.Length <= 60 && !m.TopProduct.Any(char.IsControl))
-                segments.Add(new("product", "অর্ডারের পরিমাণ অনুযায়ী সবচেয়ে বেশি বিক্রি হয়েছে " + m.TopProduct + "।"));
-            if (m.LowStockVariants > 0) segments.Add(new("stock", Number(m.LowStockVariants) + "টি পণ্যের ভ্যারিয়েন্টে স্টক নির্ধারিত সীমায় বা তার নিচে আছে।"));
-            if (m.MyOverdueTasks > 0) segments.Add(new("tasks", "এই ব্যবসায় আপনার নিজের " + Number(m.MyOverdueTasks) + "টি কাজের নির্ধারিত সময় পেরিয়ে গেছে।"));
-            segments.Add(new("expenses", "এই মাসে এখন পর্যন্ত নির্বাচিত পরিসরে অনুমোদিত খরচ " + Money(m.ApprovedMonthExpenses) + "।"));
-        }
-        if (mode == "detailed") segments.Add(new("definition", "বিক্রি অর্ডারে লেখা ব্যবসার তারিখ অনুযায়ী গণনা করা হয়েছে। স্টক ও বাকি ডেলিভারির তথ্য বর্তমান অবস্থার। এটি লাভ বা হাতে পাওয়া নগদ টাকার হিসাব নয়।"));
-        var actions = new List<string>();
-        if (m.OutOfStockVariants > 0 || m.LowStockVariants > 0) actions.Add("স্টক তালিকা দেখে প্রয়োজনীয় পণ্য আনার ব্যবস্থা করুন");
-        if (m.PendingDeliveries > 0) actions.Add("বাকি ডেলিভারিগুলোর অগ্রগতি দেখে নিন");
-        if (m.MyOverdueTasks > 0) actions.Add("সময় পেরিয়ে যাওয়া কাজগুলো দেখে নিন");
-        if (actions.Count > 0) segments.Add(new("actions", "এরপর " + string.Join("। ", actions.Take(mode == "quick" ? 1 : 3)) + "।"));
+            m.TodayExpenses > 0 ? "আজ খরচ হয়েছে " + Money(m.TodayExpenses) : "আজ কোনো খরচ হয়নি",
+            m.YesterdayExpenses > 0 ? "গতকাল খরচ হয়েছিল " + Money(m.YesterdayExpenses) : "গতকাল কোনো খরচ হয়নি"
+        };
+        if (m.WeekExpenses > 0) expenseLines.Add("এই সপ্তাহে এখন পর্যন্ত খরচ " + Money(m.WeekExpenses));
+        if (period.Date.Day != 1 && m.MonthExpenses > 0) expenseLines.Add("এ মাসে এখন পর্যন্ত মোট খরচ " + Money(m.MonthExpenses));
+        segments.Add(new("expenses", string.Join("। ", expenseLines) + "।"));
+
+        if (m.OutOfStockVariants > 0 || m.LowStockVariants > 0)
+            segments.Add(new("closing", "স্টক দেখে দরকারি পণ্যগুলো আনিয়ে নিন।"));
         return segments;
     }
 }

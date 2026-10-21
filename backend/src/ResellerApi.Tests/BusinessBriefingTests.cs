@@ -20,7 +20,7 @@ public class BusinessBriefingTests
     [Fact] public void RoundingCarriesPaisa() => Assert.Equal("দুই টাকা", BanglaNarrative.Money(1.999m));
     [Fact] public void FractionUsesPaisa() => Assert.Equal("এক টাকা পঁচিশ পয়সা", BanglaNarrative.Money(1.25m));
     [Theory]
-    [InlineData("2026-10-16T02:00:00Z", "2026-10-15", true)]
+    [InlineData("2026-10-16T02:00:00Z", "2026-10-16", false)]
     [InlineData("2026-10-16T08:00:00Z", "2026-10-16", false)]
     [InlineData("2026-10-16T17:00:00Z", "2026-10-16", false)]
     [InlineData("2026-10-16T19:00:00Z", "2026-10-16", false)]
@@ -36,17 +36,18 @@ public class BusinessBriefingTests
     }
     [Fact] public void ZeroComparisonIsOmitted()
     {
-        var m = new BriefingMetrics(0, 0, 0, 0, 0, 0, 0, 0, 0);
+        var m = EmptyMetrics();
         var segments = BanglaNarrative.Compose(m, new(new(2026, 10, 15), true, "গতকালের হিসাব"), "সব শাখা", "standard");
         Assert.DoesNotContain(segments, s => s.Id == "comparison");
-        Assert.Contains(segments, s => s.Id == "sales" && s.Text.Contains("শূন্য টাকা"));
-        Assert.DoesNotContain(segments, s => s.Id == "actions");
+        Assert.Contains(segments, s => s.Id == "sales" && s.Text == "এখন পর্যন্ত আজ কোনো বিক্রি হয়নি।");
+        Assert.DoesNotContain(segments, s => s.Id == "closing");
     }
     [Fact] public void PartialDayComparisonIsOmittedEvenIfSupplied()
     {
-        var segments = BanglaNarrative.Compose(new(1000, 2, 1, 4, 2, 1, 1, 100, 500), new(new(2026, 10, 16), false, "আজ"), "শাখা", "standard");
-        Assert.DoesNotContain(segments, s => s.Id == "comparison");
-        Assert.Contains(segments, s => s.Id == "delivery" && s.Text.Contains("আগের দিনগুলোসহ"));
+        var metrics = EmptyMetrics() with { Sales = 1000, Orders = 2, PendingDeliveries = 4, PreviousSales = 500 };
+        var segments = BanglaNarrative.Compose(metrics, new(new(2026, 10, 16), false, "শুক্রবার, ষোলো অক্টোবর"), "শাখা", "standard");
+        Assert.Contains(segments, s => s.Id == "sales" && s.Text.Contains("পাঁচ শো টাকা বেশি"));
+        Assert.Contains(segments, s => s.Id == "pending" && s.Text.Contains("চারটি"));
     }
     [Fact] public void SettingsRejectInvalidTimeZone() => Assert.Throws<ArgumentException>(() => BriefingService.Validate(new(TimeZone: "Invalid/Zone")));
     [Fact] public void EndpointRequiresFinancialReportRoles()
@@ -66,7 +67,7 @@ public class BusinessBriefingTests
             IsDraft = i == 0, OrderStatus = i == 1 ? "CANCELLED" : "OPEN"
         });
         await db.SaveChangesAsync();
-        var service = new BriefingService(db, new CurrentUserService(new HttpContextAccessor { HttpContext = new DefaultHttpContext() }));
+        var service = new BriefingService(db);
         var report = await service.Generate("quick", new DateTime(2026, 10, 16, 8, 0, 0, DateTimeKind.Utc), default);
         Assert.Equal(999, report.Metrics.Orders); Assert.Equal(7992, report.Metrics.Sales);
         Assert.True(report.Segments.Count < 10); Assert.DoesNotContain("Hidden", report.Transcript);
@@ -79,6 +80,7 @@ public class BusinessBriefingTests
             return base.SaveChangesAsync(cancellationToken);
         }
     }
+    private static BriefingMetrics EmptyMetrics() => new(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, null);
     [Fact] public async Task ReportFiltersOtherTenantsAndBranches()
     {
         var business = Guid.NewGuid(); var branch = Guid.NewGuid();
@@ -91,7 +93,7 @@ public class BusinessBriefingTests
             BusinessDate = new(2026, 10, 16), DeliveryChargeCustomer = delivery };
         db.Orders.AddRange(Order(business, branch, 100), Order(Guid.NewGuid(), branch, 900), Order(business, Guid.NewGuid(), 800));
         await db.SaveChangesAsync();
-        var service = new BriefingService(db, new CurrentUserService(new HttpContextAccessor { HttpContext = new DefaultHttpContext() }));
+        var service = new BriefingService(db);
         var report = await service.Generate("standard", new DateTime(2026, 10, 16, 8, 0, 0, DateTimeKind.Utc), default);
         Assert.Equal(100, report.Metrics.Sales); Assert.Equal(1, report.Metrics.Orders); Assert.Equal(1, report.Metrics.PendingDeliveries);
         Assert.DoesNotContain("Private", report.Transcript); Assert.Null(report.Metrics.PreviousSales);

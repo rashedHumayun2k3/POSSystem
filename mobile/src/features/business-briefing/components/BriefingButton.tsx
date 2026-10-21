@@ -1,4 +1,3 @@
-import AssistantAvatar from "./AssistantAvatar";
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../../../auth/AuthContext";
@@ -23,7 +22,7 @@ function BriefingPanel() {
   const busy = ["greeting", "loading", "speaking", "paused"].includes(b.phase);
   return <>
     <Pressable accessibilityRole="button" accessibilityLabel="ব্যবসার খবর শুনুন" onPress={() => void b.start()} style={s.trigger}>
-      <AssistantAvatar/>
+      <Ionicons name="sparkles" size={23} color={colors.white}/>
     </Pressable>
     <Modal visible={b.open} transparent animationType="fade" onRequestClose={b.close}>
       <View style={s.overlay}><View accessibilityViewIsModal style={s.panel}>
@@ -63,7 +62,7 @@ function BriefingPanel() {
   </>;
 }
 const s = StyleSheet.create({
-  trigger: { width: 40, height: 40, borderRadius: 14, backgroundColor: "#FFF7ED", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#FED7AA" },
+  trigger: { width: 40, height: 40, borderRadius: 14, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: colors.primaryDark },
   overlay: { flex: 1, padding: 16, alignItems: "center", justifyContent: "center", backgroundColor: colors.overlay },
   panel: { width: "100%", maxWidth: 560, maxHeight: "92%", padding: 18, gap: 14, borderRadius: 24, backgroundColor: colors.white },
   row: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 8 }, flex: { flex: 1 },
