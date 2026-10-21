@@ -11,7 +11,7 @@ import PageTitle from "../components/PageTitle";
 import { TaskAction, TaskSelect } from "../tasks/TaskControls";
 import { colors } from "../theme";
 
-const defaults = { view: "created", status: "BOTH", priority: "", creator: "" };
+const defaults = { view: "all", status: "ACTIVE", priority: "", creator: "" };
 export default function TasksScreen() {
   const auth = useAuth(), api = useRef(auth.api); api.current = auth.api;
   const params = useLocalSearchParams<{ new?: string }>(), { width } = useWindowDimensions();

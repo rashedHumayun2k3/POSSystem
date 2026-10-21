@@ -970,6 +970,9 @@ public class OrderService : IOrderService
 
     public async Task<OrderDetailDto> CancelAsync(Guid id, CancelOrderRequest request, Guid userId)
     {
+        if (string.IsNullOrWhiteSpace(request.Reason))
+            throw new InvalidOperationException("A cancellation reason is required.");
+
         var order = await _db.Orders
             .Include(o => o.Items)
             .FirstOrDefaultAsync(o => o.Id == id)
@@ -1012,7 +1015,7 @@ public class OrderService : IOrderService
 
             var prevOrder = order.OrderStatus;
             order.OrderStatus = "CANCELLED";
-            order.CancelledReason = request.Reason;
+            order.CancelledReason = request.Reason.Trim();
 
             _db.OrderStatusHistories.Add(new OrderStatusHistory { OrderId = order.Id, Track = "ORDER", FromStatus = prevOrder, ToStatus = "CANCELLED", UserId = userId });
 

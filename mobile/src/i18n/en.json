@@ -1,4 +1,7 @@
 {
+  "cancelledOrderNotice": {"title": "Order cancelled", "message": "This order has been cancelled and will not be fulfilled."},
+  "deleteOrderDetails": {"selected": "Selected order", "products": "Product names", "customer": "Customer information", "warning": "The order will be removed from your order list and reserved stock will be released. You cannot undo this from the app."},
+  "keepOrderConfirmation": "No, Keep Order",
   "expenseMenu": {"history": "Expense History", "addHint": "Record a new expense", "historyHint": "View your recorded expenses"},
   "purchaseMenu": {"add": "Add New Purchase", "history": "Purchase History", "addHint": "Create a new purchase order", "historyHint": "View your purchase orders"},
   "poCostPayment": {"heading": "PO Costs & Payments", "products": "Product Purchase Cost", "shipping": "Shipping Cost", "unpaid": "Payment not recorded", "paid": "Paid", "amount": "Payment amount", "confirm": "Confirm Payment", "confirmHint": "Confirm only after paying the supplier. This immediately records the payment and updates the selected funding source.", "loadFailed": "Payment records could not be loaded. Retry before paying.", "unknown": "Payment status unavailable"},
