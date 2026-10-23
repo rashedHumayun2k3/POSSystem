@@ -17,7 +17,8 @@ public record AddPurchaseItemRequest(
     decimal PaidNow,
     decimal DueAmount,
     DateTime? PromisedDate,
-    decimal UnitWeightGrams = 0
+    decimal UnitWeightGrams = 0,
+    Guid? BrandId = null
 );
 
 public record UpdatePurchaseItemRequest(
@@ -28,7 +29,8 @@ public record UpdatePurchaseItemRequest(
     decimal PaidNow,
     decimal DueAmount,
     DateTime? PromisedDate,
-    decimal UnitWeightGrams = 0
+    decimal UnitWeightGrams = 0,
+    Guid? BrandId = null
 );
 
 public record AddPurchaseTripCostRequest(
@@ -36,7 +38,8 @@ public record AddPurchaseTripCostRequest(
     decimal Amount,
     string? Note,
     string? PhotoUrl,
-    string? PaidBy
+    string? PaidBy,
+    Guid? ShipmentId = null
 );
 
 // ── Receive session requests ───────────────────────────────────────────────────
@@ -46,7 +49,8 @@ public record SessionItemInput(
     decimal QtyUsable,
     decimal QtyDamaged,
     string PerLotValuesJson,
-    decimal QtyMissing = 0
+    decimal QtyMissing = 0,
+    decimal MeasuredWeightGrams = 0
 );
 
 public record PurchaseReceiveAttachmentDto(
@@ -62,7 +66,9 @@ public record CreateReceiveSessionRequest(
     string? VehicleOrTrackingNo,
     string? Note,
     List<SessionItemInput> Items,
-    List<PurchaseReceiveAttachmentDto>? Attachments = null
+    List<PurchaseReceiveAttachmentDto>? Attachments = null,
+    Guid? ShipmentId = null,
+    decimal BilledWeightGrams = 0
 );
 
 public record RejectSessionRequest(string? Reason);
@@ -124,7 +130,8 @@ public record PurchaseItemDto(
     string? SupplierReturnNo,
     string? SupplierReturnStatus,
     decimal? SupplierReturnQty,
-    decimal QtyMissing = 0
+    decimal QtyMissing = 0,
+    decimal QtyShipped = 0
 );
 
 public record PurchaseTripCostDto(
@@ -134,7 +141,8 @@ public record PurchaseTripCostDto(
     string? Note,
     string? PhotoUrl,
     string? PaidBy,
-    bool IsPostCompletion
+    bool IsPostCompletion,
+    Guid? ShipmentId = null
 );
 
 public record PurchaseReceiveItemDto(
@@ -143,7 +151,10 @@ public record PurchaseReceiveItemDto(
     decimal QtyUsable,
     decimal QtyDamaged,
     string? PerLotValuesJson,
-    decimal QtyMissing = 0
+    decimal QtyMissing = 0,
+    decimal MeasuredWeightGrams = 0,
+    decimal AllocatedShippingCost = 0,
+    decimal LossAmount = 0
 );
 
 public record UpdateTripAttachmentsRequest(
@@ -165,7 +176,8 @@ public record PurchaseReceiveSessionDto(
     DateTime? ApprovedAt,
     string? RejectionReason,
     List<PurchaseReceiveItemDto> Items,
-    List<PurchaseReceiveAttachmentDto> Attachments
+    List<PurchaseReceiveAttachmentDto> Attachments,
+    Guid? ShipmentId = null
 );
 
 public record PurchaseTripDetailDto(
@@ -184,7 +196,9 @@ public record PurchaseTripDetailDto(
     List<PurchaseTripCostDto> Costs,
     List<PurchaseReceiveSessionDto> Sessions,
     List<PurchaseReceiveAttachmentDto> Attachments,
-    PurchaseShipmentDto? Shipment
+    PurchaseShipmentDto? Shipment,
+    List<PurchaseLotDto>? Lots = null,
+    bool UsesShipmentLots = true
 );
 
 public record LandedCostPreviewDto(

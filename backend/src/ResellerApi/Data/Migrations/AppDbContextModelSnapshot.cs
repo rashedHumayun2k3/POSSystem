@@ -271,6 +271,43 @@ namespace ResellerApi.Data.Migrations
                     b.ToTable("branch_variant_inventories", (string)null);
                 });
 
+            modelBuilder.Entity("ResellerApi.Entities.Brand", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("BusinessId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<byte[]>("RowVer")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BusinessId", "Name")
+                        .IsUnique();
+
+                    b.ToTable("brands", (string)null);
+                });
+
             modelBuilder.Entity("ResellerApi.Entities.Business", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3258,6 +3295,9 @@ namespace ResellerApi.Data.Migrations
                     b.Property<decimal?>("AverageRating")
                         .HasColumnType("DECIMAL(3,2)");
 
+                    b.Property<Guid?>("BrandId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<Guid>("BusinessId")
                         .HasColumnType("uniqueidentifier");
 
@@ -3374,6 +3414,8 @@ namespace ResellerApi.Data.Migrations
                         .HasColumnType("nvarchar(500)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("BrandId");
 
                     b.HasIndex("CategoryId");
 
@@ -3678,6 +3720,10 @@ namespace ResellerApi.Data.Migrations
                         .HasMaxLength(60)
                         .HasColumnType("nvarchar(60)");
 
+                    b.Property<decimal>("UnitWeightGrams")
+                        .HasPrecision(14, 3)
+                        .HasColumnType("decimal(14,3)");
+
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("datetime2");
 
@@ -3738,6 +3784,10 @@ namespace ResellerApi.Data.Migrations
 
                     b.Property<decimal>("QtyMissing")
                         .HasColumnType("DECIMAL(12,3)");
+
+                    b.Property<decimal>("QtyShipped")
+                        .HasPrecision(12, 3)
+                        .HasColumnType("decimal(12,3)");
 
                     b.Property<decimal>("QtyUsable")
                         .HasColumnType("DECIMAL(12,3)");
@@ -3820,6 +3870,9 @@ namespace ResellerApi.Data.Migrations
                     b.Property<Guid?>("PartnerId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<Guid?>("PurchaseItemId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<Guid>("RequestId")
                         .HasColumnType("uniqueidentifier");
 
@@ -3838,6 +3891,8 @@ namespace ResellerApi.Data.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("PartnerId");
+
+                    b.HasIndex("PurchaseItemId");
 
                     b.HasIndex("TripId");
 
@@ -3859,11 +3914,23 @@ namespace ResellerApi.Data.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasDefaultValueSql("NEWSEQUENTIALID()");
 
+                    b.Property<decimal>("AllocatedShippingCost")
+                        .HasPrecision(14, 2)
+                        .HasColumnType("decimal(14,2)");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
                     b.Property<DateTime?>("DeletedAt")
                         .HasColumnType("datetime2");
+
+                    b.Property<decimal>("LossAmount")
+                        .HasPrecision(14, 2)
+                        .HasColumnType("decimal(14,2)");
+
+                    b.Property<decimal>("MeasuredWeightGrams")
+                        .HasPrecision(14, 3)
+                        .HasColumnType("decimal(14,3)");
 
                     b.Property<string>("PerLotValuesJson")
                         .IsRequired()
@@ -3957,6 +4024,9 @@ namespace ResellerApi.Data.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("nvarchar(20)");
 
+                    b.Property<Guid?>("ShipmentId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(20)
@@ -3987,6 +4057,10 @@ namespace ResellerApi.Data.Migrations
 
                     b.HasIndex("ReceivedBy");
 
+                    b.HasIndex("ShipmentId")
+                        .IsUnique()
+                        .HasFilter("[ShipmentId] IS NOT NULL AND [DeletedAt] IS NULL AND [Status] <> 'REJECTED'");
+
                     b.HasIndex("TripId");
 
                     b.ToTable("purchase_receive_sessions", (string)null);
@@ -4001,6 +4075,10 @@ namespace ResellerApi.Data.Migrations
 
                     b.Property<decimal>("BillableQuantity")
                         .HasColumnType("DECIMAL(14,3)");
+
+                    b.Property<decimal>("BilledWeightGrams")
+                        .HasPrecision(14, 3)
+                        .HasColumnType("decimal(14,3)");
 
                     b.Property<decimal>("CalculatedCost")
                         .HasColumnType("DECIMAL(14,2)");
@@ -4018,14 +4096,30 @@ namespace ResellerApi.Data.Migrations
                         .HasMaxLength(3)
                         .HasColumnType("nvarchar(3)");
 
+                    b.Property<decimal>("DeclaredWeightGrams")
+                        .HasPrecision(14, 3)
+                        .HasColumnType("decimal(14,3)");
+
                     b.Property<DateTime?>("DeletedAt")
                         .HasColumnType("datetime2");
+
+                    b.Property<bool>("IsLegacy")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("LotNo")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
+                    b.Property<decimal>("MeasuredWeightGrams")
+                        .HasPrecision(14, 3)
+                        .HasColumnType("decimal(14,3)");
 
                     b.Property<string>("Note")
                         .HasMaxLength(500)
                         .HasColumnType("nvarchar(500)");
 
-                    b.Property<Guid>("PurchaseTripCostId")
+                    b.Property<Guid?>("PurchaseTripCostId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal>("RateAmountSnapshot")
@@ -4037,7 +4131,10 @@ namespace ResellerApi.Data.Migrations
                         .ValueGeneratedOnAddOrUpdate()
                         .HasColumnType("rowversion");
 
-                    b.Property<Guid>("ShippingCompanyId")
+                    b.Property<DateTime?>("ShippedDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("ShippingCompanyId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("ShippingCompanyNameSnapshot")
@@ -4049,6 +4146,11 @@ namespace ResellerApi.Data.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("ShippingMethod")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(20)
                         .HasColumnType("nvarchar(20)");
@@ -4071,11 +4173,53 @@ namespace ResellerApi.Data.Migrations
 
                     b.HasIndex("ShippingCompanyRateId");
 
-                    b.HasIndex("TripId")
+                    b.HasIndex("TripId", "LotNo")
                         .IsUnique()
                         .HasFilter("[DeletedAt] IS NULL");
 
                     b.ToTable("purchase_shipments", (string)null);
+                });
+
+            modelBuilder.Entity("ResellerApi.Entities.PurchaseShipmentItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("PurchaseItemId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("Qty")
+                        .HasPrecision(12, 3)
+                        .HasColumnType("decimal(12,3)");
+
+                    b.Property<byte[]>("RowVer")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<Guid>("ShipmentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PurchaseItemId");
+
+                    b.HasIndex("ShipmentId", "PurchaseItemId")
+                        .IsUnique()
+                        .HasFilter("[DeletedAt] IS NULL");
+
+                    b.ToTable("purchase_shipment_items", (string)null);
                 });
 
             modelBuilder.Entity("ResellerApi.Entities.PurchaseTrip", b =>
@@ -4152,6 +4296,9 @@ namespace ResellerApi.Data.Migrations
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("datetime2");
 
+                    b.Property<bool>("UsesShipmentLots")
+                        .HasColumnType("bit");
+
                     b.HasKey("Id");
 
                     b.HasIndex("BranchId");
@@ -4208,6 +4355,9 @@ namespace ResellerApi.Data.Migrations
                         .ValueGeneratedOnAddOrUpdate()
                         .HasColumnType("rowversion");
 
+                    b.Property<Guid?>("ShipmentId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<Guid>("TripId")
                         .HasColumnType("uniqueidentifier");
 
@@ -4215,6 +4365,8 @@ namespace ResellerApi.Data.Migrations
                         .HasColumnType("datetime2");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("ShipmentId");
 
                     b.HasIndex("TripId");
 
@@ -5431,6 +5583,17 @@ namespace ResellerApi.Data.Migrations
                     b.Navigation("Variant");
                 });
 
+            modelBuilder.Entity("ResellerApi.Entities.Brand", b =>
+                {
+                    b.HasOne("ResellerApi.Entities.Business", "Business")
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Business");
+                });
+
             modelBuilder.Entity("ResellerApi.Entities.Business", b =>
                 {
                     b.HasOne("ResellerApi.Entities.Company", "Company")
@@ -6349,6 +6512,11 @@ namespace ResellerApi.Data.Migrations
 
             modelBuilder.Entity("ResellerApi.Entities.Product", b =>
                 {
+                    b.HasOne("ResellerApi.Entities.Brand", "Brand")
+                        .WithMany()
+                        .HasForeignKey("BrandId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("ResellerApi.Entities.Business", "Business")
                         .WithMany()
                         .HasForeignKey("BusinessId")
@@ -6365,6 +6533,8 @@ namespace ResellerApi.Data.Migrations
                         .WithMany("BusinessProducts")
                         .HasForeignKey("SuggestedProductId")
                         .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Brand");
 
                     b.Navigation("Business");
 
@@ -6525,6 +6695,11 @@ namespace ResellerApi.Data.Migrations
                         .HasForeignKey("PartnerId")
                         .OnDelete(DeleteBehavior.Restrict);
 
+                    b.HasOne("ResellerApi.Entities.PurchaseItem", null)
+                        .WithMany()
+                        .HasForeignKey("PurchaseItemId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("ResellerApi.Entities.PurchaseTrip", null)
                         .WithMany()
                         .HasForeignKey("TripId")
@@ -6578,6 +6753,11 @@ namespace ResellerApi.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("ResellerApi.Entities.PurchaseShipment", "Shipment")
+                        .WithMany()
+                        .HasForeignKey("ShipmentId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
                     b.HasOne("ResellerApi.Entities.PurchaseTrip", "Trip")
                         .WithMany("Sessions")
                         .HasForeignKey("TripId")
@@ -6592,6 +6772,8 @@ namespace ResellerApi.Data.Migrations
 
                     b.Navigation("ReceivedByUser");
 
+                    b.Navigation("Shipment");
+
                     b.Navigation("Trip");
                 });
 
@@ -6600,14 +6782,12 @@ namespace ResellerApi.Data.Migrations
                     b.HasOne("ResellerApi.Entities.PurchaseTripCost", "PurchaseTripCost")
                         .WithMany()
                         .HasForeignKey("PurchaseTripCostId")
-                        .OnDelete(DeleteBehavior.NoAction)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.NoAction);
 
                     b.HasOne("ResellerApi.Entities.ShippingCompany", "ShippingCompany")
                         .WithMany()
                         .HasForeignKey("ShippingCompanyId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("ResellerApi.Entities.ShippingCompanyRate", "ShippingCompanyRate")
                         .WithMany()
@@ -6627,6 +6807,25 @@ namespace ResellerApi.Data.Migrations
                     b.Navigation("ShippingCompanyRate");
 
                     b.Navigation("Trip");
+                });
+
+            modelBuilder.Entity("ResellerApi.Entities.PurchaseShipmentItem", b =>
+                {
+                    b.HasOne("ResellerApi.Entities.PurchaseItem", "PurchaseItem")
+                        .WithMany()
+                        .HasForeignKey("PurchaseItemId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("ResellerApi.Entities.PurchaseShipment", "Shipment")
+                        .WithMany("Items")
+                        .HasForeignKey("ShipmentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("PurchaseItem");
+
+                    b.Navigation("Shipment");
                 });
 
             modelBuilder.Entity("ResellerApi.Entities.PurchaseTrip", b =>
@@ -6658,11 +6857,18 @@ namespace ResellerApi.Data.Migrations
 
             modelBuilder.Entity("ResellerApi.Entities.PurchaseTripCost", b =>
                 {
+                    b.HasOne("ResellerApi.Entities.PurchaseShipment", "Shipment")
+                        .WithMany()
+                        .HasForeignKey("ShipmentId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
                     b.HasOne("ResellerApi.Entities.PurchaseTrip", "Trip")
                         .WithMany("Costs")
                         .HasForeignKey("TripId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.Navigation("Shipment");
 
                     b.Navigation("Trip");
                 });
@@ -7156,6 +7362,11 @@ namespace ResellerApi.Data.Migrations
                 });
 
             modelBuilder.Entity("ResellerApi.Entities.PurchaseReceiveSession", b =>
+                {
+                    b.Navigation("Items");
+                });
+
+            modelBuilder.Entity("ResellerApi.Entities.PurchaseShipment", b =>
                 {
                     b.Navigation("Items");
                 });

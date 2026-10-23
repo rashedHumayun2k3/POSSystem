@@ -57,6 +57,7 @@ public class AppDbContext : DbContext
     public DbSet<MarketingBudget> MarketingBudgets => Set<MarketingBudget>();
 
     // ── Phase 3 ───────────────────────────────────────────────────────────
+    public DbSet<Brand> Brands => Set<Brand>();
     public DbSet<Supplier> Suppliers => Set<Supplier>();
     public DbSet<PurchasePayment> PurchasePayments => Set<PurchasePayment>();
     public DbSet<PurchaseTrip> PurchaseTrips => Set<PurchaseTrip>();
@@ -64,6 +65,7 @@ public class AppDbContext : DbContext
     public DbSet<PurchaseTripCost> PurchaseTripCosts => Set<PurchaseTripCost>();
     public DbSet<ShippingCompany> ShippingCompanies => Set<ShippingCompany>();
     public DbSet<ShippingCompanyRate> ShippingCompanyRates => Set<ShippingCompanyRate>();
+    public DbSet<PurchaseShipmentItem> PurchaseShipmentItems => Set<PurchaseShipmentItem>();
     public DbSet<PurchaseShipment> PurchaseShipments => Set<PurchaseShipment>();
     public DbSet<Lot> Lots => Set<Lot>();
     public DbSet<StockMovement> StockMovements => Set<StockMovement>();
@@ -437,6 +439,7 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<ProductVariant>(e =>
         {
             e.ToTable("product_variants");
+            e.Property(x => x.UnitWeightGrams).HasPrecision(14, 3);
             e.HasKey(x => x.Id);
             e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
             e.Property(x => x.Sku).HasMaxLength(60).IsRequired();
@@ -530,6 +533,7 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<PurchaseItem>(e =>
         {
             e.ToTable("purchase_items");
+            e.Property(x => x.QtyShipped).HasPrecision(12, 3);
             e.HasKey(x => x.Id);
             e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
             e.Property(x => x.QtyBought).HasColumnType("DECIMAL(12,3)");
@@ -556,6 +560,8 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<PurchaseReceiveSession>(e =>
         {
             e.ToTable("purchase_receive_sessions");
+            e.HasOne(x => x.Shipment).WithMany().HasForeignKey(x => x.ShipmentId).OnDelete(DeleteBehavior.NoAction);
+            e.HasIndex(x => x.ShipmentId).IsUnique().HasFilter("[ShipmentId] IS NOT NULL AND [DeletedAt] IS NULL AND [Status] <> 'REJECTED'");
             e.HasKey(x => x.Id);
             e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
             e.Property(x => x.SessionNo).HasMaxLength(20).IsRequired();
@@ -580,6 +586,9 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<PurchaseReceiveItem>(e =>
         {
             e.ToTable("purchase_receive_session_items");
+            e.Property(x => x.MeasuredWeightGrams).HasPrecision(14, 3);
+            e.Property(x => x.AllocatedShippingCost).HasPrecision(14, 2);
+            e.Property(x => x.LossAmount).HasPrecision(14, 2);
             e.HasKey(x => x.Id);
             e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
             e.Property(x => x.QtyUsable).HasColumnType("DECIMAL(12,3)");
@@ -593,6 +602,15 @@ public class AppDbContext : DbContext
         });
 
         // ── Supplier ────────────────────────────────────────────────────────────
+        modelBuilder.Entity<Brand>(e =>
+        {
+            e.ToTable("brands");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            e.HasIndex(x => new { x.BusinessId, x.Name }).IsUnique();
+        });
+        modelBuilder.Entity<Product>().HasOne(x => x.Brand).WithMany()
+            .HasForeignKey(x => x.BrandId).OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<Supplier>(e =>
         {
             e.ToTable("suppliers");
@@ -651,6 +669,7 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<PurchaseTripCost>(e =>
         {
             e.ToTable("purchase_trip_costs");
+            e.HasOne(x => x.Shipment).WithMany().HasForeignKey(x => x.ShipmentId).OnDelete(DeleteBehavior.NoAction);
             e.HasKey(x => x.Id);
             e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
             e.Property(x => x.CostType).HasMaxLength(30).IsRequired();
@@ -696,6 +715,11 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<PurchaseShipment>(e =>
         {
             e.ToTable("purchase_shipments");
+            e.Property(x => x.LotNo).HasMaxLength(40).IsRequired();
+            e.Property(x => x.Status).HasMaxLength(20).IsRequired();
+            e.Property(x => x.DeclaredWeightGrams).HasPrecision(14, 3);
+            e.Property(x => x.MeasuredWeightGrams).HasPrecision(14, 3);
+            e.Property(x => x.BilledWeightGrams).HasPrecision(14, 3);
             e.HasKey(x => x.Id);
             e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
             e.Property(x => x.ShippingCompanyNameSnapshot).HasMaxLength(200).IsRequired();
@@ -715,7 +739,17 @@ public class AppDbContext : DbContext
                 .HasForeignKey(x => x.ShippingCompanyRateId).OnDelete(DeleteBehavior.NoAction);
             e.HasOne(x => x.PurchaseTripCost).WithMany()
                 .HasForeignKey(x => x.PurchaseTripCostId).OnDelete(DeleteBehavior.NoAction);
-            e.HasIndex(x => x.TripId).IsUnique().HasFilter("[DeletedAt] IS NULL");
+            e.HasIndex(x => new { x.TripId, x.LotNo }).IsUnique().HasFilter("[DeletedAt] IS NULL");
+        });
+
+        modelBuilder.Entity<PurchaseShipmentItem>(e =>
+        {
+            e.ToTable("purchase_shipment_items");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Qty).HasPrecision(12, 3);
+            e.HasOne(x => x.Shipment).WithMany(x => x.Items).HasForeignKey(x => x.ShipmentId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.PurchaseItem).WithMany().HasForeignKey(x => x.PurchaseItemId).OnDelete(DeleteBehavior.Restrict);
+            e.HasIndex(x => new { x.ShipmentId, x.PurchaseItemId }).IsUnique().HasFilter("[DeletedAt] IS NULL");
         });
 
         // ── Lot ─────────────────────────────────────────────────────────────
@@ -1043,6 +1077,7 @@ public class AppDbContext : DbContext
             e.HasIndex(x => new { x.BusinessId, x.RequestId }).IsUnique();
             e.HasIndex(x => new { x.BusinessId, x.PaidAt });
             e.HasOne<PurchaseTrip>().WithMany().HasForeignKey(x => x.TripId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<PurchaseItem>().WithMany().HasForeignKey(x => x.PurchaseItemId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne<Partner>().WithMany().HasForeignKey(x => x.PartnerId).OnDelete(DeleteBehavior.Restrict);
         });
 

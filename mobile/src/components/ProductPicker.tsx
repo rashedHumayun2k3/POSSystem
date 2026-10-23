@@ -2,8 +2,9 @@ import { Text } from "../i18n/LocalizedText";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Image, Platform, Pressable, ScrollView, StyleSheet, TextInput, useWindowDimensions, View } from "react-native";
-import { MEDIA_URL, useAuth } from "../auth/AuthContext";
+import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, TextInput, useWindowDimensions, View } from "react-native";
+import { useAuth } from "../auth/AuthContext";
+import ProductIdentity from "./ProductIdentity";
 import PopupSheet from "./PopupSheet";
 import { colors } from "../theme";
 
@@ -19,7 +20,7 @@ type Category = { id: string; name: string };
 type Props = { open: boolean; onClose: () => void; onSelect: (product: ProductPickerResult) => void; selectedVariantIds?: Set<string>; showSellingPrice?: boolean; showAverageCost?: boolean; onlyInStock?: boolean; showRecentlyPurchased?: boolean; title?: string; branchId?: string };
 
 const mapProduct = (p: RawProduct): ProductPickerResult => ({ productId: p.id, variantId: p.variantId, productName: p.name, variantSku: p.sku, barcode: p.barcode ?? "", sellingPrice: Number(p.effectivePrice ?? 0), imageUrl: p.imageUrl ?? null, unitCode: p.unitCode ?? "PCS", variantValuesJson: p.variantValuesJson ?? "{}", stock: Number(p.stock ?? 0), avgLandedCost: Number(p.avgLandedCost ?? 0), marketPrice: p.marketPrice ?? null, categoryId: p.categoryId ?? "" });
-const media = (value: string | null) => !value ? null : /^https?:\/\//i.test(value) ? value : `${MEDIA_URL}${value}`;
+
 
 export default function ProductPicker({ open, onClose, onSelect, selectedVariantIds, showSellingPrice = false, showAverageCost = true, onlyInStock = false, showRecentlyPurchased = true, title = "Choose Product", branchId }: Props) {
   const auth = useAuth(); const { width } = useWindowDimensions(); const desktop = width >= 768;
@@ -48,11 +49,7 @@ export default function ProductPicker({ open, onClose, onSelect, selectedVariant
             {!loading && !error && visibleProducts.length === 0 ? <Text style={styles.empty}>No products found.</Text> : null}
             {!loading ? visibleProducts.map(product => (
               <Pressable key={product.variantId} onPress={() => pick(product)} style={styles.row}>
-                {media(product.imageUrl) ? <Image source={{ uri: media(product.imageUrl)! }} style={styles.image} /> : <View style={styles.imageFallback}><Ionicons name="cube-outline" size={22} color={colors.primaryDark} /></View>}
-                <View style={styles.copy}>
-                  <Text numberOfLines={1} style={styles.name}>{String(product.productName ?? "")}</Text>
-                  <Text style={styles.meta}>{String(product.variantSku ?? "")}{product.barcode ? ` · ${String(product.barcode)}` : ""}</Text>
-                </View>
+                <ProductIdentity name={product.productName} sku={`${product.variantSku}${product.barcode ? ` · ${product.barcode}` : ""}`} imageUrl={product.imageUrl} singleLine />
                 <View style={styles.stock}>
                   <Text style={styles.stockText}>Have: <Text style={product.stock > 0 ? styles.inStock : styles.outStock}>{String(product.stock)}</Text></Text>
                   {showSellingPrice ? <Text style={styles.cost}>৳{Number(product.sellingPrice).toLocaleString()}</Text> : null}

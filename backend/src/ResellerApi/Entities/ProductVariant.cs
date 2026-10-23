@@ -12,6 +12,7 @@ public class ProductVariant : BusinessScopedEntity
     public string? Note { get; set; } // free-text details — not folded into VariantValuesJson so it never leaks into the auto-built display label
     public decimal? PriceOverride { get; set; }           // null = use product.SellingPrice
     public bool IsDefault { get; set; } = false;
+    public decimal UnitWeightGrams { get; set; }
     public decimal AvgLandedCost { get; set; } = 0;
 
     public Product Product { get; set; } = null!;

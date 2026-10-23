@@ -4,11 +4,12 @@ namespace ResellerApi.Entities;
 
 public class PurchaseTrip : BusinessScopedEntity, IBranchScoped
 {
+    public bool UsesShipmentLots { get; set; } = true;
     public Guid? BranchId { get; set; }
     public Branch? Branch { get; set; }
     public string TripNo { get; set; } = null!;
     public string SourceType { get; set; } = null!;
-    public string Status { get; set; } = "DRAFT";   // DRAFT | PENDING_APPROVAL | RECEIVING | COMPLETED | CANCELLED
+    public string Status { get; set; } = "DRAFT"; // DRAFT | PRODUCT_APPROVED | IN_PROGRESS | COMPLETED; CANCELLED retained for cancelled history
     public string? Note { get; set; }
     public DateTime? ExpectedDeliveryDate { get; set; }
     public string? SupplierPoRef { get; set; }

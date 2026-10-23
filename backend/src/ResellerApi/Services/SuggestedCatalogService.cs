@@ -293,6 +293,7 @@ public class SuggestedCatalogService : ISuggestedCatalogService
             sessionItems.Add(new SessionItemInput(purchaseItem.Id, qty, 0, "{}"));
         }
 
+        await _purchaseTrips.PrepareOpeningStockAsync(trip.Id, userId);
         await _purchaseTrips.CreateReceiveSessionAsync(
             trip.Id,
             new CreateReceiveSessionRequest(DateTime.UtcNow, "OTHER", null, "Opening stock — Catalog Templates", sessionItems),

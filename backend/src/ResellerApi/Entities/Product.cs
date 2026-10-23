@@ -4,6 +4,8 @@ namespace ResellerApi.Entities;
 
 public class Product : BusinessScopedEntity
 {
+    public Guid? BrandId { get; set; }
+    public Brand? Brand { get; set; }
     public Guid CategoryId { get; set; }
     public Guid? SuggestedProductId { get; set; }
     public string Name { get; set; } = null!;

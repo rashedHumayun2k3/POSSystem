@@ -6,6 +6,7 @@ public class PurchaseItem : BaseEntity
 {
     public Guid TripId { get; set; }
     public Guid VariantId { get; set; }
+    public decimal QtyShipped { get; set; }
     public decimal QtyBought { get; set; }
     public decimal QtyUsable { get; set; }      // cumulative total from all APPROVED sessions
     public decimal QtyDamaged { get; set; }     // cumulative total from all APPROVED sessions

@@ -13,6 +13,6 @@ public record SaveShippingCompanyRequest(string Name, decimal? AirRatePerKg,
 public record SavePurchaseShipmentRequest(Guid ShippingCompanyId, string ShippingMethod,
     decimal BillableQuantity, string? TrackingNumber = null, string? Note = null);
 
-public record PurchaseShipmentDto(Guid Id, Guid ShippingCompanyId, string ShippingCompanyName,
+public record PurchaseShipmentDto(Guid Id, Guid? ShippingCompanyId, string ShippingCompanyName,
     string ShippingMethod, string ChargeBasis, decimal RateAmount, string CurrencyCode,
     decimal BillableQuantity, decimal CalculatedCost, string? TrackingNumber, string? Note);

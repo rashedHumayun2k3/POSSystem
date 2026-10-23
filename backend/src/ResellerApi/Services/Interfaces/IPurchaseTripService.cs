@@ -4,6 +4,10 @@ namespace ResellerApi.Services.Interfaces;
 
 public interface IPurchaseTripService
 {
+    Task PrepareOpeningStockAsync(Guid tripId, Guid userId);
+    Task<PurchaseLotDto> SaveLotAsync(Guid tripId, Guid? lotId, SavePurchaseLotRequest request, Guid userId);
+    Task<PurchaseTripDetailDto> SendLotAsync(Guid tripId, Guid lotId, SendPurchaseLotRequest request, Guid userId);
+    Task<LotImportPreview> PreviewLotImportAsync(Guid tripId, LotImportUpload upload);
     // ── CRUD ──────────────────────────────────────────────────────────────────
     Task<PurchaseTripDetailDto> CreateAsync(CreatePurchaseTripRequest request, Guid userId);
     Task<List<PurchaseTripSummaryDto>> ListAsync(string? status);

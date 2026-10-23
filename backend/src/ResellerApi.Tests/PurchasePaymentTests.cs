@@ -25,6 +25,7 @@ public class PurchasePaymentTests
     {
         public BusinessContext Context = new() { CurrentBusinessId = Guid.NewGuid(), CurrentBranchId = Guid.NewGuid() };
         public TestDb Db; public ExpenseFundingService Funding; public PurchasePaymentService Payments; public PurchaseTripService Trips;
+        public PurchaseItem Item = null!;
         public Guid User = Guid.NewGuid(); public PurchaseTrip Trip; public PurchaseTripCost Cost; public Partner Partner;
         public Fixture()
         {
@@ -37,7 +38,10 @@ public class PurchasePaymentTests
         public async Task Seed()
         {
             Db.PurchaseTrips.Add(Trip); Db.PurchaseTripCosts.Add(Cost); Db.Partners.Add(Partner);
-            Db.PurchaseItems.Add(new PurchaseItem { TripId=Trip.Id, QtyBought=5, TotalCost=1000 });
+            var product = new Product { BusinessId=Context.CurrentBusinessId, Name="Shoes", Sku="SHOE" };
+            var variant = new ProductVariant { BusinessId=Context.CurrentBusinessId, Product=product, Sku="SHOE-1", Barcode="123" };
+            Item = new PurchaseItem { Trip=Trip, Variant=variant, QtyBought=5, TotalCost=1000 };
+            Db.PurchaseItems.Add(Item);
             Db.CapitalInjections.Add(new CapitalInjection { BusinessId=Context.CurrentBusinessId, PartnerId=Partner.Id, PaidTo="Business", Status="APPROVED", AmountPaisa=200000, InjectedAt=DateTime.UtcNow });
             await Db.SaveChangesAsync();
         }
@@ -86,13 +90,49 @@ public class PurchasePaymentTests
         await using var f=new Fixture();await f.Seed();await f.Payments.Pay(f.Trip.Id,f.Request(),f.User);
         await Assert.ThrowsAsync<InvalidOperationException>(()=>f.Trips.RemoveCostAsync(f.Trip.Id,f.Cost.Id,f.User));
         await Assert.ThrowsAsync<InvalidOperationException>(()=>f.Trips.CancelAsync(f.Trip.Id,f.User));
-        f.Trip.Status="CANCELLED";await f.Db.SaveChangesAsync();await Assert.ThrowsAsync<InvalidOperationException>(()=>f.Payments.Pay(f.Trip.Id,new(Guid.Empty,1000,"BUSINESS",Guid.NewGuid()),f.User));
+        f.Trip.Status="CANCELLED";await f.Db.SaveChangesAsync();await Assert.ThrowsAsync<InvalidOperationException>(()=>f.Payments.Pay(f.Trip.Id,new(f.Item.Id,1000,"BUSINESS",Guid.NewGuid(),f.Item.Id),f.User));
     }
     [Fact] public async Task ApprovalBlockedUntilPaymentsRecorded()
     {
         await using var f=new Fixture();await f.Seed();await Assert.ThrowsAsync<InvalidOperationException>(()=>f.Trips.ApproveAsync(f.Trip.Id,null,f.User));
-        await f.Payments.Pay(f.Trip.Id,new(Guid.Empty,1000,"BUSINESS",Guid.NewGuid()),f.User);
+        await f.Payments.Pay(f.Trip.Id,new(f.Item.Id,1000,"BUSINESS",Guid.NewGuid(),f.Item.Id),f.User);
         await Assert.ThrowsAsync<InvalidOperationException>(()=>f.Trips.ApproveAsync(f.Trip.Id,null,f.User));
+    }
+    [Fact] public async Task ProductPaymentIsIdempotentAndLocksOnlyItsLine()
+    {
+        await using var f=new Fixture(); await f.Seed(); f.Trip.Status="DRAFT"; await f.Db.SaveChangesAsync();
+        var request=new PurchasePaymentRequest(f.Item.Id,1000,"BUSINESS",Guid.NewGuid(),f.Item.Id);
+        var paid=await f.Payments.Pay(f.Trip.Id,request,f.User);
+        Assert.Equal(f.Item.Id,paid.PurchaseItemId);
+        Assert.Equal(paid.Id,(await f.Payments.Pay(f.Trip.Id,request,f.User)).Id);
+        Assert.Equal(100000,await f.Funding.BalanceAsync());
+        Assert.Equal(0,f.Item.DueAmount);
+        await Assert.ThrowsAsync<InvalidOperationException>(()=>f.Trips.RemoveItemAsync(f.Trip.Id,f.Item.Id,f.User));
+        await Assert.ThrowsAsync<InvalidOperationException>(()=>f.Trips.UpdateItemAsync(f.Trip.Id,f.Item.Id,new(5,900,null,null,0,900,null),f.User));
+        var added=await f.Trips.AddItemAsync(f.Trip.Id,new(f.Item.VariantId,1,200,null,null,0,200,null),f.User);
+        await f.Payments.Pay(f.Trip.Id,f.Request(),f.User);
+        await Assert.ThrowsAsync<InvalidOperationException>(()=>f.Trips.ApproveAsync(f.Trip.Id,null,f.User));
+        await f.Payments.Pay(f.Trip.Id,new(added.Id,200,"BUSINESS",Guid.NewGuid(),added.Id),f.User);
+        await f.Trips.ApproveAsync(f.Trip.Id,null,f.User);
+        Assert.Equal("PRODUCT_APPROVED",f.Trip.Status);
+    }
+    [Fact] public async Task ProductPaymentRejectsWrongTripChangedAmountAndAggregateKey()
+    {
+        await using var f=new Fixture(); await f.Seed();
+        await Assert.ThrowsAsync<InvalidOperationException>(()=>f.Payments.Pay(f.Trip.Id,new(Guid.Empty,1000,"BUSINESS",Guid.NewGuid()),f.User));
+        await Assert.ThrowsAsync<InvalidOperationException>(()=>f.Payments.Pay(f.Trip.Id,new(f.Item.Id,999,"BUSINESS",Guid.NewGuid(),f.Item.Id),f.User));
+        await Assert.ThrowsAsync<ArgumentException>(()=>f.Payments.Pay(f.Trip.Id,new(f.Cost.Id,1000,"BUSINESS",Guid.NewGuid(),f.Item.Id),f.User));
+        var other=new PurchaseTrip { BusinessId=f.Context.CurrentBusinessId,BranchId=f.Context.CurrentBranchId,TripNo="PO-OTHER",SourceType="LOCAL_WHOLESALE",Status="DRAFT" };
+        f.Db.PurchaseTrips.Add(other); await f.Db.SaveChangesAsync();
+        await Assert.ThrowsAsync<KeyNotFoundException>(()=>f.Payments.Pay(other.Id,new(f.Item.Id,1000,"BUSINESS",Guid.NewGuid(),f.Item.Id),f.User));
+        Assert.Empty(f.Db.PurchasePayments);
+    }
+    [Fact] public async Task PersonalProductPaymentDoesNotReduceBusinessCash()
+    {
+        await using var f=new Fixture(); await f.Seed();
+        await f.Payments.Pay(f.Trip.Id,new(f.Item.Id,1000,"PERSONAL",Guid.NewGuid(),f.Item.Id),f.User);
+        Assert.Equal(200000,await f.Funding.BalanceAsync());
+        Assert.Equal(100000,Assert.Single(f.Db.CapitalLedgerEntries).AmountPaisa);
     }
     [Fact] public async Task ClosingIncludesPurchaseOutflowOnce()
     {

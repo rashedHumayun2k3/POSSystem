@@ -7,6 +7,7 @@ using ResellerApi.Services.Interfaces;
 namespace ResellerApi.Controllers;
 
 [ApiController]
+[PurchaseErrors]
 [Route("api/v1/purchase-trips")]
 [Authorize(Roles = Roles.OwnerManagerWarehouse)]
 public class PurchaseTripsController : ControllerBase
@@ -114,6 +115,27 @@ public class PurchaseTripsController : ControllerBase
     }
 
     // ── Trip approval lifecycle ───────────────────────────────────────────────
+
+    [HttpPost("{id:guid}/lots")]
+    [Authorize(Roles = Roles.Owner)]
+    public async Task<IActionResult> CreateLot(Guid id, SavePurchaseLotRequest request)
+        => Ok(await _svc.SaveLotAsync(id, null, request, _user.UserId));
+
+    [HttpPut("{id:guid}/lots/{lotId:guid}")]
+    [Authorize(Roles = Roles.Owner)]
+    public async Task<IActionResult> UpdateLot(Guid id, Guid lotId, SavePurchaseLotRequest request)
+        => Ok(await _svc.SaveLotAsync(id, lotId, request, _user.UserId));
+
+    [HttpPost("{id:guid}/lots/{lotId:guid}/send")]
+    [Authorize(Roles = Roles.Owner)]
+    public async Task<IActionResult> SendLot(Guid id, Guid lotId, SendPurchaseLotRequest request)
+        => Ok(await _svc.SendLotAsync(id, lotId, request, _user.UserId));
+
+    [HttpPost("{id:guid}/lots/import/preview")]
+    [RequestSizeLimit(8 * 1024 * 1024)]
+    [Authorize(Roles = Roles.Owner)]
+    public async Task<IActionResult> PreviewLotImport(Guid id, LotImportUpload request)
+        => Ok(await _svc.PreviewLotImportAsync(id, request));
 
     [HttpPost("{id:guid}/submit")]
     [Authorize(Roles = Roles.Owner)]

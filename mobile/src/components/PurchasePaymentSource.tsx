@@ -7,11 +7,11 @@ import { useLanguage } from "../i18n/LanguageContext";
 import { useAuth } from "../auth/AuthContext";
 import { colors } from "../theme";
 
-export type PurchasePayment = { id: string; tripId: string; costKey: string; amount: number; fundingSource: "BUSINESS" | "PERSONAL"; paidAt: string };
+export type PurchasePayment = { id: string; tripId: string; costKey: string; purchaseItemId?: string | null; amount: number; fundingSource: "BUSINESS" | "PERSONAL"; paidAt: string };
 const requestId = () => "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => { const r = Math.random()*16|0; return (c === "x" ? r : (r&3)|8).toString(16); });
 type Source = "BUSINESS" | "PERSONAL";
 type Funding = { initialized: boolean; balance: number | null; partnerId: string | null; partnerName: string | null; canInitialize: boolean };
-export default function PurchasePaymentSource({ tripId, costKey, poNumber, itemTitle, amount, onPaid }: { tripId: string; costKey: string; poNumber: string; itemTitle: string; amount: number; onPaid: (payment: PurchasePayment) => void }) {
+export default function PurchasePaymentSource({ tripId, costKey, poNumber, itemTitle, amount, onPaid, compact = false, purchaseItemId }: { tripId: string; costKey: string; poNumber: string; itemTitle: string; amount: number; onPaid: (payment: PurchasePayment) => void; compact?: boolean; purchaseItemId?: string }) {
   const auth = useAuth();
   const api = useRef(auth.api); api.current = auth.api;
   const [funding, setFunding] = useState<Funding | null>(null);
@@ -31,7 +31,7 @@ export default function PurchasePaymentSource({ tripId, costKey, poNumber, itemT
     if (!source || savingRef.current) return;
     savingRef.current = true; setSaving(true); setSaveError("");
     try {
-      const result = await api.current<PurchasePayment>(`/purchase-trips/${tripId}/payments`, { method: "POST", body: JSON.stringify({costKey, expectedAmount: amount, fundingSource: source, requestId: request.current}) });
+      const result = await api.current<PurchasePayment>(`/purchase-trips/${tripId}/payments`, { method: "POST", body: JSON.stringify({costKey, purchaseItemId, expectedAmount: amount, fundingSource: source, requestId: request.current}) });
       onPaid(result); setOpen(false);
     } catch (e) { setSaveError((e as Error).message); }
     finally { savingRef.current = false; setSaving(false); }
@@ -49,11 +49,7 @@ export default function PurchasePaymentSource({ tripId, costKey, poNumber, itemT
     { value: "BUSINESS", label: "poPayment.business", hint: "poPayment.businessHint", icon: "business-outline" },
     { value: "PERSONAL", label: "poPayment.personal", hint: "poPayment.personalHint", icon: "person-outline" },
   ];
-  return <>
-    <Pressable accessibilityRole="button" accessibilityLabel={t("poPayment.add")} onPress={() => setOpen(true)} style={s.add}>
-      <Ionicons name="add" size={20} color={colors.white}/><Text style={s.addText}>{t("poPayment.add")}</Text>
-    </Pressable>
-    <BottomSheet visible={open} close={close} title={t("poPayment.add")} mobile={width < 768}>
+  const form = <View style={{ gap: 10 }}>
       <Text style={s.po}>{poNumber}</Text>
       <View style={s.summary}>
         <Text style={s.label}>{t(itemTitle)}</Text>
@@ -72,10 +68,16 @@ export default function PurchasePaymentSource({ tripId, costKey, poNumber, itemT
       <Text style={s.hint}>{t("poCostPayment.confirmHint")}</Text>
       {!!saveError && <Text accessibilityRole="alert" style={{color: colors.dangerText}}>{saveError}</Text>}
       <Pressable accessibilityRole="button" disabled={!source || saving} onPress={() => void pay()} style={[s.add, (!source || saving) && {opacity: 0.5}]}>{saving ? <ActivityIndicator color={colors.white}/> : <Text style={s.addText}>{t("poCostPayment.confirm")}</Text>}</Pressable>
-    </BottomSheet>
+    </View>;
+  return <>
+    <Pressable accessibilityRole="button" accessibilityLabel={t("poPayment.add")} onPress={() => setOpen(true)} style={[s.add, compact && s.compactAdd]}>
+      <Ionicons name="add" size={compact ? 16 : 20} color={compact ? colors.primaryDark : colors.white}/><Text style={[s.addText, compact && {color: colors.primaryDark, fontSize: 12}]}>{t("poPayment.add")}</Text>
+    </Pressable>
+    <BottomSheet visible={open} close={close} title={t("poPayment.add")} mobile={width < 768}>{form}</BottomSheet>
   </>;
 }
 const s = StyleSheet.create({
+  compactAdd: { alignSelf: "flex-start", minHeight: 40, borderRadius: 8, paddingHorizontal: 10, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.secondaryBorder },
   summary: { padding: 14, borderRadius: 12, gap: 10, backgroundColor: colors.primaryLight },
   summaryRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 },
   total: { fontSize: 22, fontWeight: "800", color: colors.primaryDark },

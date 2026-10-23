@@ -4,6 +4,8 @@ namespace ResellerApi.Entities;
 
 public class PurchaseTripCost : BaseEntity
 {
+    public Guid? ShipmentId { get; set; }
+    public PurchaseShipment? Shipment { get; set; }
     public Guid TripId { get; set; }
     public string CostType { get; set; } = null!; // TRANSPORT | LABOR | CUSTOMS | SHIPPING_INTL | CURRENCY_LOSS | AGENT_FEE | PAYMENT_FEE | OTHER
     public decimal Amount { get; set; }
