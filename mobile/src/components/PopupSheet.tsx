@@ -11,6 +11,7 @@ type Props = {
   onClose: () => void;
   title: string;
   headerAction?: ReactNode;
+  fitContent?: boolean;
   onShow?: () => void;
   children: ReactNode;
 };
@@ -18,7 +19,7 @@ type Props = {
 // Keep the navigation hidden until the last sheet in this provider closes.
 const openSheets = new Map<(hidden: boolean) => void, number>();
 
-export default function PopupSheet({ visible, onClose, title, headerAction, onShow, children }: Props) {
+export default function PopupSheet({ visible, onClose, title, headerAction, onShow, children, fitContent = false }: Props) {
   const desktop = useWindowDimensions().width >= 768;
   const insets = useSafeAreaInsets();
   const { setBottomNavHidden } = useModalChrome();
@@ -39,7 +40,7 @@ export default function PopupSheet({ visible, onClose, title, headerAction, onSh
   return <Modal visible={visible} transparent animationType={desktop ? "fade" : "slide"} onRequestClose={onClose} onShow={onShow}>
     <KeyboardAvoidingView style={s.fill} behavior="padding" enabled={!desktop && Platform.OS === "ios"}>
       <View style={[s.overlay, !desktop && s.mobileOverlay]}>
-        <View style={[s.panel, desktop ? s.desktopPanel : s.mobilePanel, !desktop && { paddingBottom: insets.bottom }]}>
+        <View style={[s.panel, desktop ? s.desktopPanel : s.mobilePanel, fitContent && s.fitContent, !desktop && { paddingBottom: insets.bottom }]}>
           {!desktop && <View style={s.handle} />}
           <View style={s.header}>
             <Text style={s.title}>{title}</Text>
@@ -62,6 +63,7 @@ const s = StyleSheet.create({
   panel: { width: "100%", backgroundColor: colors.white, overflow: "hidden" },
   desktopPanel: { maxWidth: 620, height: "84%", borderRadius: 18 },
   mobilePanel: { minHeight: "85%", height: "90%", maxWidth: "100%", borderTopLeftRadius: 20, borderTopRightRadius: 20 },
+  fitContent: { height: "auto", minHeight: 0, maxHeight: "90%" },
   handle: { width: 42, height: 4, alignSelf: "center", marginTop: 9, borderRadius: 2, backgroundColor: colors.divider },
   header: { minHeight: 54, flexDirection: "row", alignItems: "center", borderBottomWidth: 1, borderBottomColor: colors.divider, paddingHorizontal: 10 },
   title: { flex: 1, textAlign: "left", color: colors.heading, fontSize: 16, fontWeight: "700" },

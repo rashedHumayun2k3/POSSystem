@@ -1,3 +1,5 @@
+import ProcessGuide from "../../src/components/ProcessGuide";
+import { useLanguage } from "../../src/i18n/LanguageContext";
 import { Text } from "../../src/i18n/LocalizedText";
 import { useAuth } from "../../src/auth/AuthContext";
 import { colors } from "../../src/theme";
@@ -35,6 +37,8 @@ const channels = [
 
 export default function NewOrderScreen() {
   const auth = useAuth();
+  const { lang } = useLanguage();
+  const [showSteps, setShowSteps] = useState(true);
   const [branches, setBranches] = useState<OrderBranch[]>([]);
   const [branchesLoading, setBranchesLoading] = useState(true);
   const [branchesError, setBranchesError] = useState("");
@@ -137,6 +141,16 @@ export default function NewOrderScreen() {
     }
   };
 
+  if (showSteps) return <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
+    <View style={styles.titleRow}><Pressable accessibilityRole="button" accessibilityLabel="Back to orders" onPress={()=>router.back()} style={styles.backButton}><Ionicons name="arrow-back" size={21} color={colors.heading}/></Pressable><View style={styles.titleCopy}><PageTitle style={styles.title}>New Online Order</PageTitle></View></View>
+    <ProcessGuide title={lang==="bn"?"অর্ডারের ধাপ":"Order Steps"} steps={[
+      {title:lang==="bn"?"অর্ডার তৈরি করুন":"Create order",description:lang==="bn"?"পণ্য যোগ করুন, পরিমাণ লিখুন এবং গ্রাহকের তথ্য দিয়ে অর্ডার তৈরি করুন।":"Add products, enter quantities and customer details, then create the order.",icon:"cart-outline",done:false,action:{label:lang==="bn"?"এই ধাপ শুরু করুন":"Start this step",onPress:()=>setShowSteps(false)}},
+      {title:lang==="bn"?"অর্ডার নিশ্চিত করুন":"Confirm order",description:lang==="bn"?"নিশ্চিত করার পর পণ্য যোগ বা পরিমাণ বাড়ানো যাবে না। শুধু প্যাক করার আগে পরিমাণ কমানো বা পণ্য সরানো যাবে।":"After confirmation, you cannot add products or increase quantities. You can only reduce quantities or remove products before packing.",icon:"checkmark-circle-outline",done:false},
+      {title:lang==="bn"?"কুরিয়ারে হস্তান্তর করুন":"Handover to courier",description:lang==="bn"?"কুরিয়ার নির্বাচন করুন এবং ডেলিভারির তথ্য দিয়ে পণ্য হস্তান্তর করুন।":"Select the courier, enter delivery details and hand over the products.",icon:"cube-outline",done:false},
+      {title:lang==="bn"?"ডেলিভারি সম্পন্ন করুন":"Complete delivery",description:lang==="bn"?"গ্রাহক পণ্য বুঝে পেলে ডেলিভারি সম্পন্ন হিসেবে চিহ্নিত করুন।":"Mark the order delivered after the customer receives the products.",icon:"flag-outline",done:false},
+    ]}/>
+  </ScrollView>;
+
   if (branchesLoading) return <View style={styles.branchState}><ActivityIndicator color={colors.primary}/><Text style={styles.branchHint}>Loading branches…</Text></View>;
   if (branchesError || !branches.length) return <ScrollView style={styles.screen} contentContainerStyle={styles.branchContent}>
     <View style={styles.titleRow}><Pressable accessibilityRole="button" accessibilityLabel="Back to orders" onPress={() => router.back()} style={styles.backButton}><Ionicons name="arrow-back" size={21} color={colors.heading}/></Pressable><Text style={styles.title}>New Online Order</Text></View>
@@ -175,6 +189,7 @@ export default function NewOrderScreen() {
         </View>
       </View>
 
+      <Pressable accessibilityRole="button" onPress={()=>setShowSteps(true)} style={{alignSelf:"flex-start",paddingVertical:8}}><Text style={{color:colors.primaryDark,fontWeight:"600"}}>{lang==="bn"?"← অর্ডারের ধাপ":"← Order Steps"}</Text></Pressable>
       <View style={styles.pinnedBranch}><Text style={styles.pinnedBranchLabel}>Order for branch</Text><Text style={styles.pinnedBranchName}>{branches.find(branch => branch.id === orderBranchId)?.name ?? ""}</Text></View>
 
       <View style={styles.section}>
@@ -182,13 +197,13 @@ export default function NewOrderScreen() {
           <Text style={styles.sectionTitle}>Products</Text>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Add item"
+            accessibilityLabel="Add Product"
             onPress={() => setProductPickerOpen(true)}
             style={styles.addButton}
           >
             <Ionicons name="add" size={17} color={colors.primaryDark} />
             <Text style={styles.addText}>
-              {productAdded ? "Add another" : "Add item"}
+              Add Product
             </Text>
           </Pressable>
         </View>
@@ -310,7 +325,7 @@ export default function NewOrderScreen() {
         ) : (
           <View style={styles.emptyProducts}>
             <Ionicons name="cube-outline" size={27} color={colors.muted} />
-            <Text style={styles.emptyText}>No items added yet</Text>
+            <Text style={styles.emptyText}>No product added yet</Text>
           </View>
         )}
       </View>

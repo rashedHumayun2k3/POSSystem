@@ -77,7 +77,7 @@ export default function PurchasePaymentSource({ tripId, costKey, poNumber, itemT
   </>;
 }
 const s = StyleSheet.create({
-  compactAdd: { alignSelf: "flex-start", minWidth: 125, minHeight: 40, flexShrink: 0, borderRadius: 8, paddingHorizontal: 12, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.secondaryBorder },
+  compactAdd: { alignSelf: "flex-start", minHeight: 30, flexShrink: 0, borderRadius: 6, paddingHorizontal: 8, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.secondaryBorder },
   dangerAdd:{minWidth:0,backgroundColor:colors.danger,borderColor:colors.danger},
   summary: { padding: 14, borderRadius: 12, gap: 10, backgroundColor: colors.primaryLight },
   summaryRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 },
@@ -85,7 +85,7 @@ const s = StyleSheet.create({
   balanceRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 6 },
   balance: { fontSize: 14, fontWeight: "700", color: colors.primaryDark },
   retry: { minHeight: 44, justifyContent: "center" },
-  add: { minHeight: 46, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, borderRadius: 11, backgroundColor: colors.primary, paddingHorizontal: 14 },
+  add: { minHeight: 34, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, borderRadius: 8, backgroundColor: colors.primary, paddingHorizontal: 8 },
   addText: { fontSize: 14, fontWeight: "700", color: colors.white },
   po: { color: colors.secondary, fontSize: 13 }, heading: { color: colors.heading, fontSize: 17, fontWeight: "700", marginVertical: 6 },
   option: { minHeight: 86, flexDirection: "row", alignItems: "center", gap: 12, borderWidth: 1, borderColor: colors.divider, borderRadius: 13, padding: 14, backgroundColor: colors.white },

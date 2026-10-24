@@ -54,7 +54,11 @@ public class ProductService : IProductService
         if (categoryId.HasValue)
             query = query.Where(p => p.CategoryId == categoryId.Value);
         if (!string.IsNullOrWhiteSpace(q))
-            query = query.Where(p => p.Name.Contains(q) || p.Sku.Contains(q));
+        {
+            var term = q.Trim();
+            query = query.Where(p => p.Name.Contains(term) || p.Sku.Contains(term)
+                || p.Variants.Any(v => v.Sku.Contains(term) || v.Barcode == term));
+        }
 
         query = query.OrderBy(p => p.Name).ThenBy(p => p.Id);
         if (take.HasValue)

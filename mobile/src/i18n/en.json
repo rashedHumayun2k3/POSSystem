@@ -1,4 +1,5 @@
 {
+  "noProductAddedYet": "No product added yet",
   "cancelledOrderNotice": {"title": "Order cancelled", "message": "This order has been cancelled and will not be fulfilled."},
   "deleteOrderDetails": {"selected": "Selected order", "products": "Product names", "customer": "Customer information", "warning": "The order will be removed from your order list and reserved stock will be released. You cannot undo this from the app."},
   "keepOrderConfirmation": "No, Keep Order",
