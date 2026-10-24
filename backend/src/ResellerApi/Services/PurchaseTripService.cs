@@ -323,9 +323,35 @@ public partial class PurchaseTripService : IPurchaseTripService
             throw new InvalidOperationException("Pre-completion costs are locked and cannot be removed.");
 
         await ValidateCostScopeAsync(trip, cost.ShipmentId, cost.CostType, cost.IsPostCompletion);
-        cost.DeletedAt = DateTime.UtcNow;
+        if (cost.ShipmentId.HasValue)
+        {
+            var linkedLots = await _db.PurchaseShipments.Where(s => s.PurchaseTripCostId == cost.Id).ToListAsync();
+            foreach (var lot in linkedLots) lot.PurchaseTripCostId = null;
+            _db.PurchaseTripCosts.Remove(cost);
+        }
+        else cost.DeletedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
         if (paymentLock != null) await paymentLock.CommitAsync();
+    }
+
+    public async Task<PurchaseTripCostDto> UpdateCostAmountAsync(Guid tripId, Guid costId, decimal amount, Guid userId)
+    {
+        if (amount < 0) throw new ArgumentException("Cost amount cannot be negative.");
+        await using var paymentLock = await new ExpenseFundingService(_db, _business).BeginAsync();
+        if (await _db.PurchasePayments.AnyAsync(p => p.TripId == tripId && p.CostKey == costId))
+            throw new InvalidOperationException("This purchase has a recorded payment. Paid amounts cannot be changed.");
+        var trip = await _db.PurchaseTrips.FirstOrDefaultAsync(t => t.Id == tripId)
+            ?? throw new KeyNotFoundException("Purchase trip not found.");
+        var cost = await _db.PurchaseTripCosts.FirstOrDefaultAsync(c => c.Id == costId && c.TripId == tripId)
+            ?? throw new KeyNotFoundException("Cost not found.");
+        if (!cost.ShipmentId.HasValue) throw new InvalidOperationException("Only lot costs can be edited here.");
+        if (trip.Status == "CANCELLED") throw new InvalidOperationException("Cannot modify a cancelled trip.");
+        await ValidateCostScopeAsync(trip, cost.ShipmentId, cost.CostType, cost.IsPostCompletion);
+        cost.Amount = amount;
+        await _db.SaveChangesAsync();
+        if (paymentLock != null) await paymentLock.CommitAsync();
+        await _log.LogAsync(_business.CurrentBusinessId, userId, "UPDATE", "PurchaseTripCost", cost.Id);
+        return MapCost(cost);
     }
 
     public async Task<PurchaseShipmentDto?> GetShipmentAsync(Guid tripId)
@@ -546,7 +572,7 @@ public partial class PurchaseTripService : IPurchaseTripService
     {
         var activeItems = t.Items.Where(i => i.DeletedAt == null).ToList();
         return new PurchaseTripSummaryDto(
-            t.Id, t.TripNo, t.SourceType, t.Status,
+            t.Id, t.TripNo, t.Note, t.SourceType, t.Status,
             activeItems.Count,
             activeItems.Sum(i => i.QtyBought),
             activeItems.Sum(i => i.QtyUsable),

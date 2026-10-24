@@ -85,6 +85,11 @@ public class PurchaseTripsController : ControllerBase
     public async Task<IActionResult> AddCost(Guid id, [FromBody] AddPurchaseTripCostRequest request)
         => Ok(await _svc.AddCostAsync(id, request, _user.UserId));
 
+    [HttpPatch("{id:guid}/costs/{costId:guid}/amount")]
+    [Authorize(Roles = Roles.Owner)]
+    public async Task<IActionResult> UpdateCostAmount(Guid id, Guid costId, [FromBody] UpdatePurchaseTripCostAmountRequest request)
+        => Ok(await _svc.UpdateCostAmountAsync(id, costId, request.Amount, _user.UserId));
+
     [HttpDelete("{id:guid}/costs/{costId:guid}")]
     [Authorize(Roles = Roles.Owner)]
     public async Task<IActionResult> RemoveCost(Guid id, Guid costId)

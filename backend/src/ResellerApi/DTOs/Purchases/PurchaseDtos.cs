@@ -42,6 +42,8 @@ public record AddPurchaseTripCostRequest(
     Guid? ShipmentId = null
 );
 
+public record UpdatePurchaseTripCostAmountRequest(decimal Amount);
+
 // ── Receive session requests ───────────────────────────────────────────────────
 
 public record SessionItemInput(
@@ -91,6 +93,7 @@ public record UpdateTripHeaderRequest(
 public record PurchaseTripSummaryDto(
     Guid Id,
     string TripNo,
+    string? Note,
     string SourceType,
     string Status,
     int ItemCount,

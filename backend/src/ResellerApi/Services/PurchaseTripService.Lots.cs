@@ -86,6 +86,28 @@ public partial class PurchaseTripService
             lot.CourierId = courier.Id;
             lot.CourierName = courier.Name;
         }
+        if (request.ShippingCompanyId is Guid shippingCompanyId)
+        {
+            var method = request.ShippingMethod?.Trim().ToUpperInvariant();
+            if (method is not ("AIR" or "SEA")) throw new ArgumentException("Select Air or Sea shipping.");
+            var company = await _db.ShippingCompanies.Include(c => c.Rates)
+                .SingleOrDefaultAsync(c => c.Id == shippingCompanyId && c.BusinessId == trip.BusinessId && c.IsActive && c.DeletedAt == null)
+                ?? throw new ArgumentException("Select an active import/export shipping company.");
+            var rate = company.Rates.FirstOrDefault(r => r.ShippingMethod == method && r.IsActive && r.DeletedAt == null)
+                ?? throw new ArgumentException($"{company.Name} has no active {method.ToLowerInvariant()} rate.");
+            var kilograms = request.DeclaredWeightGrams / 1000m;
+            lot.ShippingCompanyId = company.Id;
+            lot.ShippingCompanyRateId = rate.Id;
+            lot.ShippingCompanyNameSnapshot = company.Name;
+            lot.ShippingMethod = method;
+            lot.ChargeBasis = "PER_KG";
+            lot.RateAmountSnapshot = rate.RateAmount;
+            lot.CurrencyCode = rate.CurrencyCode;
+            lot.BillableQuantity = kilograms;
+            lot.CalculatedCost = Math.Round(Math.Max(kilograms * rate.RateAmount, rate.MinimumCharge ?? 0), 2);
+            lot.CourierId = null;
+            lot.CourierName = null;
+        }
         ValidateLotItems(trip, request.Items, lotId);
         lot.LotNo = number; lot.DeclaredWeightGrams = request.DeclaredWeightGrams;
         lot.TrackingNumber = request.TrackingNumber; lot.Note = request.Note;
@@ -104,6 +126,32 @@ public partial class PurchaseTripService
             _db.PurchaseShipmentItems.Add(line);
         }
         await _db.SaveChangesAsync();
+        if (lot.ShippingCompanyId.HasValue)
+        {
+            var shippingCost = trip.Costs.FirstOrDefault(c => c.Id == lot.PurchaseTripCostId)
+                ?? trip.Costs.FirstOrDefault(c => c.ShipmentId == lot.Id && c.CostType == "SHIPPING_INTL");
+            if (shippingCost == null)
+            {
+                shippingCost = new PurchaseTripCost
+                {
+                    TripId = trip.Id,
+                    ShipmentId = lot.Id,
+                    CostType = "SHIPPING_INTL",
+                    Amount = lot.CalculatedCost,
+                    Note = $"{lot.ShippingCompanyNameSnapshot} · {lot.ShippingMethod} shipping",
+                    IsPostCompletion = false
+                };
+                _db.PurchaseTripCosts.Add(shippingCost);
+                trip.Costs.Add(shippingCost);
+            }
+            else
+            {
+                shippingCost.Amount = lot.CalculatedCost;
+                shippingCost.Note = $"{lot.ShippingCompanyNameSnapshot} · {lot.ShippingMethod} shipping";
+            }
+            lot.PurchaseTripCostId = shippingCost.Id;
+            await _db.SaveChangesAsync();
+        }
         if (tx != null) await tx.CommitAsync();
         await _log.LogAsync(trip.BusinessId, userId, "UPDATE", "PurchaseShipment", lot.Id);
         return MapLot(lot);
@@ -116,6 +164,7 @@ public partial class PurchaseTripService
         if (!ApprovedPurchase(trip)) throw new InvalidOperationException("PO must be approved before sending a lot.");
         var lot = trip.Shipments.SingleOrDefault(s => s.Id == lotId && !s.IsLegacy) ?? throw new KeyNotFoundException("Lot not found.");
         if (lot.Status != "READY") throw new InvalidOperationException("Only ready lots can be sent.");
+        if (!lot.ShippingCompanyId.HasValue) throw new InvalidOperationException("Assign an import/export shipping company before marking the lot sent.");
         ValidateLotItems(trip, lot.Items.Where(i => i.DeletedAt == null).Select(i => new ShipmentItemInput(i.PurchaseItemId, i.Qty)).ToList(), lot.Id);
         lot.Status = "SENT"; lot.ShippedDate = request.ShippedDate ?? DateTime.UtcNow;
         foreach (var line in lot.Items.Where(i => i.DeletedAt == null)) trip.Items.Single(i => i.Id == line.PurchaseItemId).QtyShipped += line.Qty;
@@ -136,7 +185,11 @@ public partial class PurchaseTripService
         lot.DeclaredWeightGrams, lot.MeasuredWeightGrams, lot.BilledWeightGrams, lot.TrackingNumber, lot.Note,
         lot.Items.Where(i => i.DeletedAt == null).Select(i => new PurchaseLotItemDto(i.PurchaseItemId, i.Qty)).ToList(),
         lot.Status == "RECEIVED" ? PurchaseLotCosting.WeightWarnings(lot.DeclaredWeightGrams, lot.MeasuredWeightGrams,
-            lot.BilledWeightGrams, _weightTolerancePercent) : [], lot.CourierId, lot.CourierName);
+            lot.BilledWeightGrams, _weightTolerancePercent) : [], lot.CourierId, lot.CourierName,
+        lot.ShippingCompanyId, string.IsNullOrWhiteSpace(lot.ShippingCompanyNameSnapshot) ? null : lot.ShippingCompanyNameSnapshot,
+        string.IsNullOrWhiteSpace(lot.ShippingMethod) ? null : lot.ShippingMethod,
+        lot.ShippingCompanyId.HasValue ? lot.RateAmountSnapshot : null,
+        lot.ShippingCompanyId.HasValue ? lot.CalculatedCost : null);
 
     public async Task<LotImportPreview> PreviewLotImportAsync(Guid tripId, LotImportUpload upload)
     {

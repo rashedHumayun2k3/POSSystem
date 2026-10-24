@@ -57,8 +57,11 @@ public partial class PurchaseTripService
 
     private static List<PurchaseLotCosting.Line> ReceiptCosts(PurchaseTrip trip, PurchaseReceiveSession session)
     {
-        if (session.ShipmentId.HasValue && !trip.Costs.Any(c => c.ShipmentId == session.ShipmentId && c.CostType == "COURIER" && !c.IsPostCompletion))
-            throw new InvalidOperationException("Add the courier cost row before approving this lot (zero is allowed for free delivery).");
+        if (session.ShipmentId.HasValue && !trip.Costs.Any(c =>
+                c.ShipmentId == session.ShipmentId &&
+                (c.CostType == "SHIPPING_INTL" || c.CostType == "COURIER") &&
+                !c.IsPostCompletion))
+            throw new InvalidOperationException("Assign a shipping company and add its shipping cost before approving this lot.");
         var common = trip.Costs.Where(c => c.ShipmentId == null && !c.IsPostCompletion).Sum(c => c.Amount);
         var lotCosts = session.ShipmentId.HasValue ? trip.Costs.Where(c => c.ShipmentId == session.ShipmentId && !c.IsPostCompletion).Sum(c => c.Amount) : 0;
         return PurchaseLotCosting.Allocate(trip.Items.ToList(), session.Items.ToList(), common, lotCosts, session.ShipmentId.HasValue);
