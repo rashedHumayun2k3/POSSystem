@@ -1,3 +1,4 @@
+import AddCourierPopup from "../components/AddCourierPopup";
 import { Text } from "../i18n/LocalizedText";
 import { useLanguage } from "../i18n/LanguageContext";
 import { useEffect, useRef, useState } from "react";
@@ -85,7 +86,6 @@ export default function OrderDetailScreen() {
     });
   };
   const [addCourierOpen, setAddCourierOpen] = useState(false);
-  const [newCourier, setNewCourier] = useState({ name: "", phone: "", inside: "60", outside: "120", returnCharge: "0", codFeeType: "PCT" as "PCT" | "FLAT", codFeeValue: "0", trackingUrlTemplate: "", isDefault: false });
   const [couriers, setCouriers] = useState<Courier[]>([]);
   const [handoverCourierId, setHandoverCourierId] = useState("");
   const [deliveryMen, setDeliveryMen] = useState<DeliveryMan[]>([]);
@@ -187,28 +187,6 @@ export default function OrderDetailScreen() {
       setNewDeliveryMan({ name: "", phone: "", cost: "" });
       setAddDeliveryManOpen(false);
     } catch (e) { setError(e instanceof Error ? e.message : "Could not add this delivery person."); }
-    finally { setBusy(false); }
-  };
-
-  const createCourier = async () => {
-    if (!newCourier.name.trim() || busy) return;
-    setBusy(true); setError("");
-    try {
-      const created = await auth.api<Courier>("/couriers", { method: "POST", body: JSON.stringify({
-        name: newCourier.name.trim(), phone: newCourier.phone.trim() || undefined,
-        insideDhakaCharge: Number.parseFloat(newCourier.inside) || 0,
-        outsideDhakaCharge: Number.parseFloat(newCourier.outside) || 0,
-        returnCharge: Number.parseFloat(newCourier.returnCharge) || 0,
-        codFeeType: newCourier.codFeeType, codFeeValue: Number.parseFloat(newCourier.codFeeValue) || 0,
-        isDefault: newCourier.isDefault, trackingUrlTemplate: newCourier.trackingUrlTemplate.trim() || undefined,
-      }) });
-      setCouriers(previous => [created, ...previous.filter(item => item.id !== created.id)]);
-      setHandoverCourierId(created.id);
-      setDeliveryCost(String(created.insideDhakaCharge ?? 0));
-      setNewCourier({ name: "", phone: "", inside: "60", outside: "120", returnCharge: "0", codFeeType: "PCT", codFeeValue: "0", trackingUrlTemplate: "", isDefault: false });
-      setAddCourierOpen(false);
-      setCourierPickerOpen(false);
-    } catch (e) { setError(e instanceof Error ? e.message : "Could not add courier service."); }
     finally { setBusy(false); }
   };
 
@@ -427,7 +405,7 @@ export default function OrderDetailScreen() {
       </View><Text style={s.fieldLabel}>Actual Delivery Cost</Text><TextInput value={deliveryCost} onChangeText={setDeliveryCost} keyboardType="decimal-pad" style={s.input}/>{!!error && <Text style={s.inlineError}>{error}</Text>}</ScrollView><View style={s.sheetFooter}><Pressable disabled={busy || !handoverCourierId || !trackingNo.trim()} onPress={() => void runAction(`/orders/${id}/handover`, "POST", { courierId: handoverCourierId, trackingNo: trackingNo.trim(), deliveryManId: deliveryManId || undefined, deliveryCostActual: Number.parseFloat(deliveryCost) || 0 }, () => setHandoverOpen(false))} style={[s.primary,s.fullWidth,(busy || !handoverCourierId || !trackingNo.trim()) && s.disabled]}><Text style={s.primaryText}>{busy ? "Handing over…" : "Handover to Courier"}</Text></Pressable></View></PopupSheet>
 
 
-    <PopupSheet visible={addCourierOpen} onClose={()=>setAddCourierOpen(false)} title="Add Courier Service"><ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={s.sheetContent}><TextInput value={newCourier.name} onChangeText={value=>setNewCourier(form=>({...form,name:value}))} placeholder="Courier name *" style={s.input}/><Text style={s.fieldLabel}>Phone (optional)</Text><TextInput value={newCourier.phone} onChangeText={value=>setNewCourier(form=>({...form,phone:value}))} keyboardType="phone-pad" style={s.input}/><View style={s.actionRow}><View style={s.actionHalf}><Text style={s.fieldLabel}>Inside Dhaka (৳)</Text><TextInput value={newCourier.inside} onChangeText={value=>setNewCourier(form=>({...form,inside:value}))} keyboardType="decimal-pad" style={s.input}/></View><View style={s.actionHalf}><Text style={s.fieldLabel}>Outside Dhaka (৳)</Text><TextInput value={newCourier.outside} onChangeText={value=>setNewCourier(form=>({...form,outside:value}))} keyboardType="decimal-pad" style={s.input}/></View></View><Text style={s.fieldLabel}>Return charge (৳)</Text><TextInput value={newCourier.returnCharge} onChangeText={value=>setNewCourier(form=>({...form,returnCharge:value}))} keyboardType="decimal-pad" style={s.input}/><Text style={s.fieldLabel}>COD fee (courier's cut from collected cash)</Text><View style={s.actionRow}><View style={s.actionRow}><Pressable onPress={()=>setNewCourier(form=>({...form,codFeeType:"PCT"}))} style={[s.feeType,newCourier.codFeeType==="PCT"&&s.feeTypeOn]}><Text style={[s.feeTypeText,newCourier.codFeeType==="PCT"&&s.feeTypeTextOn]}>%</Text></Pressable><Pressable onPress={()=>setNewCourier(form=>({...form,codFeeType:"FLAT"}))} style={[s.feeType,newCourier.codFeeType==="FLAT"&&s.feeTypeOn]}><Text style={[s.feeTypeText,newCourier.codFeeType==="FLAT"&&s.feeTypeTextOn]}>৳</Text></Pressable></View><TextInput value={newCourier.codFeeValue} onChangeText={value=>setNewCourier(form=>({...form,codFeeValue:value}))} keyboardType="decimal-pad" placeholder={newCourier.codFeeType==="PCT"?"e.g. 1 for 1%":"e.g. 10"} style={[s.input,s.actionHalf]}/></View><Text style={s.fieldLabel}>Tracking URL — use {'{id}'} for consignment no.</Text><TextInput value={newCourier.trackingUrlTemplate} onChangeText={value=>setNewCourier(form=>({...form,trackingUrlTemplate:value}))} style={s.input}/><Pressable onPress={()=>setNewCourier(form=>({...form,isDefault:!form.isDefault}))} style={[s.defaultCourier,newCourier.isDefault&&s.defaultCourierOn]}><Ionicons name={newCourier.isDefault?"star":"star-outline"} size={17} color={newCourier.isDefault?colors.primaryDark:colors.secondary}/><Text style={[s.selectText,newCourier.isDefault&&s.selectedCourier]}>Set as default courier</Text></Pressable>{!!error&&<Text style={s.inlineError}>{error}</Text>}<Pressable disabled={busy||!newCourier.name.trim()} onPress={()=>void createCourier()} style={[s.primary,s.fullWidth,(busy||!newCourier.name.trim())&&s.disabled]}><Text style={s.primaryText}>{busy?"Saving…":"Save Courier"}</Text></Pressable></ScrollView></PopupSheet>
+    <AddCourierPopup visible={addCourierOpen} onClose={()=>setAddCourierOpen(false)} onCreated={created=>{setCouriers(previous=>[created,...previous.filter(item=>item.id!==created.id)]);setHandoverCourierId(created.id);setDeliveryCost(String(created.insideDhakaCharge??0));setCourierPickerOpen(false);}} />
 
 
     <PopupSheet visible={addDeliveryManOpen} onClose={()=>setAddDeliveryManOpen(false)} title="Add Delivery Man"><ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={s.sheetContent}><TextInput value={newDeliveryMan.name} onChangeText={value=>setNewDeliveryMan(form=>({...form,name:value}))} placeholder="Delivery man's name" style={s.input}/><TextInput value={newDeliveryMan.phone} onChangeText={value=>setNewDeliveryMan(form=>({...form,phone:value}))} keyboardType="phone-pad" placeholder="Phone number" style={s.input}/><TextInput value={newDeliveryMan.cost} onChangeText={value=>setNewDeliveryMan(form=>({...form,cost:value}))} keyboardType="decimal-pad" placeholder="Cost per delivery (optional)" style={s.input}/><Pressable disabled={busy||!newDeliveryMan.name.trim()||!newDeliveryMan.phone.trim()} onPress={()=>void createDeliveryMan()} style={[s.primary,s.fullWidth,(busy||!newDeliveryMan.name.trim()||!newDeliveryMan.phone.trim())&&s.disabled]}><Text style={s.primaryText}>{busy?"Saving…":"Save Delivery Man"}</Text></Pressable></ScrollView></PopupSheet>

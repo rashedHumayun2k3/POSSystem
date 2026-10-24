@@ -79,6 +79,13 @@ public partial class PurchaseTripService
         var lot = lotId == null ? new PurchaseShipment { TripId = tripId } :
             trip.Shipments.SingleOrDefault(s => s.Id == lotId && !s.IsLegacy) ?? throw new KeyNotFoundException("Lot not found.");
         if (lot.Status != "READY") throw new InvalidOperationException("Only ready lots can be edited.");
+        if (request.CourierId is Guid courierId)
+        {
+            var courier = await _db.Couriers.SingleOrDefaultAsync(c => c.Id == courierId && c.BusinessId == trip.BusinessId && c.IsActive && c.DeletedAt == null)
+                ?? throw new ArgumentException("Select an active courier service.");
+            lot.CourierId = courier.Id;
+            lot.CourierName = courier.Name;
+        }
         ValidateLotItems(trip, request.Items, lotId);
         lot.LotNo = number; lot.DeclaredWeightGrams = request.DeclaredWeightGrams;
         lot.TrackingNumber = request.TrackingNumber; lot.Note = request.Note;
@@ -129,7 +136,7 @@ public partial class PurchaseTripService
         lot.DeclaredWeightGrams, lot.MeasuredWeightGrams, lot.BilledWeightGrams, lot.TrackingNumber, lot.Note,
         lot.Items.Where(i => i.DeletedAt == null).Select(i => new PurchaseLotItemDto(i.PurchaseItemId, i.Qty)).ToList(),
         lot.Status == "RECEIVED" ? PurchaseLotCosting.WeightWarnings(lot.DeclaredWeightGrams, lot.MeasuredWeightGrams,
-            lot.BilledWeightGrams, _weightTolerancePercent) : []);
+            lot.BilledWeightGrams, _weightTolerancePercent) : [], lot.CourierId, lot.CourierName);
 
     public async Task<LotImportPreview> PreviewLotImportAsync(Guid tripId, LotImportUpload upload)
     {

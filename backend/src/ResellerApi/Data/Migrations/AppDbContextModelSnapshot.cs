@@ -4088,6 +4088,12 @@ namespace ResellerApi.Data.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("nvarchar(20)");
 
+                    b.Property<Guid?>("CourierId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("CourierName")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 

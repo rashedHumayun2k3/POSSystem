@@ -13,6 +13,8 @@ public class PurchaseShipment : BaseEntity
     public decimal BilledWeightGrams { get; set; }
     public ICollection<PurchaseShipmentItem> Items { get; set; } = new List<PurchaseShipmentItem>();
     public Guid TripId { get; set; }
+    public Guid? CourierId { get; set; }
+    public string? CourierName { get; set; }
     public Guid? ShippingCompanyId { get; set; }
     public Guid? ShippingCompanyRateId { get; set; }
     public Guid? PurchaseTripCostId { get; set; }
