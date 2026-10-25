@@ -350,5 +350,10 @@ public record OrderDetailDto(
     List<OrderStatusHistoryDto> StatusHistory,
     // owner-only — null for STAFF
     OrderEconomicsDto? Economics,
-    bool IsRevised
+    bool IsRevised,
+    string? CodRemittanceStatus = null,
+    OrderCourierPaymentDto? CourierPayment = null
 );
+
+public record OrderCourierPaymentDto(decimal NetReceived, DateTime ReceivedAt, string Method,
+    string? Reference, string? Note, int OrderCount);

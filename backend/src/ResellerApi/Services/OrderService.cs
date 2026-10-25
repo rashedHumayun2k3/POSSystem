@@ -1352,6 +1352,7 @@ public class OrderService : IOrderService
             .Include(o => o.DeliveryMan)
             .Include(o => o.HandlingUser)
             .Include(o => o.CreatedByUser)
+            .Include(o => o.Remittance).ThenInclude(r => r!.Orders)
             .FirstOrDefaultAsync(o => o.Id == id);
     }
 
@@ -1467,7 +1468,10 @@ public class OrderService : IOrderService
                 .Select(h => new OrderStatusHistoryDto(h.Track, h.FromStatus, h.ToStatus, h.User?.Name ?? "", h.At, h.Reason, h.Note))
                 .ToList(),
             economics,
-            o.IsRevised
+            o.IsRevised, o.CodRemittanceStatus,
+            o.Remittance == null ? null : new OrderCourierPaymentDto(o.Remittance.Amount,
+                o.Remittance.RemittedAt, o.Remittance.Method, o.Remittance.Reference,
+                o.Remittance.Note, o.Remittance.Orders.Count)
         );
     }
 }

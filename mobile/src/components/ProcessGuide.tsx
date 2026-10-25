@@ -1,4 +1,4 @@
-import type { ComponentProps } from "react";
+import type { ComponentProps, ReactNode } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Text } from "../i18n/LocalizedText";
@@ -11,6 +11,7 @@ export type ProcessStep = {
   icon: ComponentProps<typeof Ionicons>["name"];
   done: boolean;
   completedAt?: string;
+  details?: ReactNode;
   action?: { label: string; onPress: () => void; disabled?: boolean };
   secondaryAction?: { label: string; onPress: () => void; disabled?: boolean };
 };
@@ -33,6 +34,7 @@ export default function ProcessGuide({title,steps,notice}:{title:string;steps:Pr
       <View style={s.flex}>
         <Text style={s.guideTitle}>{lang==="bn"?"ধাপ":"Step"} {index+1}: {step.title}</Text>
         <Text style={s.guideText}>{step.description}</Text>
+        {step.details}
         {step.done&&!!step.completedAt&&<Text style={s.muted}>{step.completedAt}</Text>}
         <View style={{flexDirection:"row",flexWrap:"wrap",gap:8}}>
         {!!step.action&&<Pressable accessibilityRole="button" accessibilityState={{disabled:!!step.action.disabled}} disabled={step.action.disabled} onPress={step.action.onPress} style={[s.guideStart,step.action.disabled&&{opacity:0.5}]}><Text style={s.guideStartText}>{step.action.label}</Text><Ionicons name="arrow-forward" size={15} color={colors.white}/></Pressable>}

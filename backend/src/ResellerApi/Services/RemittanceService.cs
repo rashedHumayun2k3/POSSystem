@@ -92,12 +92,31 @@ public class RemittanceService : IRemittanceService
 
     public async Task<CourierRemittanceDto> CreateAsync(CreateRemittanceRequest request, Guid userId)
     {
+        if (request.OrderIds == null || request.OrderIds.Count == 0 || request.OrderIds.Distinct().Count() != request.OrderIds.Count)
+            throw new InvalidOperationException("Select distinct orders for this payment.");
+        if (request.Amount < 0 || decimal.Round(request.Amount, 2) != request.Amount)
+            throw new InvalidOperationException("Enter a valid net amount with at most two decimals.");
+        if (!new[] { "BANK", "BKASH", "NAGAD", "ROCKET", "CASH" }.Contains(request.Method))
+            throw new InvalidOperationException("Select a valid payment method.");
+        if (request.RemittedAt == default || request.RemittedAt.ToUniversalTime() > DateTime.UtcNow)
+            throw new InvalidOperationException("Enter a valid payment date that is not in the future.");
+        await using var tx = _db.Database.IsRelational()
+            ? await _db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable) : null;
         var orders = await _db.Orders
             .Include(o => o.Items)
             .Include(o => o.Payments)
             .Where(o => request.OrderIds.Contains(o.Id))
             .ToListAsync();
 
+        if (orders.Count != request.OrderIds.Count)
+            throw new InvalidOperationException("One or more orders were not found.");
+        if (orders.Any(o => o.FulfillmentStatus != "DELIVERED" || o.CodRemittanceStatus != "PENDING" || o.RemittanceId != null))
+            throw new InvalidOperationException("Only delivered orders awaiting courier payment can be settled.");
+        var collection = orders.Sum(o => Math.Max(0, ComputeTotal(o) - o.Payments.Sum(p => p.Amount)));
+        if (collection <= 0 || request.Amount > collection)
+            throw new InvalidOperationException("Net received cannot exceed the outstanding courier collection.");
+        if (orders.Any(o => o.DeliveredAt.HasValue && request.RemittedAt.ToUniversalTime() < o.DeliveredAt.Value))
+            throw new InvalidOperationException("Payment date cannot be before delivery.");
         if (orders.Any(o => o.CourierId != request.CourierId))
             throw new InvalidOperationException("All orders must belong to the specified courier.");
 
@@ -155,6 +174,7 @@ public class RemittanceService : IRemittanceService
         }
         await _db.SaveChangesAsync();
 
+        if (tx != null) await tx.CommitAsync();
         await _log.LogAsync(_db.CurrentBusinessId, userId, "CREATE", "CourierRemittance", remittance.Id);
 
         return await GetRemittanceDtoAsync(remittance.Id);

@@ -1,4 +1,7 @@
 {
+  "pendingDeliveryTab": "ডেলিভারির অপেক্ষায়",
+  "pendingCourierPaymentTab": "কুরিয়ারের পেমেন্ট বাকি",
+  "pendingCourierPaymentHint": "ডেলিভারি হয়েছে, কুরিয়ার থেকে টাকা পাওয়া বাকি",
   "noProductAddedYet": "এখনো কোনো পণ্য যোগ করা হয়নি",
   "cancelledOrderNotice": {"title": "অর্ডার বাতিল হয়েছে", "message": "এই অর্ডারটি বাতিল হয়েছে এবং সরবরাহ করা হবে না।"},
   "deleteOrderDetails": {"selected": "নির্বাচিত অর্ডার", "products": "পণ্যের নাম", "customer": "গ্রাহকের তথ্য", "warning": "অর্ডারটি আপনার অর্ডার তালিকা থেকে সরানো হবে এবং সংরক্ষিত স্টক ছেড়ে দেওয়া হবে। অ্যাপ থেকে এটি ফিরিয়ে আনা যাবে না।"},

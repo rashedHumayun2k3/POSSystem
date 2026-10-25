@@ -35,7 +35,7 @@ public class RemittancesController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateRemittanceRequest request)
     {
-        var result = await _svc.CreateAsync(request, _user.UserId);
-        return Ok(result);
+        try { return Ok(await _svc.CreateAsync(request, _user.UserId)); }
+        catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
     }
 }

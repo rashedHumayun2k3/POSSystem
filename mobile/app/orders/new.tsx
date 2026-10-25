@@ -148,6 +148,7 @@ export default function NewOrderScreen() {
       {title:lang==="bn"?"অর্ডার নিশ্চিত করুন":"Confirm order",description:lang==="bn"?"নিশ্চিত করার পর পণ্য যোগ বা পরিমাণ বাড়ানো যাবে না। শুধু প্যাক করার আগে পরিমাণ কমানো বা পণ্য সরানো যাবে।":"After confirmation, you cannot add products or increase quantities. You can only reduce quantities or remove products before packing.",icon:"checkmark-circle-outline",done:false},
       {title:lang==="bn"?"কুরিয়ারে হস্তান্তর করুন":"Handover to courier",description:lang==="bn"?"কুরিয়ার নির্বাচন করুন এবং ডেলিভারির তথ্য দিয়ে পণ্য হস্তান্তর করুন।":"Select the courier, enter delivery details and hand over the products.",icon:"cube-outline",done:false},
       {title:lang==="bn"?"ডেলিভারি সম্পন্ন করুন":"Complete delivery",description:lang==="bn"?"গ্রাহক পণ্য বুঝে পেলে ডেলিভারি সম্পন্ন হিসেবে চিহ্নিত করুন।":"Mark the order delivered after the customer receives the products.",icon:"flag-outline",done:false},
+      {title:lang==="bn"?"কুরিয়ার থেকে টাকা বুঝে নিন":"Receive courier payment",description:lang==="bn"?"COD অর্ডারে কুরিয়ার থেকে টাকা পাওয়ার পর পেমেন্ট রেকর্ড করুন।":"For COD orders, record payment after the courier sends you the money. Fully prepaid orders skip this step.",icon:"wallet-outline",done:false},
     ]}/>
   </ScrollView>;
 

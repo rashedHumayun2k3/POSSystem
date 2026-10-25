@@ -3,7 +3,7 @@ import { colors } from "../theme";
 // Same list contract and queue rules as frontend/src/components/orders/OrderManagement.tsx.
 export type Order = {
   id: string; orderNo: string; channel: string; customerName: string;
-  customerPhone: string; customerAddress?: string;
+  customerPhone: string; customerAddress?: string; courierId?: string | null;
   orderStatus: "OPEN" | "COMPLETED" | "CANCELLED";
   fulfillmentStatus: "UNFULFILLED" | "PACKED" | "IN_TRANSIT" | "DELIVERED" | "RETURNED";
   paymentStatus: "UNPAID" | "PARTIALLY_PAID" | "PAID" | "REFUNDED";
@@ -16,6 +16,7 @@ export const queues = [
   { key: "WAITING_COURIER", label: "Waiting for Courier", color: colors.warningText, bg: colors.warningBackground, hint: "Packed orders ready for courier handover" },
   { key: "PENDING", label: "Pending Delivery", color: colors.infoText, bg: colors.infoBackground, hint: "Track shipments and confirm delivery" },
   { key: "DELIVERED", label: "Delivered", color: colors.successText, bg: colors.successBackground, hint: "Completed deliveries and payment follow-up" },
+  { key: "PENDING_PAYMENT", label: "Pending Courier Payment", color: colors.warningText, bg: colors.warningBackground, hint: "Delivered orders awaiting payment from the courier" },
   { key: "RETURNED", label: "Returned", color: colors.primaryDark, bg: colors.cardSecondary, hint: "Review returned orders" },
   { key: "CANCELLED", label: "Cancelled", color: colors.neutralIcon, bg: colors.disabled, hint: "Cancelled order history" },
   { key: "ALL", label: "All", color: colors.heading, bg: colors.card, hint: "Orders grouped by status, newest first in each section" },
@@ -36,6 +37,7 @@ export function queueFor(order: Order): Queue {
   return order.fulfillmentStatus;
 }
 export function matchesQueue(order: Order, queue: Queue) {
+  if (queue === "PENDING_PAYMENT") return order.orderStatus !== "CANCELLED" && order.fulfillmentStatus === "DELIVERED" && !!order.courierId && order.dueAmount > 0;
   return queue === "ALL" || (queue === "ISSUES" ? hasStockIssue(order) : queueFor(order) === queue);
 }
 export function filterOrders(orders: Order[], search: string, filters: Filters) {
@@ -51,7 +53,7 @@ export function filterOrders(orders: Order[], search: string, filters: Filters) 
   }).sort((a, b) => b.businessDate.localeCompare(a.businessDate) || b.orderNo.localeCompare(a.orderNo));
 }
 export function groupOrders(orders: Order[], queue: Queue) {
-  const sections = queue === "ALL" ? queues.filter(item => item.key !== "ALL" && item.key !== "ISSUES") : queues.filter(item => item.key === queue);
+  const sections = queue === "ALL" ? queues.filter(item => item.key !== "ALL" && item.key !== "ISSUES" && item.key !== "PENDING_PAYMENT") : queues.filter(item => item.key === queue);
   return sections.flatMap(section => {
     const grouped = new Map<string, Order[]>();
     for (const order of orders.filter(item => matchesQueue(item, section.key))) {
