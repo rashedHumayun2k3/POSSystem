@@ -12,6 +12,7 @@ export type ProcessStep = {
   done: boolean;
   completedAt?: string;
   action?: { label: string; onPress: () => void; disabled?: boolean };
+  secondaryAction?: { label: string; onPress: () => void; disabled?: boolean };
 };
 
 export default function ProcessGuide({title,steps,notice}:{title:string;steps:ProcessStep[];notice?:string}) {
@@ -33,7 +34,10 @@ export default function ProcessGuide({title,steps,notice}:{title:string;steps:Pr
         <Text style={s.guideTitle}>{lang==="bn"?"ধাপ":"Step"} {index+1}: {step.title}</Text>
         <Text style={s.guideText}>{step.description}</Text>
         {step.done&&!!step.completedAt&&<Text style={s.muted}>{step.completedAt}</Text>}
+        <View style={{flexDirection:"row",flexWrap:"wrap",gap:8}}>
         {!!step.action&&<Pressable accessibilityRole="button" accessibilityState={{disabled:!!step.action.disabled}} disabled={step.action.disabled} onPress={step.action.onPress} style={[s.guideStart,step.action.disabled&&{opacity:0.5}]}><Text style={s.guideStartText}>{step.action.label}</Text><Ionicons name="arrow-forward" size={15} color={colors.white}/></Pressable>}
+        {!!step.secondaryAction&&<Pressable accessibilityRole="button" accessibilityState={{disabled:!!step.secondaryAction.disabled}} disabled={step.secondaryAction.disabled} onPress={step.secondaryAction.onPress} style={[s.guideStart,{backgroundColor:colors.primaryLight,borderWidth:1,borderColor:colors.border},step.secondaryAction.disabled&&{opacity:0.5}]}><Text style={[s.guideStartText,{color:colors.primaryDark}]}>{step.secondaryAction.label}</Text></Pressable>}
+        </View>
       </View>
     </View>)}
   </View>;
