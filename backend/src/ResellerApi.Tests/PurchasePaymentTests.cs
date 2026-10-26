@@ -48,6 +48,57 @@ public class PurchasePaymentTests
         public PurchasePaymentRequest Request(string source="BUSINESS") => new(Cost.Id, 200, source, Guid.NewGuid());
         public ValueTask DisposeAsync() => Db.DisposeAsync();
     }
+    private static PurchasePaymentRequest Bulk(Fixture f, string source = "BUSINESS")
+    {
+        var id = Guid.NewGuid();
+        return new(id, f.Db.PurchaseItems.Where(i => i.TripId == f.Trip.Id).Sum(i => i.TotalCost), source, id, null,
+            f.Db.PurchaseItems.Where(i => i.TripId == f.Trip.Id).Select(i => new ProductPaymentLine(i.Id, i.TotalCost)).ToList());
+    }
+    [Fact] public async Task BulkCreatesOnePaymentAndRetryDoesNotDeductAgain()
+    {
+        await using var f = new Fixture(); await f.Seed();
+        f.Db.PurchaseItems.Add(new PurchaseItem { TripId=f.Trip.Id, VariantId=f.Item.VariantId, QtyBought=2, TotalCost=500 }); await f.Db.SaveChangesAsync();
+        var request=Bulk(f); var payment=await f.Payments.Pay(f.Trip.Id,request,f.User);
+        Assert.Equal(1500,payment.Amount); Assert.Equal(2,payment.Items.Count); Assert.Single(f.Db.PurchasePayments);
+        Assert.Equal(50000,await f.Funding.BalanceAsync());
+        Assert.Equal(payment.Id,(await f.Payments.Pay(f.Trip.Id,request,f.User)).Id);
+        Assert.Equal(50000,await f.Funding.BalanceAsync());
+        Assert.All(f.Db.PurchaseItems, i => Assert.Equal(0,i.DueAmount));
+        await Assert.ThrowsAsync<InvalidOperationException>(()=>f.Payments.Pay(f.Trip.Id,new(f.Item.Id,1000,"BUSINESS",Guid.NewGuid(),f.Item.Id),f.User));
+        await Assert.ThrowsAsync<InvalidOperationException>(()=>f.Trips.RemoveItemAsync(f.Trip.Id,f.Item.Id,f.User));
+    }
+    [Fact] public async Task BulkRejectsStaleProductListWithoutWritingPayment()
+    {
+        await using var f=new Fixture();await f.Seed();var request=Bulk(f);
+        f.Item.TotalCost=1100;await f.Db.SaveChangesAsync();
+        await Assert.ThrowsAsync<InvalidOperationException>(()=>f.Payments.Pay(f.Trip.Id,request,f.User));
+        Assert.Empty(f.Db.PurchasePayments); Assert.Empty(f.Db.CapitalLedgerEntries);
+    }
+    [Fact] public async Task BulkSkipsPreviouslyPaidProductsAndAllowsAnotherBatch()
+    {
+        await using var f=new Fixture();await f.Seed();
+        await f.Payments.Pay(f.Trip.Id,new(f.Item.Id,1000,"PERSONAL",Guid.NewGuid(),f.Item.Id),f.User);
+        var next=new PurchaseItem { TripId=f.Trip.Id,VariantId=f.Item.VariantId,QtyBought=1,TotalCost=100 };
+        f.Db.PurchaseItems.Add(next);await f.Db.SaveChangesAsync();
+        var id=Guid.NewGuid();var payment=await f.Payments.Pay(f.Trip.Id,new(id,100,"PERSONAL",id,null,[new(next.Id,100)]),f.User);
+        Assert.Single(payment.Items);Assert.Equal(next.Id,payment.Items[0].PurchaseItemId);Assert.Equal(2,f.Db.PurchasePayments.Count());
+        var third=new PurchaseItem { TripId=f.Trip.Id,VariantId=f.Item.VariantId,QtyBought=1,TotalCost=50 };
+        f.Db.PurchaseItems.Add(third);await f.Db.SaveChangesAsync();id=Guid.NewGuid();
+        await f.Payments.Pay(f.Trip.Id,new(id,50,"PERSONAL",id,null,[new(third.Id,50)]),f.User);
+        Assert.Equal(3,f.Db.PurchasePayments.Count());
+    }
+    [Fact] public async Task BulkPersonalPaymentCreatesOneCapitalEntry()
+    {
+        await using var f=new Fixture();await f.Seed();var payment=await f.Payments.Pay(f.Trip.Id,Bulk(f,"PERSONAL"),f.User);
+        Assert.Single(f.Db.PurchasePayments);Assert.Equal(payment.Id,Assert.Single(f.Db.CapitalLedgerEntries).ReferenceId);
+        Assert.Equal(200000,await f.Funding.BalanceAsync());
+    }
+    [Fact] public async Task BulkInsufficientFundsWritesNothing()
+    {
+        await using var f=new Fixture();await f.Seed();f.Item.TotalCost=3000;await f.Db.SaveChangesAsync();
+        await Assert.ThrowsAsync<InvalidOperationException>(()=>f.Payments.Pay(f.Trip.Id,Bulk(f),f.User));
+        Assert.Empty(f.Db.PurchasePayments);
+    }
     [Fact] public async Task BusinessPaymentDeductsOnceAndRetryIsIdempotent()
     {
         await using var f=new Fixture();await f.Seed();var request=f.Request();

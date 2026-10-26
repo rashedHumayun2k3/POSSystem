@@ -3907,6 +3907,26 @@ namespace ResellerApi.Data.Migrations
                     b.ToTable("purchase_payments", (string)null);
                 });
 
+            modelBuilder.Entity("ResellerApi.Entities.PurchasePaymentItem", b =>
+                {
+                    b.Property<Guid>("PaymentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("PurchaseItemId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.HasKey("PaymentId", "PurchaseItemId");
+
+                    b.HasIndex("PurchaseItemId")
+                        .IsUnique();
+
+                    b.ToTable("purchase_payment_items", (string)null);
+                });
+
             modelBuilder.Entity("ResellerApi.Entities.PurchaseReceiveItem", b =>
                 {
                     b.Property<Guid>("Id")
@@ -6715,6 +6735,21 @@ namespace ResellerApi.Data.Migrations
                     b.Navigation("Business");
                 });
 
+            modelBuilder.Entity("ResellerApi.Entities.PurchasePaymentItem", b =>
+                {
+                    b.HasOne("ResellerApi.Entities.PurchasePayment", null)
+                        .WithMany("Items")
+                        .HasForeignKey("PaymentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("ResellerApi.Entities.PurchaseItem", null)
+                        .WithMany()
+                        .HasForeignKey("PurchaseItemId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("ResellerApi.Entities.PurchaseReceiveItem", b =>
                 {
                     b.HasOne("ResellerApi.Entities.PurchaseItem", "PurchaseItem")
@@ -7365,6 +7400,11 @@ namespace ResellerApi.Data.Migrations
             modelBuilder.Entity("ResellerApi.Entities.ProductVariant", b =>
                 {
                     b.Navigation("PriceHistories");
+                });
+
+            modelBuilder.Entity("ResellerApi.Entities.PurchasePayment", b =>
+                {
+                    b.Navigation("Items");
                 });
 
             modelBuilder.Entity("ResellerApi.Entities.PurchaseReceiveSession", b =>

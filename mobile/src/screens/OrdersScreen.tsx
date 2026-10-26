@@ -8,6 +8,7 @@ import {
   ScrollView,
   StyleSheet,
   TextInput,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -42,6 +43,17 @@ type ApiOrder = {
 };
 type Icon = keyof typeof Ionicons.glyphMap;
 const PAGE_SIZE = 10;
+const emptyQueueMessages: Record<Queue, string> = {
+  UNFULFILLED: "There are no new orders.",
+  WAITING_COURIER: "There are no orders waiting for courier.",
+  PENDING: "There are no orders pending delivery.",
+  DELIVERED: "There are no delivered orders.",
+  PENDING_PAYMENT: "There are no orders pending courier payment.",
+  RETURNED: "There are no returned orders.",
+  CANCELLED: "There are no cancelled orders.",
+  ALL: "There are no orders.",
+  ISSUES: "There are no orders with issues.",
+};
 function Button({
   label,
   onPress,
@@ -156,6 +168,16 @@ export default function OrdersScreen() {
   const [reload, setReload] = useState(0);
   const [page, setPage] = useState(1);
   const [width, setWidth] = useState(0);
+  const { width: screenWidth } = useWindowDimensions();
+  const tabColumns = screenWidth >= 1024 ? 4 : screenWidth >= 600 ? 3 : 2;
+  const visibleQueues = queues.filter((queue) => queue.key !== "ISSUES");
+  const tabRows: (typeof visibleQueues)[] = [];
+  for (let index = 0; index < visibleQueues.length;) {
+    const remaining = visibleQueues.length - index;
+    const rowSize = remaining === tabColumns + 1 ? tabColumns - 1 : Math.min(tabColumns, remaining);
+    tabRows.push(visibleQueues.slice(index, index + rowSize));
+    index += rowSize;
+  }
   const list = useRef<ScrollView>(null);
   useFocusEffect(useCallback(() => {
     let active = true;
@@ -366,46 +388,39 @@ export default function OrdersScreen() {
           </Pressable>
         )}
         <View style={s.panel}>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator
-            contentContainerStyle={s.tabs}
-          >
-            {queues.filter((queue) => queue.key !== "ISSUES").map((queue) => (
+          {!loading && !error && visible.length === 0 && (
+            <View accessibilityLiveRegion="polite" style={s.emptyNotice}>
+              <Ionicons name="information-circle-outline" size={20} color={colors.infoText} />
+              <View style={s.grow}>
+                <Text style={s.emptyNoticeText}>{filterCount || search.trim() ? "No orders match your search or filters in this tab." : emptyQueueMessages[activeTab]}</Text>
+                {(filterCount > 0 || !!search.trim()) && <Button label="Clear filters" onPress={clear} />}
+              </View>
+            </View>
+          )}
+          <View style={s.mobileTabs}>
+            {tabRows.map((row) => <View key={row[0].key} style={s.tabRow}>
+            {row.map((queue) => (
               <Pressable
                 key={queue.key}
                 accessibilityRole="tab"
                 accessibilityState={{ selected: activeTab === queue.key }}
                 onPress={() => changeTab(queue.key)}
-                style={[s.queue, activeTab === queue.key ? s.activeQueue : s.inactiveQueue]}
+                style={[s.queue, s.mobileQueue, activeTab === queue.key ? s.activeQueue : s.inactiveQueue]}
               >
-                <Text style={[s.queueLabel, activeTab === queue.key ? s.activeQueueLabel : s.inactiveQueueLabel]}>
+                <Text style={[s.queueLabel, s.mobileQueueLabel, activeTab === queue.key ? s.activeQueueLabel : s.inactiveQueueLabel]}>
                   {queue.label}
                 </Text>
+                <Text style={[s.mobileQueueCount, activeTab === queue.key ? s.activeQueueLabel : s.inactiveQueueLabel]}>{count(queue.key)}</Text>
               </Pressable>
             ))}
-          </ScrollView>
+            </View>)}
+          </View>
         </View>
         {loading && !orders.length ? (
           <View style={s.empty}><ActivityIndicator color={colors.primary} /><Text style={s.small}>Loading orders…</Text></View>
         ) : error && !orders.length ? (
           <View style={s.empty}><Ionicons name="alert-circle-outline" size={36} color={colors.dangerText} /><Text style={s.errorText}>{error}</Text><Button label="Try again" primary onPress={() => setReload(value => value + 1)} /></View>
-        ) : groups.length === 0 ? (
-          <View style={s.empty}>
-            <Ionicons name="cube-outline" size={42} color={colors.muted} />
-            <Text style={s.sectionTitle}>No orders found</Text>
-            <Text style={s.small}>
-              Try another status or adjust your search and filters.
-            </Text>
-            <Button
-              label="Clear filters"
-              onPress={() => {
-                clear();
-                changeTab("ALL");
-              }}
-            />
-          </View>
-        ) : (
+        ) : groups.length === 0 ? null : (
           groups.map((group) => (
             <View key={group.key} style={s.group}>
               {group.title && <Text style={s.sectionTitle}>{group.title}</Text>}
@@ -622,7 +637,13 @@ const s = StyleSheet.create({
   panel: {
     backgroundColor: colors.white,
   },
-  tabs: { paddingHorizontal: 12, paddingTop: 12, paddingBottom: 12, gap: 4 },
+  mobileTabs: { padding: 8, gap: 6 },
+  tabRow: { flexDirection: "row", gap: 6 },
+  mobileQueue: { flex: 1, minWidth: 0, minHeight: 44, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, flexDirection: "row", justifyContent: "space-between", gap: 6, borderWidth: 1, borderColor: colors.divider },
+  mobileQueueLabel: { flex: 1, fontWeight: "600" },
+  emptyNotice: { margin: 12, marginBottom: 0, padding: 12, borderRadius: 10, flexDirection: "row", alignItems: "flex-start", gap: 8, backgroundColor: colors.infoBackground },
+  emptyNoticeText: { color: colors.infoText, fontSize: 13, lineHeight: 20 },
+  mobileQueueCount: { fontSize: 11, fontWeight: "700", paddingHorizontal: 6, paddingVertical: 3, borderRadius: 6, backgroundColor: "rgba(0,0,0,0.06)" },
   queue: {
     alignItems: "center",
     justifyContent: "center",

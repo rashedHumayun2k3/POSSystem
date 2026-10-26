@@ -1,5 +1,6 @@
+import type { PurchaseItem } from "../types/purchases";
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
+import { ActivityIndicator, ScrollView, Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import BottomSheet from "./BottomSheet";
 import { Text } from "../i18n/LocalizedText";
@@ -7,11 +8,11 @@ import { useLanguage } from "../i18n/LanguageContext";
 import { useAuth } from "../auth/AuthContext";
 import { colors } from "../theme";
 
-export type PurchasePayment = { id: string; tripId: string; costKey: string; purchaseItemId?: string | null; amount: number; fundingSource: "BUSINESS" | "PERSONAL"; paidAt: string };
+export type PurchasePayment = { id: string; tripId: string; costKey: string; purchaseItemId?: string | null; amount: number; fundingSource: "BUSINESS" | "PERSONAL"; paidAt: string; items?: { purchaseItemId:string; amount:number }[] };
 const requestId = () => "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => { const r = Math.random()*16|0; return (c === "x" ? r : (r&3)|8).toString(16); });
 type Source = "BUSINESS" | "PERSONAL";
 type Funding = { initialized: boolean; balance: number | null; partnerId: string | null; partnerName: string | null; canInitialize: boolean };
-export default function PurchasePaymentSource({ tripId, costKey, poNumber, itemTitle, amount, onPaid, compact = false, purchaseItemId, triggerLabel, danger = false }: { tripId: string; costKey: string; poNumber: string; itemTitle: string; amount: number; onPaid: (payment: PurchasePayment) => void; compact?: boolean; purchaseItemId?: string; triggerLabel?:string; danger?:boolean }) {
+export default function PurchasePaymentSource({ tripId, costKey, poNumber, itemTitle, amount, onPaid, compact = false, purchaseItemId, triggerLabel, danger = false, bulkItems }: { tripId: string; costKey: string; poNumber: string; itemTitle: string; amount: number; onPaid: (payment: PurchasePayment) => void; compact?: boolean; purchaseItemId?: string; triggerLabel?:string; danger?:boolean; bulkItems?:PurchaseItem[] }) {
   const auth = useAuth();
   const api = useRef(auth.api); api.current = auth.api;
   const [funding, setFunding] = useState<Funding | null>(null);
@@ -20,6 +21,7 @@ export default function PurchasePaymentSource({ tripId, costKey, poNumber, itemT
   const [retry, setRetry] = useState(0);
   const { t } = useLanguage();
   const { width } = useWindowDimensions();
+  const [expanded, setExpanded] = useState(false);
   const [open, setOpen] = useState(false);
   const [source, setSource] = useState<Source | null>(null);
   const [saving, setSaving] = useState(false);
@@ -31,7 +33,7 @@ export default function PurchasePaymentSource({ tripId, costKey, poNumber, itemT
     if (!source || savingRef.current) return;
     savingRef.current = true; setSaving(true); setSaveError("");
     try {
-      const result = await api.current<PurchasePayment>(`/purchase-trips/${tripId}/payments`, { method: "POST", body: JSON.stringify({costKey, purchaseItemId, expectedAmount: amount, fundingSource: source, requestId: request.current}) });
+      const result = await api.current<PurchasePayment>(`/purchase-trips/${tripId}/payments`, { method: "POST", body: JSON.stringify({costKey: bulkItems ? request.current : costKey, purchaseItemId, products: bulkItems?.map(i => ({purchaseItemId:i.id,amount:i.totalCost})), expectedAmount: amount, fundingSource: source, requestId: request.current}) });
       onPaid(result); setOpen(false);
     } catch (e) { setSaveError((e as Error).message); }
     finally { savingRef.current = false; setSaving(false); }
@@ -52,7 +54,7 @@ export default function PurchasePaymentSource({ tripId, costKey, poNumber, itemT
   const form = <View style={{ gap: 10 }}>
       <Text style={s.po}>{poNumber}</Text>
       <View style={s.summary}>
-        <Text style={s.label}>{t(itemTitle)}</Text>
+        {bulkItems ? <><Pressable accessibilityRole="button" accessibilityState={{expanded}} onPress={()=>setExpanded(!expanded)} style={s.summaryRow}><Text style={s.label}>{bulkItems.length} unpaid products</Text><Ionicons name={expanded ? "chevron-up" : "chevron-down"} size={20} color={colors.primaryDark}/></Pressable>{expanded && <ScrollView style={{maxHeight:220}} nestedScrollEnabled>{bulkItems.map(item=><View key={item.id} style={{paddingVertical:8,borderBottomWidth:1,borderColor:colors.divider}}><Text style={s.label}>{item.productName}</Text><Text style={s.hint}>{item.variantSku} · Qty {item.qtyBought} × {money(item.qtyBought > 0 ? item.totalCost/item.qtyBought : 0)}</Text><Text style={s.balance}>{money(item.totalCost)}</Text></View>)}</ScrollView>}</> : <Text style={s.label}>{t(itemTitle)}</Text>}
         <View style={s.summaryRow}><Text style={s.hint}>{t("poCostPayment.amount")}</Text><Text style={s.total}>{money(amount)}</Text></View>
       </View>
       <Text style={s.heading}>{t("poPayment.question")}</Text>
@@ -67,13 +69,13 @@ export default function PurchasePaymentSource({ tripId, costKey, poNumber, itemT
       {error && <View><Text accessibilityRole="alert" style={s.hint}>{t("poPaymentAmounts.failed")}</Text><Pressable accessibilityRole="button" onPress={() => setRetry(value => value + 1)} style={s.retry}><Text style={s.balance}>{t("common.retry")}</Text></Pressable></View>}
       <Text style={s.hint}>{t("poCostPayment.confirmHint")}</Text>
       {!!saveError && <Text accessibilityRole="alert" style={{color: colors.dangerText}}>{saveError}</Text>}
-      <Pressable accessibilityRole="button" disabled={!source || saving} onPress={() => void pay()} style={[s.add, (!source || saving) && {opacity: 0.5}]}>{saving ? <ActivityIndicator color={colors.white}/> : <Text style={s.addText}>{t("poCostPayment.confirm")}</Text>}</Pressable>
+      <Pressable accessibilityRole="button" disabled={!source || saving} onPress={() => void pay()} style={[s.add, (!source || saving) && {opacity: 0.5}]}>{saving ? <ActivityIndicator color={colors.white}/> : <Text style={s.addText}>{bulkItems ? `Confirm payment · ${money(amount)}` : t("poCostPayment.confirm")}</Text>}</Pressable>
     </View>;
   return <>
     <Pressable accessibilityRole="button" accessibilityLabel={triggerLabel??t("poPayment.add")} onPress={() => setOpen(true)} style={[s.add, compact && s.compactAdd, danger&&s.dangerAdd]}>
       <Ionicons name="add" size={compact ? 16 : 20} color={danger?colors.white:compact?colors.primaryDark:colors.white}/><Text numberOfLines={1} style={[s.addText, compact && {color: colors.primaryDark, fontSize: 12},danger&&{color:colors.white}]}>{triggerLabel??t("poPayment.add")}</Text>
     </Pressable>
-    <BottomSheet visible={open} close={close} title={t("poPayment.add")} mobile={width < 768}>{form}</BottomSheet>
+    <BottomSheet visible={open} close={close} title={bulkItems ? "Pay all unpaid products" : t("poPayment.add")} mobile={width < 768}>{form}</BottomSheet>
   </>;
 }
 const s = StyleSheet.create({

@@ -1,5 +1,7 @@
 export const orderManagementCopy = {
   en: {
+    emptyStatuses: { ALL: "There are no orders.", UNFULFILLED: "There are no new orders.", PROCESSING: "There are no processing orders.", WAITING_COURIER: "There are no orders waiting for courier.", PENDING: "There are no orders in transit.", DELIVERED: "There are no delivered orders.", RETURNED: "There are no returned orders.", CANCELLED: "There are no cancelled orders.", ISSUES: "There are no orders with issues." },
+    noMatchingOrders: "No orders match your search or filters in this tab.",
     sections: { ALL: "All Orders", UNFULFILLED: "New Orders", PROCESSING: "Processing Orders", WAITING_COURIER: "Orders Waiting for Courier", PENDING: "Orders in Transit", DELIVERED: "Delivered Orders", RETURNED: "Returned Orders", CANCELLED: "Cancelled Orders", ISSUES: "Orders with Issues" },
     whatsapp: "WhatsApp",
     contactCustomer: "Contact Customer", noCustomerPhone: "No phone number saved for this customer.",
@@ -25,6 +27,8 @@ export const orderManagementCopy = {
     scrollLeft: "Scroll statuses left", scrollRight: "Scroll statuses right",
   },
   bn: {
+    emptyStatuses: { ALL: "কোনো অর্ডার নেই।", UNFULFILLED: "কোনো নতুন অর্ডার নেই।", PROCESSING: "প্রস্তুতি চলছে এমন কোনো অর্ডার নেই।", WAITING_COURIER: "কুরিয়ারের অপেক্ষায় কোনো অর্ডার নেই।", PENDING: "পথে কোনো অর্ডার নেই।", DELIVERED: "ডেলিভারি হওয়া কোনো অর্ডার নেই।", RETURNED: "ফেরত আসা কোনো অর্ডার নেই।", CANCELLED: "বাতিল কোনো অর্ডার নেই।", ISSUES: "সমস্যাযুক্ত কোনো অর্ডার নেই।" },
+    noMatchingOrders: "এই ট্যাবে আপনার সার্চ বা ফিল্টার অনুযায়ী কোনো অর্ডার পাওয়া যায়নি।",
     sections: { ALL: "সব অর্ডার", UNFULFILLED: "নতুন অর্ডার", PROCESSING: "প্রস্তুতি চলমান অর্ডার", WAITING_COURIER: "কুরিয়ারের অপেক্ষায় থাকা অর্ডার", PENDING: "পথে থাকা অর্ডার", DELIVERED: "ডেলিভারি হওয়া অর্ডার", RETURNED: "ফেরত আসা অর্ডার", CANCELLED: "বাতিল অর্ডার", ISSUES: "সমস্যাযুক্ত অর্ডার" },
     whatsapp: "হোয়াটসঅ্যাপ",
     contactCustomer: "কাস্টমারের সাথে যোগাযোগ", noCustomerPhone: "এই কাস্টমারের ফোন নম্বর সংরক্ষিত নেই।",

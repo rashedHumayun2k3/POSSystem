@@ -4,7 +4,7 @@ import AddCourierPopup from "../components/AddCourierPopup";
 import { Text } from "../i18n/LocalizedText";
 import { useLanguage } from "../i18n/LanguageContext";
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Alert, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, Text as ValueText, View, useWindowDimensions } from "react-native";
+import { ActivityIndicator, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, Text as ValueText, View, useWindowDimensions } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import { useAuth } from "../auth/AuthContext";
@@ -208,11 +208,9 @@ export default function OrderDetailScreen() {
   };
   const deleteOrder = () => {
     setMenuOpen(false);
-    if (Alert.prompt) Alert.prompt("Delete this order?", "Enter a reason. This permanently removes the order.", reason => {
-      if (!reason?.trim()) { setError("A deletion reason is required."); return; }
-      void runAction(`/orders/${id}`, "DELETE", { reason: reason.trim() }, () => router.replace("/orders"));
-    }, "plain");
-    else { setDeleteReason(""); setDeleteReasonOpen(true); }
+    setError("");
+    setDeleteReason("");
+    setDeleteReasonOpen(true);
   };
   const [cancelReasonOpen, setCancelReasonOpen] = useState(false);
 

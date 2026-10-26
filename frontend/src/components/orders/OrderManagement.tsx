@@ -6,7 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import {
   MagnifyingGlassIcon, FunnelIcon, XMarkIcon, PlusIcon, CubeIcon, PhoneIcon, ChatBubbleLeftRightIcon,
-  ExclamationTriangleIcon, ChevronLeftIcon, ChevronRightIcon, MapPinIcon, ArrowPathIcon, ArrowsPointingOutIcon, ArrowsPointingInIcon,
+  ExclamationTriangleIcon, InformationCircleIcon, ChevronLeftIcon, ChevronRightIcon, MapPinIcon, ArrowPathIcon, ArrowsPointingOutIcon, ArrowsPointingInIcon,
 } from "@heroicons/react/24/outline";
 import { groupByBusinessDate } from "@/lib/orderListHelpers";
 import { listOrderManagement } from "@/lib/ordersApi";
@@ -21,15 +21,15 @@ import type { ReportPeriod } from "@/types/reports";
 import type { OrderListItem, OrderListItemSummary } from "@/types/orders";
 
 const TABS = [
-  { key: "ALL", color: "bg-slate-800 hover:bg-slate-900", hint: "allHint" },
-  { key: "UNFULFILLED", color: "bg-blue-700 hover:bg-blue-800", hint: "newHint" },
-  { key: "PROCESSING", color: "bg-violet-700 hover:bg-violet-800", hint: "processingHint" },
-  { key: "WAITING_COURIER", color: "bg-amber-800 hover:bg-amber-900", hint: "courierHint" },
-  { key: "PENDING", color: "bg-cyan-800 hover:bg-cyan-900", hint: "transitHint" },
-  { key: "DELIVERED", color: "bg-emerald-700 hover:bg-emerald-800", hint: "deliveredHint" },
-  { key: "RETURNED", color: "bg-orange-800 hover:bg-orange-900", hint: "returnedHint" },
-  { key: "CANCELLED", color: "bg-zinc-600 hover:bg-zinc-700", hint: "cancelledHint" },
-  { key: "ISSUES", color: "bg-red-700 hover:bg-red-800", hint: "issuesHint" },
+  { key: "ALL", color: "md:bg-slate-800 md:hover:bg-slate-900", hint: "allHint" },
+  { key: "UNFULFILLED", color: "md:bg-blue-700 md:hover:bg-blue-800", hint: "newHint" },
+  { key: "PROCESSING", color: "md:bg-violet-700 md:hover:bg-violet-800", hint: "processingHint" },
+  { key: "WAITING_COURIER", color: "md:bg-amber-800 md:hover:bg-amber-900", hint: "courierHint" },
+  { key: "PENDING", color: "md:bg-cyan-800 md:hover:bg-cyan-900", hint: "transitHint" },
+  { key: "DELIVERED", color: "md:bg-emerald-700 md:hover:bg-emerald-800", hint: "deliveredHint" },
+  { key: "RETURNED", color: "md:bg-orange-800 md:hover:bg-orange-900", hint: "returnedHint" },
+  { key: "CANCELLED", color: "md:bg-zinc-600 md:hover:bg-zinc-700", hint: "cancelledHint" },
+  { key: "ISSUES", color: "md:bg-red-700 md:hover:bg-red-800", hint: "issuesHint" },
 ] as const;
 type Tab = typeof TABS[number]["key"];
 type Copy = typeof orderManagementCopy.en;
@@ -233,15 +233,24 @@ function OrderManagementInner() {
       <button onClick={() => changeTab("ISSUES")} className="shrink-0 rounded-lg px-2 py-2 text-xs font-semibold text-red-700 hover:bg-red-100">{copy.review} →</button>
     </aside>}
     <section className="rounded-2xl border border-gray-200 bg-white shadow-sm">
+      {!isPending && !isFetching && !isError && data && data.totalCount === 0 && (
+        <div role="status" className="mx-3 mt-3 flex items-start gap-2 rounded-lg border border-indigo-100 bg-indigo-50 px-3 py-3 text-sm text-indigo-800">
+          <InformationCircleIcon aria-hidden="true" className="size-5 shrink-0" />
+          <div>
+            <p>{filterCount || debouncedSearch ? copy.noMatchingOrders : copy.emptyStatuses[activeTab]}</p>
+            {(filterCount > 0 || debouncedSearch) && <button onClick={clear} className="mt-1 font-semibold underline underline-offset-2">{copy.clear}</button>}
+          </div>
+        </div>
+      )}
       <nav aria-label={copy.status} className="flex items-center border-b border-gray-100 px-1 sm:px-3">
-        <button onClick={() => tabsRef.current?.scrollBy({ left: -220, behavior: "smooth" })} className="shrink-0 rounded p-1 text-gray-400 hover:text-indigo-600" aria-label={copy.scrollLeft}><ChevronLeftIcon className="size-4" /></button>
-        <div ref={tabsRef} className="scrollbar-hide flex flex-1 gap-2 overflow-x-auto px-1 py-2">
+        <button onClick={() => tabsRef.current?.scrollBy({ left: -220, behavior: "smooth" })} className="hidden shrink-0 rounded p-1 text-gray-400 hover:text-indigo-600 md:block" aria-label={copy.scrollLeft}><ChevronLeftIcon className="size-4" /></button>
+        <div ref={tabsRef} className="scrollbar-hide grid min-w-0 flex-1 auto-rows-fr grid-cols-2 gap-2 p-3 md:flex md:overflow-x-auto md:px-1 md:py-2">
           {TABS.map(tab => <button key={tab.key} aria-pressed={activeTab === tab.key} onClick={() => changeTab(tab.key)}
-            className={`flex shrink-0 items-center gap-2 rounded-lg px-3 py-1 text-xs font-semibold text-white transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-indigo-600 ${tab.color} ${activeTab === tab.key ? "ring-2 ring-slate-900 ring-offset-2 underline underline-offset-4" : ""}`}>
-            {copy[tab.key]}<span className="rounded bg-black/20 px-1.5 py-0.5 text-[11px] text-white tabular-nums">{data ? data.counts[tab.key] ?? 0 : "—"}</span>
+            className={`flex min-h-14 min-w-0 items-center justify-between gap-2 rounded-lg border px-3 py-3 text-left text-xs font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-indigo-600 md:min-h-0 md:shrink-0 md:justify-start md:border-0 md:py-1 md:text-white ${tab.color} ${activeTab === tab.key ? "border-indigo-600 bg-indigo-600 text-white md:ring-2 md:ring-slate-900 md:ring-offset-2 md:underline md:underline-offset-4" : "border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100"}`}>
+            <span className="min-w-0 [overflow-wrap:anywhere]">{copy[tab.key]}</span><span className="shrink-0 rounded bg-black/10 px-1.5 py-0.5 text-[11px] tabular-nums md:bg-black/20 md:text-white">{data ? data.counts[tab.key] ?? 0 : "—"}</span>
           </button>)}
         </div>
-        <button onClick={() => tabsRef.current?.scrollBy({ left: 220, behavior: "smooth" })} className="shrink-0 rounded p-1 text-gray-400 hover:text-indigo-600" aria-label={copy.scrollRight}><ChevronRightIcon className="size-4" /></button>
+        <button onClick={() => tabsRef.current?.scrollBy({ left: 220, behavior: "smooth" })} className="hidden shrink-0 rounded p-1 text-gray-400 hover:text-indigo-600 md:block" aria-label={copy.scrollRight}><ChevronRightIcon className="size-4" /></button>
       </nav>
       <div className="space-y-3 p-4">
         <div className="flex flex-wrap items-center gap-2.5">
@@ -260,7 +269,7 @@ function OrderManagementInner() {
         <div className="flex items-center justify-between gap-2 text-xs text-gray-500"><p>{copy[TABS.find(tab => tab.key === activeTab)!.hint]}</p><p aria-live="polite" className="shrink-0 tabular-nums">{isFetching && !isPending ? copy.updating : data ? `${data.totalCount} ${filterCount || search ? copy.matching : copy.results}` : ""}</p></div>
       </div>
       {isPending ? <LoadingOrders label={copy.loading} /> : isError ? <div role="alert" className="px-4 py-16 text-center"><ExclamationTriangleIcon className="mx-auto mb-3 size-8 text-red-400" /><h2 className="font-semibold text-gray-900">{copy.error}</h2><p className="mb-5 mt-1 text-sm text-gray-500">{copy.errorBody}</p><button onClick={() => refetch()} className={button}><ArrowPathIcon className="size-4" />{copy.retry}</button></div> : !data?.items.length ?
-        <div className="px-4 py-16 text-center"><CubeIcon className="mx-auto mb-3 size-10 text-gray-300" /><h2 className="font-semibold text-gray-900">{copy.empty}</h2><p className="mb-5 mt-1 text-sm text-gray-500">{copy.emptyBody}</p><button onClick={() => { clear(); changeTab("ALL"); }} className={button}>{copy.clear}</button></div> : <>
+        null : <>
           <div className="hidden md:block"><table className="w-full table-fixed text-left [overflow-wrap:anywhere]"><caption className="sr-only">{copy.subtitle}</caption>
             <colgroup><col className="w-[22%]" /><col className="w-[25%]" /><col /><col className="w-28" /></colgroup>
             <thead className="border-y border-gray-100 bg-gray-50/80 text-xs text-gray-500"><tr>{[copy.order, copy.customer, copy.product, copy.amount].map(label => <th scope="col" key={label} className="px-3 py-3 font-medium">{label}</th>)}</tr></thead>

@@ -1082,6 +1082,16 @@ public class AppDbContext : DbContext
         });
 
         // ── ExpenseCategory ──────────────────────────────────────────────────
+        modelBuilder.Entity<PurchasePaymentItem>(e =>
+        {
+            e.ToTable("purchase_payment_items");
+            e.HasKey(x => new { x.PaymentId, x.PurchaseItemId });
+            e.HasIndex(x => x.PurchaseItemId).IsUnique();
+            e.Property(x => x.Amount).HasPrecision(18, 2);
+            e.HasOne<PurchasePayment>().WithMany(x => x.Items).HasForeignKey(x => x.PaymentId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<PurchaseItem>().WithMany().HasForeignKey(x => x.PurchaseItemId).OnDelete(DeleteBehavior.Restrict);
+        });
+
         modelBuilder.Entity<ExpenseCategory>(e =>
         {
             e.ToTable("expense_categories");

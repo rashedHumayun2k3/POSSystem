@@ -4,13 +4,14 @@ using ResellerApi.Entities;
 using ResellerApi.Infrastructure;
 namespace ResellerApi.Services;
 
-public record PurchasePaymentRequest(Guid CostKey, decimal ExpectedAmount, string FundingSource, Guid RequestId, Guid? PurchaseItemId = null);
+public record ProductPaymentLine(Guid PurchaseItemId, decimal Amount);
+public record PurchasePaymentRequest(Guid CostKey, decimal ExpectedAmount, string FundingSource, Guid RequestId, Guid? PurchaseItemId = null, List<ProductPaymentLine>? Products = null);
 public sealed class PurchasePaymentService(AppDbContext db, IBusinessContext business, ExpenseFundingService funding)
 {
     public async Task<List<PurchasePayment>> List(Guid tripId)
     {
         if (!await db.PurchaseTrips.AnyAsync(x => x.Id == tripId)) throw new KeyNotFoundException("Purchase not found.");
-        return await db.PurchasePayments.AsNoTracking().Where(x => x.TripId == tripId).ToListAsync();
+        return await db.PurchasePayments.Include(x => x.Items).AsNoTracking().Where(x => x.TripId == tripId).ToListAsync();
     }
     public async Task<PurchasePayment> Pay(Guid tripId, PurchasePaymentRequest request, Guid userId)
     {
@@ -20,10 +21,10 @@ public sealed class PurchasePaymentService(AppDbContext db, IBusinessContext bus
         var trip = await db.PurchaseTrips.FirstOrDefaultAsync(x => x.Id == tripId) ?? throw new KeyNotFoundException("Purchase not found.");
         if (request.PurchaseItemId.HasValue && request.PurchaseItemId.Value != request.CostKey)
             throw new ArgumentException("Product payment key must match its purchase item.");
-        var previous = await db.PurchasePayments.FirstOrDefaultAsync(x => x.TripId == tripId && x.CostKey == request.CostKey);
+        var previous = await db.PurchasePayments.Include(x => x.Items).FirstOrDefaultAsync(x => x.TripId == tripId && x.CostKey == request.CostKey);
         if (previous != null)
         {
-            if (previous.PurchaseItemId == request.PurchaseItemId && previous.RequestId == request.RequestId && previous.CreatedBy == userId && previous.Amount == request.ExpectedAmount && previous.FundingSource == request.FundingSource) return previous;
+            if (previous.Items.Count == (request.Products?.Count ?? 0) && previous.Items.All(i => request.Products!.Any(r => r.PurchaseItemId == i.PurchaseItemId && r.Amount == i.Amount)) && previous.PurchaseItemId == request.PurchaseItemId && previous.RequestId == request.RequestId && previous.CreatedBy == userId && previous.Amount == request.ExpectedAmount && previous.FundingSource == request.FundingSource) return previous;
             throw new InvalidOperationException("This cost is already paid. Refresh the purchase.");
         }
         if (trip.Status == "CANCELLED") throw new InvalidOperationException("Cannot pay a cancelled purchase.");
@@ -31,13 +32,29 @@ public sealed class PurchasePaymentService(AppDbContext db, IBusinessContext bus
         if (request.CostKey == Guid.Empty)
             throw new InvalidOperationException("Record payment for each product individually.");
         PurchaseItem? paidItem = null;
+        var paidItems = new List<PurchaseItem>();
         decimal amount;
-        if (request.PurchaseItemId.HasValue)
+        if (request.Products != null)
+        {
+            if (request.PurchaseItemId.HasValue || request.CostKey != request.RequestId || request.Products.Count == 0 || request.Products.Select(x => x.PurchaseItemId).Distinct().Count() != request.Products.Count)
+                throw new ArgumentException("Invalid product payment selection.");
+            if (trip.Status is not ("DRAFT" or "PENDING_APPROVAL")) throw new InvalidOperationException("Product payments can only be recorded before approval.");
+            var existing = await db.PurchasePayments.Include(x => x.Items).Where(x => x.TripId == tripId).ToListAsync();
+            if (existing.Any(x => x.CostKey == Guid.Empty)) throw new InvalidOperationException("Products already paid through a historical payment.");
+            var products = await db.PurchaseItems.Where(x => x.TripId == tripId && x.TotalCost > 0).ToListAsync();
+            paidItems = products.Where(i => !existing.Any(p => p.PurchaseItemId == i.Id || p.Items.Any(l => l.PurchaseItemId == i.Id))).ToList();
+            if (paidItems.Count != request.Products.Count || paidItems.Any(i => !request.Products.Any(r => r.PurchaseItemId == i.Id && r.Amount == i.TotalCost)))
+                throw new InvalidOperationException("Unpaid products changed. Refresh before paying.");
+            amount = paidItems.Sum(i => i.TotalCost);
+        }
+        else if (request.PurchaseItemId.HasValue)
         {
             if (trip.Status is not ("DRAFT" or "PENDING_APPROVAL"))
                 throw new InvalidOperationException("Product payments can only be recorded before approval.");
             if (await db.PurchasePayments.AnyAsync(x => x.TripId == tripId && x.CostKey == Guid.Empty))
                 throw new InvalidOperationException("Products were already paid through a historical PO payment.");
+            if (await db.PurchasePayments.AnyAsync(p => p.TripId == tripId && p.Items.Any(i => i.PurchaseItemId == request.PurchaseItemId.Value)))
+                throw new InvalidOperationException("This product is already paid.");
             paidItem = await db.PurchaseItems.FirstOrDefaultAsync(x => x.TripId == tripId && x.Id == request.PurchaseItemId.Value)
                 ?? throw new KeyNotFoundException("Purchase product not found.");
             amount = paidItem.TotalCost;
@@ -54,6 +71,7 @@ public sealed class PurchasePaymentService(AppDbContext db, IBusinessContext bus
         var payment = new PurchasePayment { BusinessId = business.CurrentBusinessId, BranchId = trip.BranchId, TripId = tripId,
             CostKey = request.CostKey, PurchaseItemId = paidItem?.Id, Amount = amount, FundingSource = request.FundingSource, PartnerId = partner?.Id,
             CreatedBy = userId, RequestId = request.RequestId, PaidAt = now };
+        payment.Items = paidItems.Select(i => new PurchasePaymentItem { PaymentId = payment.Id, PurchaseItemId = i.Id, Amount = i.TotalCost }).ToList();
         db.PurchasePayments.Add(payment);
         if (partner != null)
         {
@@ -65,6 +83,7 @@ public sealed class PurchasePaymentService(AppDbContext db, IBusinessContext bus
         }
         // Existing PaidNow is legacy supplier metadata, not proof of a funding transaction.
         if (paidItem != null) { paidItem.PaidNow = paidItem.TotalCost; paidItem.DueAmount = 0; }
+        foreach (var item in paidItems) { item.PaidNow = item.TotalCost; item.DueAmount = 0; }
         await db.SaveChangesAsync();
         if (tx != null) await tx.CommitAsync();
         return payment;
