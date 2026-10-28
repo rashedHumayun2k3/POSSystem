@@ -48,6 +48,7 @@ public class AppDbContext : DbContext
 
     // ── Phase 7 — Expenses ────────────────────────────────────────────────
     public DbSet<Expense> Expenses => Set<Expense>();
+    public DbSet<ExpenseReview> ExpenseReviews => Set<ExpenseReview>();
     public DbSet<AccountingPeriodClosing> AccountingPeriodClosings => Set<AccountingPeriodClosing>();
     public DbSet<BusinessFundLedgerEntry> BusinessFundLedgerEntries => Set<BusinessFundLedgerEntry>();
     public DbSet<BusinessExpenseFund> BusinessExpenseFunds => Set<BusinessExpenseFund>();
@@ -1105,6 +1106,8 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Expense>(e =>
         {
             e.ToTable("expenses");
+            e.Property(x => x.ReviewVersion).HasDefaultValue(1);
+            e.HasOne(x => x.Product).WithMany().HasForeignKey(x => x.ProductId).OnDelete(DeleteBehavior.Restrict);
             e.HasKey(x => x.Id);
             e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
             e.Property(x => x.SubType).HasMaxLength(100).IsRequired();
@@ -1130,6 +1133,16 @@ public class AppDbContext : DbContext
                 .HasForeignKey(x => x.BranchId).OnDelete(DeleteBehavior.NoAction);
             e.HasIndex(x => new { x.BusinessId, x.ExpenseDate });
             e.HasIndex(x => new { x.BusinessId, x.Status });
+        });
+
+        modelBuilder.Entity<ExpenseReview>(e =>
+        {
+            e.ToTable("expense_reviews");
+            e.HasKey(x => x.Id);
+            e.HasOne(x => x.Expense).WithMany().HasForeignKey(x => x.ExpenseId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.Partner).WithMany().HasForeignKey(x => x.PartnerId).OnDelete(DeleteBehavior.Restrict);
+            e.HasIndex(x => new { x.ExpenseId, x.PartnerId, x.ReviewedVersion }).IsUnique();
+            e.HasIndex(x => new { x.BusinessId, x.PartnerId });
         });
 
         // ── PettyCashBox ─────────────────────────────────────────────────────
@@ -1601,6 +1614,12 @@ public class AppDbContext : DbContext
 
     public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
+        foreach (var entry in ChangeTracker.Entries<Expense>().Where(e => e.State == EntityState.Modified))
+        {
+            string[] reviewedFields = ["Amount", "Title", "SubType", "CategoryId", "Note", "ExpenseDate", "FundingSource", "FundingPartnerId", "Status", "DeletedAt", "ProductId", "BranchId", "PhotoUrl", "AllocateToTripId", "StaffId"];
+            if (reviewedFields.Any(name => entry.Property(name).IsModified && !Equals(entry.Property(name).OriginalValue, entry.Property(name).CurrentValue)))
+                entry.Entity.ReviewVersion = entry.Property(e => e.ReviewVersion).OriginalValue + 1;
+        }
         foreach (var entry in ChangeTracker.Entries<BaseEntity>()
                      .Where(e => e.State == EntityState.Added || e.State == EntityState.Modified))
         {

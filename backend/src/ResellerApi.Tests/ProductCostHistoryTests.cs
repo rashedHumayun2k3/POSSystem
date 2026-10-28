@@ -50,6 +50,34 @@ public class ProductCostHistoryTests
         Assert.Equal("COST_CORRECTION", row.GetProperty("Kind").GetString());
     }
 
+    [Fact]
+    public async Task ExcludesOpeningStockButKeepsActualPurchases()
+    {
+        var scope = new Scope();
+        await using var db = Create(scope);
+        var variant = new ProductVariant { BusinessId = scope.CurrentBusinessId, Sku = "TEST", Barcode = "TEST", AvgLandedCost = 421 };
+        db.ProductVariants.Add(variant);
+        var branch = new Branch { BusinessId = scope.CurrentBusinessId, Name = "Main", Code = "MAIN" };
+        foreach (var source in new[] { "OPENING_BALANCE", "LOCAL" })
+        {
+            var trip = new PurchaseTrip { BusinessId = scope.CurrentBusinessId, SourceType = source, TripNo = source };
+            var item = new PurchaseItem { Trip = trip, Variant = variant };
+            var lot = new Lot { BusinessId = scope.CurrentBusinessId, Variant = variant, PurchaseItem = item, LandedUnitCost = source == "LOCAL" ? 500 : 421 };
+            db.StockMovements.Add(new StockMovement { BusinessId = scope.CurrentBusinessId, VariantId = variant.Id,
+                MovementType = "PURCHASE_IN", Branch = branch, Lot = lot, Qty = 10, User = new User { Name = "Owner" } });
+        }
+        db.StockMovements.Add(new StockMovement { BusinessId = scope.CurrentBusinessId, VariantId = variant.Id,
+            MovementType = "ADJUSTMENT", ReferenceType = "ExistingStockCost", Qty = 5, User = new User { Name = "Owner" } });
+        await db.SaveChangesAsync();
+        var response = Assert.IsType<OkObjectResult>(await new ProductCostHistoryController(db, scope).Get(variant.Id));
+        var body = JsonSerializer.SerializeToElement(response.Value);
+        Assert.Equal(1, body.GetProperty("totalCount").GetInt32());
+        Assert.Equal(500m, body.GetProperty("lastPurchaseCost").GetDecimal());
+        Assert.Equal("LOCAL", body.GetProperty("items")[0].GetProperty("PurchaseNo").GetString());
+        Assert.Equal(421m, body.GetProperty("averageCost").GetDecimal());
+        Assert.Equal(3, await db.StockMovements.CountAsync());
+    }
+
     private static AppDbContext Create(Scope scope) => new(new DbContextOptionsBuilder<AppDbContext>()
         .UseInMemoryDatabase(Guid.NewGuid().ToString(), options => options.EnableNullChecks(false)).Options, scope);
 }

@@ -1689,6 +1689,9 @@ namespace ResellerApi.Data.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("nvarchar(500)");
 
+                    b.Property<Guid?>("ProductId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<int?>("RecurringDay")
                         .HasColumnType("int");
 
@@ -1702,6 +1705,11 @@ namespace ResellerApi.Data.Migrations
 
                     b.Property<Guid?>("RequestId")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("ReviewVersion")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(1);
 
                     b.Property<byte[]>("RowVer")
                         .IsConcurrencyToken()
@@ -1744,6 +1752,8 @@ namespace ResellerApi.Data.Migrations
                     b.HasIndex("FundingPartnerId");
 
                     b.HasIndex("PettyCashBoxId");
+
+                    b.HasIndex("ProductId");
 
                     b.HasIndex("StaffId");
 
@@ -1807,6 +1817,54 @@ namespace ResellerApi.Data.Migrations
                     b.HasIndex("BusinessId");
 
                     b.ToTable("expense_categories", (string)null);
+                });
+
+            modelBuilder.Entity("ResellerApi.Entities.ExpenseReview", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("BusinessId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("ExpenseId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("PartnerId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("ReviewedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("ReviewedVersion")
+                        .HasColumnType("int");
+
+                    b.Property<byte[]>("RowVer")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PartnerId");
+
+                    b.HasIndex("BusinessId", "PartnerId");
+
+                    b.HasIndex("ExpenseId", "PartnerId", "ReviewedVersion")
+                        .IsUnique();
+
+                    b.ToTable("expense_reviews", (string)null);
                 });
 
             modelBuilder.Entity("ResellerApi.Entities.ExternalOrderIntegration", b =>
@@ -6004,6 +6062,11 @@ namespace ResellerApi.Data.Migrations
                         .HasForeignKey("PettyCashBoxId")
                         .OnDelete(DeleteBehavior.Restrict);
 
+                    b.HasOne("ResellerApi.Entities.Product", "Product")
+                        .WithMany()
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("ResellerApi.Entities.User", "Staff")
                         .WithMany()
                         .HasForeignKey("StaffId")
@@ -6023,6 +6086,8 @@ namespace ResellerApi.Data.Migrations
 
                     b.Navigation("PettyCashBox");
 
+                    b.Navigation("Product");
+
                     b.Navigation("Staff");
                 });
 
@@ -6035,6 +6100,33 @@ namespace ResellerApi.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("Business");
+                });
+
+            modelBuilder.Entity("ResellerApi.Entities.ExpenseReview", b =>
+                {
+                    b.HasOne("ResellerApi.Entities.Business", "Business")
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("ResellerApi.Entities.Expense", "Expense")
+                        .WithMany()
+                        .HasForeignKey("ExpenseId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("ResellerApi.Entities.Partner", "Partner")
+                        .WithMany()
+                        .HasForeignKey("PartnerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Business");
+
+                    b.Navigation("Expense");
+
+                    b.Navigation("Partner");
                 });
 
             modelBuilder.Entity("ResellerApi.Entities.ExternalOrderIntegration", b =>

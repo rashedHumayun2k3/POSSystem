@@ -136,6 +136,14 @@ public class PurchaseTripsController : ControllerBase
     public async Task<IActionResult> SendLot(Guid id, Guid lotId, SendPurchaseLotRequest request)
         => Ok(await _svc.SendLotAsync(id, lotId, request, _user.UserId));
 
+    [HttpDelete("{id:guid}/lots/{lotId:guid}")]
+    [Authorize(Roles = Roles.Owner)]
+    public async Task<IActionResult> DeleteLot(Guid id, Guid lotId)
+    {
+        await _svc.DeleteLotAsync(id, lotId, _user.UserId);
+        return NoContent();
+    }
+
     [HttpPost("{id:guid}/lots/import/preview")]
     [RequestSizeLimit(8 * 1024 * 1024)]
     [Authorize(Roles = Roles.Owner)]

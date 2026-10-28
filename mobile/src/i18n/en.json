@@ -1,4 +1,29 @@
 {
+  "productCostHistory": {
+  "title": "Product Cost",
+  "current": "Current Purchase Cost",
+  "purchases": "Purchase History",
+  "edits": "Cost Editing History",
+  "noPurchases": "No purchase history recorded yet.",
+  "noEdits": "No manual cost edits yet.",
+  "unit": "/ unit",
+  "phase": "Phase",
+  "opening": "Initial Stock",
+  "received": "Purchase received",
+  "initialCost": "Initial purchase cost",
+  "cost": "Purchase cost",
+  "date": "Date:",
+  "initialQty": "Initial Qty",
+  "receivedQty": "Received Qty",
+  "missing": "Not recorded",
+  "po": "View PO →",
+  "editor": "Edited by:",
+  "save": "Save cost",
+  "saved": "Purchase cost saved.",
+  "invalid": "Enter a valid cost with up to 2 decimal places.",
+  "saveHint": "Saving changes the cost used for future profit calculations. Stock and selling price stay the same.",
+  "input": "Purchase cost for {variant}"
+},
   "pendingDeliveryTab": "Pending Delivery",
   "pendingCourierPaymentTab": "Pending Courier Payment",
   "pendingCourierPaymentHint": "Delivered orders awaiting payment from the courier",
@@ -2238,5 +2263,19 @@
   "posPermission": {
     "title": "POS access denied",
     "message": "You don’t have permission to access this section. Contact your owner to enable Daily Sale / POS access."
+},
+  "expenseReviews": {
+  "title": "Partner expenses",
+  "open": "Check partner expenses ({count})",
+  "hint": "These expenses are already approved. Tick the entries you have checked. Your checkmarks do not change balances.",
+  "failed": "Could not load partner expenses. Tap to retry.",
+  "saveFailed": "Could not save your checkmarks. Check the latest entries and try again.",
+  "enteredBy": "Entered by {name}",
+  "cancelled": "Cancelled",
+  "updated": "Updated since entry",
+  "checked": "I have checked this expense",
+  "save": "Save checked entries ({count})",
+  "later": "Later",
+  "more": "{count} more entries will appear after you save."
 }
 }

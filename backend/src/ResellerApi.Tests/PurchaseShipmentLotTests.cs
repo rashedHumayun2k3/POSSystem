@@ -59,6 +59,42 @@ public class PurchaseShipmentLotTests
         public ValueTask DisposeAsync() => Db.DisposeAsync();
     }
 
+    [Fact]
+    public async Task DeleteReadyLotReleasesQuantitiesWithoutChangingStock()
+    {
+        await using var f = new Fixture(); await f.Seed();
+        var lot = await f.Service.SaveLotAsync(f.Trip.Id, null, new("DELETE-ME", 1000, [new(f.Item.Id, 10)]), f.UserId);
+        await f.Service.DeleteLotAsync(f.Trip.Id, lot.Id, f.UserId);
+        Assert.Empty(f.Db.PurchaseShipments.Where(s => s.Id == lot.Id));
+        Assert.Empty(f.Db.PurchaseShipmentItems.Where(i => i.ShipmentId == lot.Id));
+        await f.Service.SaveLotAsync(f.Trip.Id, null, new("REPLACEMENT", 1000, [new(f.Item.Id, 10)]), f.UserId);
+        Assert.Empty(f.Db.StockMovements);
+        Assert.Equal(0, f.Item.QtyShipped);
+    }
+
+    [Theory]
+    [InlineData("SENT")]
+    [InlineData("RECEIVED")]
+    public async Task DeleteReadyLotRejectsShippedOrReceived(string status)
+    {
+        await using var f = new Fixture(); await f.Seed();
+        var lot = await f.Service.SaveLotAsync(f.Trip.Id, null, new("KEEP", 1000, [new(f.Item.Id, 10)]), f.UserId);
+        (await f.Db.PurchaseShipments.SingleAsync()).Status = status; await f.Db.SaveChangesAsync();
+        await Assert.ThrowsAsync<InvalidOperationException>(() => f.Service.DeleteLotAsync(f.Trip.Id, lot.Id, f.UserId));
+        Assert.Single(f.Db.PurchaseShipments);
+    }
+
+    [Fact]
+    public async Task DeleteReadyLotRejectsCostsAndOtherBusinesses()
+    {
+        await using var f = new Fixture(); await f.Seed();
+        var lot = await f.Service.SaveLotAsync(f.Trip.Id, null, new("KEEP", 1000, [new(f.Item.Id, 10)]), f.UserId);
+        await f.Service.AddCostAsync(f.Trip.Id, new("COURIER", 100, null, null, null, lot.Id), f.UserId);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => f.Service.DeleteLotAsync(f.Trip.Id, lot.Id, f.UserId));
+        f.Context.CurrentBusinessId = Guid.NewGuid();
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => f.Service.DeleteLotAsync(f.Trip.Id, lot.Id, f.UserId));
+    }
+
     [Theory]
     [InlineData("TRANSPORT")]
     [InlineData("LABOR")]
@@ -164,18 +200,14 @@ public class PurchaseShipmentLotTests
     }
 
     [Fact]
-    public async Task ApprovalRequiresOnlyProductAndCommonPayments()
+    public async Task ApprovalAllowsUnpaidProductsAndCommonCosts()
     {
         await using var f = new Fixture(); f.Trip.Status = "DRAFT"; await f.Seed();
         var common = new PurchaseTripCost { TripId = f.Trip.Id, CostType = "AGENT_FEE", Amount = 100 };
         var lotCost = new PurchaseTripCost { TripId = f.Trip.Id, ShipmentId = Guid.NewGuid(), CostType = "COURIER", Amount = 300 };
         f.Db.PurchaseTripCosts.AddRange(common, lotCost); await f.Db.SaveChangesAsync();
-        await Assert.ThrowsAsync<InvalidOperationException>(() => f.Service.ApproveAsync(f.Trip.Id, null, f.UserId));
-        foreach (var (key, amount) in new[] { (Guid.Empty, 1000m), (common.Id, 100m) })
-            f.Db.PurchasePayments.Add(new PurchasePayment { BusinessId = f.Context.CurrentBusinessId, BranchId = f.Context.CurrentBranchId,
-                TripId = f.Trip.Id, CostKey = key, Amount = amount, FundingSource = "BUSINESS", RequestId = Guid.NewGuid() });
-        await f.Db.SaveChangesAsync();
         Assert.Equal("PRODUCT_APPROVED", (await f.Service.ApproveAsync(f.Trip.Id, null, f.UserId)).Status);
+        Assert.Empty(f.Db.PurchasePayments);
         await Assert.ThrowsAsync<InvalidOperationException>(() => f.Service.AddCostAsync(f.Trip.Id, new("OTHER", 20, null, null, null), f.UserId));
     }
 

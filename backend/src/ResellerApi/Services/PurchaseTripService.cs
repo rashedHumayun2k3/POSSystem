@@ -385,14 +385,8 @@ public partial class PurchaseTripService : IPurchaseTripService
             ?? throw new KeyNotFoundException("Purchase trip not found.");
         if (trip.Status is not ("DRAFT" or "PENDING_APPROVAL"))
             throw new InvalidOperationException("Only draft POs can be approved.");
-        var paymentRows = await _db.PurchasePayments.Include(p => p.Items).Where(p => p.TripId == tripId).ToListAsync();
-        var items = await _db.PurchaseItems.Where(i => i.TripId == tripId).ToListAsync();
-        var costs = await _db.PurchaseTripCosts.Where(c => c.TripId == tripId && c.ShipmentId == null && !c.IsPostCompletion).ToListAsync();
-        if (items.Count == 0) throw new InvalidOperationException("Add products before approval.");
-        var legacyPaid = paymentRows.Any(p => p.CostKey == Guid.Empty && p.Amount == items.Sum(i => i.TotalCost));
-        if ((!legacyPaid && items.Any(i => i.TotalCost > 0 && !paymentRows.Any(p => (p.PurchaseItemId == i.Id && p.Amount == i.TotalCost || p.Items.Any(line => line.PurchaseItemId == i.Id && line.Amount == i.TotalCost))))) ||
-            costs.Any(c => c.Amount > 0 && !paymentRows.Any(p => p.CostKey == c.Id && p.Amount == c.Amount)))
-            throw new InvalidOperationException("Record full payment for every product and common PO cost before product approval.");
+        if (!await _db.PurchaseItems.AnyAsync(i => i.TripId == tripId))
+            throw new InvalidOperationException("Add products before approval.");
         trip.Status = "PRODUCT_APPROVED";
         trip.ApprovedBy = userId;
         trip.ApprovalNote = string.IsNullOrWhiteSpace(note) ? null : note.Trim();

@@ -6,6 +6,7 @@ public interface IPurchaseTripService
 {
     Task PrepareOpeningStockAsync(Guid tripId, Guid userId);
     Task<PurchaseLotDto> SaveLotAsync(Guid tripId, Guid? lotId, SavePurchaseLotRequest request, Guid userId);
+    Task DeleteLotAsync(Guid tripId, Guid lotId, Guid userId);
     Task<PurchaseTripDetailDto> SendLotAsync(Guid tripId, Guid lotId, SendPurchaseLotRequest request, Guid userId);
     Task<LotImportPreview> PreviewLotImportAsync(Guid tripId, LotImportUpload upload);
     // ── CRUD ──────────────────────────────────────────────────────────────────

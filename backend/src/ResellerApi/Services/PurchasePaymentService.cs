@@ -38,7 +38,6 @@ public sealed class PurchasePaymentService(AppDbContext db, IBusinessContext bus
         {
             if (request.PurchaseItemId.HasValue || request.CostKey != request.RequestId || request.Products.Count == 0 || request.Products.Select(x => x.PurchaseItemId).Distinct().Count() != request.Products.Count)
                 throw new ArgumentException("Invalid product payment selection.");
-            if (trip.Status is not ("DRAFT" or "PENDING_APPROVAL")) throw new InvalidOperationException("Product payments can only be recorded before approval.");
             var existing = await db.PurchasePayments.Include(x => x.Items).Where(x => x.TripId == tripId).ToListAsync();
             if (existing.Any(x => x.CostKey == Guid.Empty)) throw new InvalidOperationException("Products already paid through a historical payment.");
             var products = await db.PurchaseItems.Where(x => x.TripId == tripId && x.TotalCost > 0).ToListAsync();
@@ -49,8 +48,6 @@ public sealed class PurchasePaymentService(AppDbContext db, IBusinessContext bus
         }
         else if (request.PurchaseItemId.HasValue)
         {
-            if (trip.Status is not ("DRAFT" or "PENDING_APPROVAL"))
-                throw new InvalidOperationException("Product payments can only be recorded before approval.");
             if (await db.PurchasePayments.AnyAsync(x => x.TripId == tripId && x.CostKey == Guid.Empty))
                 throw new InvalidOperationException("Products were already paid through a historical PO payment.");
             if (await db.PurchasePayments.AnyAsync(p => p.TripId == tripId && p.Items.Any(i => i.PurchaseItemId == request.PurchaseItemId.Value)))

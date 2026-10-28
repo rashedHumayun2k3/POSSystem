@@ -157,6 +157,31 @@ public partial class PurchaseTripService
         return MapLot(lot);
     }
 
+    public async Task DeleteLotAsync(Guid tripId, Guid lotId, Guid userId)
+    {
+        await using var tx = await new ExpenseFundingService(_db, _business).BeginAsync();
+        var trip = await LoadLotTripAsync(tripId);
+        if (!ApprovedPurchase(trip)) throw new InvalidOperationException("Only lots on an open, approved PO can be deleted.");
+        var lot = trip.Shipments.SingleOrDefault(s => s.Id == lotId && !s.IsLegacy && s.DeletedAt == null)
+            ?? throw new KeyNotFoundException("Lot not found.");
+        if (lot.Status != "READY") throw new InvalidOperationException("Only ready lots can be deleted.");
+        if (trip.Sessions.Any(s => s.ShipmentId == lotId))
+            throw new InvalidOperationException("A lot with receiving records cannot be deleted.");
+        var costIds = await _db.PurchaseTripCosts.IgnoreQueryFilters()
+            .Where(c => c.TripId == trip.Id && (c.ShipmentId == lotId || c.Id == lot.PurchaseTripCostId))
+            .Select(c => c.Id).ToListAsync();
+        if (await _db.PurchasePayments.IgnoreQueryFilters().AnyAsync(p => p.BusinessId == trip.BusinessId && p.TripId == trip.Id && p.DeletedAt == null && costIds.Contains(p.CostKey)))
+            throw new InvalidOperationException("This lot has recorded cost payments and cannot be deleted.");
+        if (trip.Costs.Any(c => c.DeletedAt == null && costIds.Contains(c.Id)))
+            throw new InvalidOperationException("Remove this lot's unpaid costs before deleting it.");
+        var now = DateTime.UtcNow;
+        lot.DeletedAt = now;
+        foreach (var item in lot.Items) item.DeletedAt = now;
+        await _db.SaveChangesAsync();
+        await _log.LogAsync(trip.BusinessId, userId, "DELETE", "PurchaseShipment", lot.Id);
+        if (tx != null) await tx.CommitAsync();
+    }
+
     public async Task<PurchaseTripDetailDto> SendLotAsync(Guid tripId, Guid lotId, SendPurchaseLotRequest request, Guid userId)
     {
         await using var tx = await new ExpenseFundingService(_db, _business).BeginAsync();

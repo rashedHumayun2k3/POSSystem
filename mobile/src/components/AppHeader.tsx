@@ -20,7 +20,7 @@ export default function AppHeader({ onMenuPress }: { onMenuPress?: () => void })
     <View style={s.actions}>
       {!mobile && <View accessibilityLabel="Online" style={s.online} />}
       <BriefingButton />
-      <Pressable onPress={toggleLang} accessibilityRole="button" accessibilityLabel={t("Switch language")} style={s.language}><Text style={s.languageText}>{lang === "bn" ? "EN" : "বাং"}</Text></Pressable>
+      <Pressable onPress={toggleLang} accessibilityRole="button" accessibilityLabel={lang === "bn" ? "বাংলা নির্বাচিত। ইংরেজিতে পরিবর্তন করুন" : "English selected. Switch to Bengali"} style={s.language}><Text style={s.languageText}>{lang === "bn" ? "বাং" : "EN"}</Text></Pressable>
       <TaskBell />
       <Pressable accessibilityRole="button" accessibilityLabel={t("profile.title")} onPress={() => router.push("/profile")}>
         <UserAvatar name={auth.session?.user.name ?? ""} photoUrl={photo} />

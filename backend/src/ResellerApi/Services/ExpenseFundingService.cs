@@ -149,7 +149,7 @@ public class ExpenseFundingService(AppDbContext db, IBusinessContext business)
     {
         var balance = await BalanceAsync();
         var partner = await PartnerAsync(userId);
-        var canInvest = await IsOnlyApprovingMemberAsync(userId) || await db.Partners.AnyAsync(p => p.Status == "ACTIVE" && p.PartnerType == "MANAGING");
+        var canInvest = partner != null;
         return new(true, canViewBalance ? balance / 100m : null,
             canInvest ? partner?.Id : null, canInvest ? partner?.Name : null, false);
     }
@@ -211,8 +211,6 @@ public class ExpenseFundingService(AppDbContext db, IBusinessContext business)
         if (expense.FundingSource != "PERSONAL") return;
         if (!await db.Partners.AnyAsync(p => p.Id == expense.FundingPartnerId && p.Status == "ACTIVE"))
             throw new InvalidOperationException("The paying partner must be active.");
-        if (!await IsOnlyApprovingMemberAsync(expense.CreatedBy) && !await db.Partners.AnyAsync(p => p.Status == "ACTIVE" && p.PartnerType == "MANAGING"))
-            throw new InvalidOperationException("An active managing partner is required to review the investment.");
         var existing = await db.CapitalInjections.FirstOrDefaultAsync(i => i.ExpenseId == expense.Id);
         if (existing != null) {
             if (existing.Status is "PENDING_EXPENSE" or "PENDING_APPROVAL")

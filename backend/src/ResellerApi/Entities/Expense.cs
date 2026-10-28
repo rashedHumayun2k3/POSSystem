@@ -4,6 +4,9 @@ namespace ResellerApi.Entities;
 
 public class Expense : BusinessScopedEntity, IBranchScoped
 {
+    public int ReviewVersion { get; set; } = 1;
+    public Guid? ProductId { get; set; }
+    public Product? Product { get; set; }
     public string? FundingSource { get; set; } // BUSINESS | PERSONAL; null = legacy
     public Guid? FundingPartnerId { get; set; }
     public string? FundingPartnerName { get; set; }

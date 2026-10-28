@@ -26,7 +26,11 @@ public class ProductCostHistoryController(AppDbContext db, IBusinessContext busi
 
         var movements = db.StockMovements.AsNoTracking().Where(m => m.VariantId == variantId
             && m.BusinessId == business.CurrentBusinessId
-            && ((m.MovementType == "PURCHASE_IN" && m.LotId != null) || m.ReferenceType == "ExistingStockCost"));
+            // Starting inventory is not a purchase, including legacy catalog opening-stock POs.
+            && m.MovementType == "PURCHASE_IN" && m.LotId != null
+            && m.ReferenceType != "ExistingStockCost"
+            && m.Lot!.PurchaseItem.Trip.BusinessId == business.CurrentBusinessId
+            && m.Lot.PurchaseItem.Trip.SourceType != "OPENING_BALANCE");
         var receipts = movements.Where(m => m.MovementType == "PURCHASE_IN");
         var lastPurchaseCost = await receipts.OrderByDescending(m => m.CreatedAt).ThenByDescending(m => m.Id)
             .Select(m => (decimal?)m.Lot!.LandedUnitCost).FirstOrDefaultAsync();

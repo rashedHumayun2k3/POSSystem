@@ -62,7 +62,8 @@ public record CreateExpenseRequest(
     Guid? BranchId = null,
     string? FundingSource = null,
     Guid? RequestId = null,
-    string? Title = null
+    string? Title = null,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] Guid? ProductId = null
 );
 
 public record ExpenseFundingDto(bool Initialized, decimal? Balance, Guid? PartnerId, string? PartnerName, bool CanInitialize);

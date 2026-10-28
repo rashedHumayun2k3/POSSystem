@@ -1,4 +1,4 @@
-import HomeInstallmentApprovals from "../components/HomeInstallmentApprovals";
+import HomeExpenseReviews from "../components/HomeExpenseReviews";
 import HomePartnerApprovals from "../components/HomePartnerApprovals";
 import { Text } from "../i18n/LocalizedText";
 import { colors } from "../theme";import { useCallback, useEffect, useMemo, useState } from "react";
@@ -95,7 +95,7 @@ export default function HomeScreen() {
   ];
   return <ScrollView style={s.root} contentContainerStyle={s.content} refreshControl={<RefreshControl refreshing={loading} onRefresh={refresh} />}>
     <HomePartnerApprovals />
-    <HomeInstallmentApprovals />
+    <HomeExpenseReviews />
     <View style={s.welcome}><Text style={s.welcomeText}>Welcome back, {auth.session?.user.name}</Text><View style={s.businessRow}><PageTitle numberOfLines={1} style={s.business}>{business?.name ?? "LavLokshan"}</PageTitle><Text style={s.date}>{date}</Text></View></View>
     <View style={s.body}>
       <SectionTitle title="Business today" link="Closing summary" href="/more/reports/daily-closing" />

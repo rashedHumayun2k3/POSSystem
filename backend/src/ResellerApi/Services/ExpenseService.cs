@@ -134,6 +134,13 @@ public class ExpenseService : IExpenseService
         if (req.Title?.Trim().Length > 150)
             throw new ArgumentException("Title must be 150 characters or fewer.");
 
+        if (req.ProductId.HasValue)
+        {
+            if (!isOwner) throw new ArgumentException("Only owners can create product expenses.");
+            if (req.AllocateToTripId.HasValue) throw new ArgumentException("Choose a product or a purchase trip, not both.");
+            if (!await _db.Products.AnyAsync(p => p.Id == req.ProductId && p.BusinessId == _business.CurrentBusinessId))
+                throw new KeyNotFoundException("Product not found.");
+        }
         ExpenseFundingService.ToPaisa(req.Amount);
         var source = req.FundingSource?.Trim().ToUpperInvariant();
         if (source != null && source != "BUSINESS" && source != "PERSONAL")
@@ -156,13 +163,10 @@ public class ExpenseService : IExpenseService
                 return await GetAsync(previous.Id);
             }
         }
-        var autoApprove = await Funding.IsOnlyApprovingMemberAsync(userId);
         var partner = source == "PERSONAL" ? await Funding.PartnerAsync(userId) : null;
         if (source == "PERSONAL" && partner == null)
             throw new InvalidOperationException("Your account must be linked to an active business partner to record a personal investment.");
-        if (source == "PERSONAL" && !autoApprove && !await _db.Partners.AnyAsync(p => p.Status == "ACTIVE" && p.PartnerType == "MANAGING"))
-            throw new InvalidOperationException("An active managing partner is required to review the investment.");
-        if (source != "PERSONAL" && (autoApprove || source == "BUSINESS" || req.PettyCashBoxId.HasValue))
+        if (source != "PERSONAL")
             await Funding.CheckBusinessPaymentAsync(req.Amount);
 
         var cat = await _db.ExpenseCategories.FirstOrDefaultAsync(c => c.Id == req.CategoryId)
@@ -170,6 +174,7 @@ public class ExpenseService : IExpenseService
 
         var expense = new Expense
         {
+            ProductId = req.ProductId,
             FundingSource = source,
             FundingPartnerId = partner?.Id,
             FundingPartnerName = partner?.Name,
@@ -189,10 +194,10 @@ public class ExpenseService : IExpenseService
             PettyCashBoxId   = req.PettyCashBoxId,
             PhotoUrl         = req.PhotoUrl?.Trim(),
             Note             = req.Note?.Trim(),
-            Status           = autoApprove ? "APPROVED" : "PENDING",
-            PaidAt           = autoApprove ? DateTime.UtcNow : null,
+            Status           = "APPROVED",
+            PaidAt           = DateTime.UtcNow,
             CreatedBy        = userId,
-            ApprovedBy       = autoApprove ? userId : null,
+            ApprovedBy       = userId,
         };
         _db.Expenses.Add(expense);
 
@@ -219,7 +224,8 @@ public class ExpenseService : IExpenseService
         }
 
         await _db.SaveChangesAsync();
-        if (autoApprove) { await Funding.AddPersonalInvestmentAsync(expense); await _db.SaveChangesAsync(); }
+        await Funding.AddPersonalInvestmentAsync(expense);
+        await _db.SaveChangesAsync();
         await _log.LogAsync(_business.CurrentBusinessId, userId, "CREATE", "Expense", expense.Id,
             null, new { expense.Amount, expense.SubType, expense.FundingSource, expense.FundingPartnerId });
         if (tx != null) await tx.CommitAsync();
@@ -232,6 +238,8 @@ public class ExpenseService : IExpenseService
         await using var tx = await Funding.BeginAsync();
         var expense = await _db.Expenses.FirstOrDefaultAsync(e => e.Id == id)
             ?? throw new KeyNotFoundException("Expense not found.");
+        if (expense.ProductId != null && req.AllocateToTripId != null)
+            throw new InvalidOperationException("Unlink this expense from its product before allocating it to a PO.");
         if (expense.CreatedBy != userId)
             throw new UnauthorizedAccessException("Only the creator can edit this expense.");
 

@@ -35,13 +35,13 @@ public class PartnerCapitalService : IPartnerCapitalService
         await using var tx = await new ExpenseFundingService(_db, _business).BeginAsync();
         await new ExpenseFundingService(_db, _business).EnsureDateOpenAsync(request.InjectedAt ?? DateTime.UtcNow);
         var injection = BuildInjection(partnerId, request, userId);
-        var autoApprove = request.SubmitForApproval && await MarkSubmittedAsync(injection, userId);
+        var autoApprove = await MarkSubmittedAsync(injection, userId);
 
         _db.CapitalInjections.Add(injection);
         await _db.SaveChangesAsync();
         if (autoApprove) await ApproveInjectionAsync(injection, userId);
 
-        await _log.LogAsync(_business.CurrentBusinessId, userId, "CREATE", "CapitalInjectionDraft", injection.Id);
+        await _log.LogAsync(_business.CurrentBusinessId, userId, "CREATE", "CapitalInjection", injection.Id);
         if (tx != null) await tx.CommitAsync();
         return ToDto(injection);
     }
@@ -70,11 +70,11 @@ public class PartnerCapitalService : IPartnerCapitalService
         injection.ProofImageUrl = request.ProofImageUrl?.Trim();
         injection.Note = request.Note?.Trim();
         injection.UpdatedAt = DateTime.UtcNow;
-        var autoApprove = request.SubmitForApproval && await MarkSubmittedAsync(injection, userId);
+        var autoApprove = await MarkSubmittedAsync(injection, userId);
 
         await _db.SaveChangesAsync();
         if (autoApprove) await ApproveInjectionAsync(injection, userId);
-        await _log.LogAsync(_business.CurrentBusinessId, userId, "UPDATE", "CapitalInjectionDraft", injection.Id);
+        await _log.LogAsync(_business.CurrentBusinessId, userId, "UPDATE", "CapitalInjection", injection.Id);
         if (tx != null) await tx.CommitAsync();
         return ToDto(injection);
     }
@@ -237,7 +237,6 @@ public class PartnerCapitalService : IPartnerCapitalService
 
     public async Task<List<CapitalInjectionDto>> ListPendingInjectionsAsync()
     {
-        await new ExpenseFundingService(_db, _business).ReconcileApprovedPersonalInvestmentsAsync();
         var closedThrough = (await new ExpenseFundingService(_db, _business).LatestClosingAsync())?.PeriodEnd;
         return await _db.CapitalInjections.AsNoTracking()
             .Where(i => i.Status == "PENDING_APPROVAL")
@@ -346,15 +345,11 @@ public class PartnerCapitalService : IPartnerCapitalService
 
     private async Task<bool> MarkSubmittedAsync(CapitalInjection injection, Guid userId)
     {
-        var activeCount = await _db.Partners.CountAsync(p => p.Status == "ACTIVE");
-        if (activeCount == 0)
+        if (!await _db.Partners.AnyAsync(p => p.Id == injection.PartnerId && p.Status == "ACTIVE"))
             throw new InvalidOperationException("An active partner is required to record an installment.");
-        if (activeCount > 1 && !await _db.Partners.AnyAsync(p => p.Status == "ACTIVE" && p.PartnerType == "MANAGING" && p.LinkedUserId != userId))
-            throw new InvalidOperationException("Another active managing partner is required to review the installment.");
-        injection.Status = "PENDING_APPROVAL";
         injection.SubmittedAt = DateTime.UtcNow;
         injection.SubmittedBy = userId;
-        return activeCount == 1;
+        return true;
     }
 
     private static void EnsureDraft(CapitalInjection injection)

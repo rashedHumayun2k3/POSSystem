@@ -143,11 +143,25 @@ public class PurchasePaymentTests
         await Assert.ThrowsAsync<InvalidOperationException>(()=>f.Trips.CancelAsync(f.Trip.Id,f.User));
         f.Trip.Status="CANCELLED";await f.Db.SaveChangesAsync();await Assert.ThrowsAsync<InvalidOperationException>(()=>f.Payments.Pay(f.Trip.Id,new(f.Item.Id,1000,"BUSINESS",Guid.NewGuid(),f.Item.Id),f.User));
     }
-    [Fact] public async Task ApprovalBlockedUntilPaymentsRecorded()
+    [Fact] public async Task ApprovalWithoutPaymentsAllowsPaymentLater()
     {
-        await using var f=new Fixture();await f.Seed();await Assert.ThrowsAsync<InvalidOperationException>(()=>f.Trips.ApproveAsync(f.Trip.Id,null,f.User));
+        await using var f=new Fixture();await f.Seed();
+        var balance=await f.Funding.BalanceAsync();
+        await f.Trips.ApproveAsync(f.Trip.Id,null,f.User);
+        Assert.Equal("PRODUCT_APPROVED",f.Trip.Status);
+        Assert.Empty(f.Db.PurchasePayments);
+        Assert.Equal(balance,await f.Funding.BalanceAsync());
         await f.Payments.Pay(f.Trip.Id,new(f.Item.Id,1000,"BUSINESS",Guid.NewGuid(),f.Item.Id),f.User);
-        await Assert.ThrowsAsync<InvalidOperationException>(()=>f.Trips.ApproveAsync(f.Trip.Id,null,f.User));
+        Assert.Single(f.Db.PurchasePayments);
+        Assert.Equal(balance-100000,await f.Funding.BalanceAsync());
+    }
+    [Fact] public async Task BulkPaymentAllowedAfterApproval()
+    {
+        await using var f=new Fixture();await f.Seed();
+        await f.Trips.ApproveAsync(f.Trip.Id,null,f.User);
+        var payment=await f.Payments.Pay(f.Trip.Id,Bulk(f),f.User);
+        Assert.Equal(1000,payment.Amount);
+        Assert.Single(payment.Items);
     }
     [Fact] public async Task ProductPaymentIsIdempotentAndLocksOnlyItsLine()
     {
@@ -162,9 +176,8 @@ public class PurchasePaymentTests
         await Assert.ThrowsAsync<InvalidOperationException>(()=>f.Trips.UpdateItemAsync(f.Trip.Id,f.Item.Id,new(5,900,null,null,0,900,null),f.User));
         var added=await f.Trips.AddItemAsync(f.Trip.Id,new(f.Item.VariantId,1,200,null,null,0,200,null),f.User);
         await f.Payments.Pay(f.Trip.Id,f.Request(),f.User);
-        await Assert.ThrowsAsync<InvalidOperationException>(()=>f.Trips.ApproveAsync(f.Trip.Id,null,f.User));
-        await f.Payments.Pay(f.Trip.Id,new(added.Id,200,"BUSINESS",Guid.NewGuid(),added.Id),f.User);
         await f.Trips.ApproveAsync(f.Trip.Id,null,f.User);
+        await f.Payments.Pay(f.Trip.Id,new(added.Id,200,"BUSINESS",Guid.NewGuid(),added.Id),f.User);
         Assert.Equal("PRODUCT_APPROVED",f.Trip.Status);
     }
     [Fact] public async Task ProductPaymentRejectsWrongTripChangedAmountAndAggregateKey()

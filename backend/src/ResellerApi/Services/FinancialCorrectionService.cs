@@ -61,7 +61,7 @@ public class FinancialCorrectionService(AppDbContext db, IBusinessContext busine
                 db.CapitalLedgerEntries.Add(new CapitalLedgerEntry {
                     BusinessId = business.CurrentBusinessId, PartnerId = injection.PartnerId, Bucket = "CAPITAL", EntryType = "CORRECTION",
                     AmountPaisa = -posted, BalanceAfterPaisa = balance - posted, ReferenceType = "CapitalInjection", ReferenceId = injection.Id,
-                    Note = request.Cancel ? "Cancelled installment: reversal" : "Amount correction: reversal pending fresh approval", CreatedBy = userId
+                    Note = request.Cancel ? "Cancelled installment: reversal" : "Amount correction: reverse previous posting", CreatedBy = userId
                 });
             }
             // Votes are archived in the audit entry before removal; the unique voter key can then be reused.
@@ -92,12 +92,21 @@ public class FinancialCorrectionService(AppDbContext db, IBusinessContext busine
             expense.ApprovedBy = null; expense.PaidAt = null; expense.RejectionReason = null;
         }
         await db.SaveChangesAsync();
-        if (!request.Cancel && expense != null && await funding.IsOnlyApprovingMemberAsync(userId))
+        if (!request.Cancel && expense != null)
         {
             if (expense.FundingSource != "PERSONAL" && !expense.PettyCashBoxId.HasValue)
                 await funding.CheckBusinessPaymentAsync(expense.Amount);
             expense.Status = "APPROVED"; expense.ApprovedBy = userId; expense.PaidAt = DateTime.UtcNow;
             await funding.AddPersonalInvestmentAsync(expense);
+            await db.SaveChangesAsync();
+        }
+        if (!request.Cancel && injection != null && expense == null)
+        {
+            var balance = await db.CapitalLedgerEntries.Where(l => l.PartnerId == injection.PartnerId && l.Bucket == "CAPITAL").SumAsync(l => (long?)l.AmountPaisa) ?? 0;
+            db.CapitalLedgerEntries.Add(new CapitalLedgerEntry { BusinessId = business.CurrentBusinessId, PartnerId = injection.PartnerId,
+                EntryType = "CAPITAL_INJECTION", Bucket = "CAPITAL", AmountPaisa = injection.AmountPaisa, BalanceAfterPaisa = balance + injection.AmountPaisa,
+                ReferenceType = "CapitalInjection", ReferenceId = injection.Id, Note = "Corrected installment automatically approved.", CreatedBy = userId });
+            injection.Status = "APPROVED"; injection.ApprovedBy = userId; injection.ApprovedAt = DateTime.UtcNow;
             await db.SaveChangesAsync();
         }
         var action = request.Cancel ? "CANCEL" : "CORRECT";
