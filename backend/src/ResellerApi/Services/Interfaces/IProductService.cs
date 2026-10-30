@@ -5,7 +5,7 @@ namespace ResellerApi.Services.Interfaces;
 
 public interface IProductService
 {
-    Task<List<ProductSummaryDto>> ListAsync(string? status, Guid? categoryId, string? q, int? skip = null, int? take = null);
+    Task<List<ProductSummaryDto>> ListAsync(string? status, Guid? categoryId, string? q, int? skip = null, int? take = null, Guid? brandId = null, string? sort = null, string? stock = null, decimal? minPrice = null, decimal? maxPrice = null);
     Task<List<ProductSummaryDto>> ListFromSuggestedCategoriesAsync();
     Task<object> GetAsync(Guid id, bool isOwner);
     Task<List<ProductSearchResultDto>> SearchAsync(string q, bool onlyInStock = false);

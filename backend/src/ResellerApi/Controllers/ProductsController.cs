@@ -43,9 +43,16 @@ public class ProductsController : ControllerBase
         [FromQuery] Guid? categoryId,
         [FromQuery] string? q,
         [FromQuery] int? skip = null,
-        [FromQuery] int? take = null)
+        [FromQuery] int? take = null,
+        [FromQuery] Guid? brandId = null,
+        [FromQuery] string? sort = null,
+        [FromQuery] string? stock = null,
+        [FromQuery] decimal? minPrice = null,
+        [FromQuery] decimal? maxPrice = null)
     {
-        var products = await _svc.ListAsync(status, categoryId, q, skip, take);
+        List<ProductSummaryDto> products;
+        try { products = await _svc.ListAsync(status, categoryId, q, skip, take, brandId, sort, stock, minPrice, maxPrice); }
+        catch (ArgumentException ex) { return BadRequest(new { message = ex.Message }); }
         if (!_user.CanSeeCosts)
         {
             return Ok(products.Select(p => new

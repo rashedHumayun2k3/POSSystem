@@ -41,7 +41,7 @@ public class ProductService : IProductService
             ? _priceSlots.CreateSlotAsync(variantId, new CreateSlotRequest("Original Price", price, null), userId)
             : Task.CompletedTask;
 
-    public async Task<List<ProductSummaryDto>> ListAsync(string? status, Guid? categoryId, string? q, int? skip = null, int? take = null)
+    public async Task<List<ProductSummaryDto>> ListAsync(string? status, Guid? categoryId, string? q, int? skip = null, int? take = null, Guid? brandId = null, string? sort = null, string? stock = null, decimal? minPrice = null, decimal? maxPrice = null)
     {
         var query = _db.Products
             .AsNoTracking()
@@ -51,6 +51,8 @@ public class ProductService : IProductService
 
         if (!string.IsNullOrWhiteSpace(status))
             query = query.Where(p => p.Status == status.ToUpper());
+        if (brandId.HasValue)
+            query = query.Where(p => p.BrandId == brandId.Value);
         if (categoryId.HasValue)
             query = query.Where(p => p.CategoryId == categoryId.Value);
         if (!string.IsNullOrWhiteSpace(q))
@@ -60,7 +62,40 @@ public class ProductService : IProductService
                 || p.Variants.Any(v => v.Sku.Contains(term) || v.Barcode == term));
         }
 
-        query = query.OrderBy(p => p.Name).ThenBy(p => p.Id);
+        sort = string.IsNullOrWhiteSpace(sort) ? "name_asc" : sort.ToLowerInvariant();
+        stock = string.IsNullOrWhiteSpace(stock) ? "all" : stock.ToLowerInvariant();
+        if (!new[] { "name_asc", "name_desc", "price_asc", "price_desc", "qty_asc", "qty_desc", "newest", "oldest" }.Contains(sort))
+            throw new ArgumentException("Invalid product sort option.");
+        if (!new[] { "all", "in", "low", "out" }.Contains(stock)) throw new ArgumentException("Invalid stock filter.");
+        if (minPrice < 0 || maxPrice < 0 || (minPrice.HasValue && maxPrice.HasValue && minPrice > maxPrice))
+            throw new ArgumentException("Enter a valid non-negative price range.");
+        if (minPrice.HasValue) query = query.Where(p => p.SellingPrice >= minPrice.Value);
+        if (maxPrice.HasValue) query = query.Where(p => p.SellingPrice <= maxPrice.Value);
+
+        // Aggregate available stock within the selected branch before filtering/paging.
+        // Use the same inventory formula as the product cards; products without stock count as zero.
+        var ranked = query.Select(p => new {
+            Product = p,
+            Quantity = (from inventory in _db.BranchVariantInventories
+                        join variant in _db.ProductVariants on inventory.VariantId equals variant.Id
+                        where variant.ProductId == p.Id &&
+                            (!_business.CurrentBranchId.HasValue || inventory.BranchId == _business.CurrentBranchId.Value)
+                        select (decimal?)(inventory.OnHand - inventory.Committed - inventory.Damaged)).Sum() ?? 0m
+        });
+        if (stock == "in") ranked = ranked.Where(x => x.Quantity > 0);
+        if (stock == "low") ranked = ranked.Where(x => x.Quantity > 0 && x.Quantity < x.Product.LowStockThreshold);
+        if (stock == "out") ranked = ranked.Where(x => x.Quantity <= 0);
+        var ordered = sort switch {
+            "name_desc" => ranked.OrderByDescending(x => x.Product.Name),
+            "price_asc" => ranked.OrderBy(x => x.Product.SellingPrice),
+            "price_desc" => ranked.OrderByDescending(x => x.Product.SellingPrice),
+            "qty_asc" => ranked.OrderBy(x => x.Quantity),
+            "qty_desc" => ranked.OrderByDescending(x => x.Quantity),
+            "newest" => ranked.OrderByDescending(x => x.Product.CreatedAt),
+            "oldest" => ranked.OrderBy(x => x.Product.CreatedAt),
+            _ => ranked.OrderBy(x => x.Product.Name)
+        };
+        query = ordered.ThenBy(x => x.Product.Id).Select(x => x.Product);
         if (take.HasValue)
             query = query.Skip(Math.Max(0, skip ?? 0)).Take(Math.Clamp(take.Value, 1, 100));
         var products = await query.ToListAsync();
