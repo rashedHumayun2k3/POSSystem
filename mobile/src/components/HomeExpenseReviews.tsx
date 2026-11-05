@@ -1,3 +1,4 @@
+import ExpenseDocumentLink from "./ExpenseDocumentLink";
 import { useCallback, useRef, useState } from "react";
 import { useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -8,7 +9,7 @@ import { Text } from "../i18n/LocalizedText";
 import { colors } from "../theme";
 import PopupSheet from "./PopupSheet";
 
-type ExpenseReview = { id: string; title?: string; subType: string; amount: number; expenseDate: string; creatorName: string; version: number; cancelled: boolean };
+type ExpenseReview = { photoUrl?: string | null; id: string; title?: string; subType: string; amount: number; expenseDate: string; creatorName: string; version: number; cancelled: boolean };
 type ReviewPage = { total: number; items: ExpenseReview[] };
 
 export default function HomeExpenseReviews() {
@@ -74,7 +75,7 @@ export default function HomeExpenseReviews() {
               <Text style={s.hint}>{t("expenseReviews.enteredBy", { name: e.creatorName })} · {new Date(e.expenseDate).toLocaleDateString(lang === "bn" ? "bn-BD" : "en-GB")}</Text>
               {e.cancelled && <Text style={s.error}>{t("expenseReviews.cancelled")}</Text>}
               {!e.cancelled && e.version > 1 && <Text style={s.hint}>{t("expenseReviews.updated")}</Text>}
-              <Text style={s.checkLabel}>{t("expenseReviews.checked")}</Text>
+              <ExpenseDocumentLink url={e.photoUrl}/><Text style={s.checkLabel}>{t("expenseReviews.checked")}</Text>
             </View>
           </Pressable>;
         })}

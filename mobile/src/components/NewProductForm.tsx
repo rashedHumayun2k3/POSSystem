@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Keyboard, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { useAuth } from "../auth/AuthContext";
@@ -15,31 +15,69 @@ export type CreatedProduct = {
   variants: Array<{ id: string; sku: string; barcode: string; imageUrl: string | null; variantValuesJson: string; stock: number; avgLandedCost: number; priceOverride: number | null }>;
 };
 
+export type EditableProduct = {
+  id: string; categoryId: string; name: string; sku: string; sellingPrice: number;
+  marketPrice: number | null; lowStockThreshold: number; description: string | null;
+  unitCode: string; note: string | null; defectNotes: string | null; packagingCostPerUnit?: number;
+  warrantyDurationValue: number | null; warrantyDurationUnit: string | null;
+  wholesaleMinQty: number | null; wholesaleUnitPrice: number | null; wholesaleNote: string | null;
+};
 type Props = {
-  onCreated: (product: CreatedProduct) => void;
+  initialProduct?: EditableProduct;
+  onUpdate?: (payload: object) => Promise<void>;
+  onSavingChange?: (busy: boolean) => void;
+  onCreated?: (product: CreatedProduct) => void;
   onOpenExisting?: (product: ExistingProduct) => void;
   contentStyle?: object;
 };
 
-export default function NewProductForm({ onCreated, onOpenExisting, contentStyle }: Props) {
+export default function NewProductForm({ onCreated, onOpenExisting, contentStyle, initialProduct, onUpdate, onSavingChange }: Props) {
   const auth = useAuth();
   const { lang } = useLanguage();
   const [categories, setCategories] = useState<Category[]>([]);
-  const [categoryId, setCategoryId] = useState("");
+  const [categoryId, setCategoryId] = useState(initialProduct?.categoryId ?? "");
   const [categoryQuery, setCategoryQuery] = useState("");
   const [categoryOpen, setCategoryOpen] = useState(false);
-  const [name, setName] = useState("");
-  const [sku, setSku] = useState("");
+  const [name, setName] = useState(initialProduct?.name ?? "");
+  const [sku, setSku] = useState(initialProduct?.sku ?? "");
   const [productSuggestions, setProductSuggestions] = useState<ExistingProduct[]>([]);
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
-  const [sellingPrice, setSellingPrice] = useState("");
+  const [sellingPrice, setSellingPrice] = useState(initialProduct ? String(initialProduct.sellingPrice) : "");
   const [quantity, setQuantity] = useState("");
   const [costPrice, setCostPrice] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [loaded, setLoaded] = useState(false);
+
+  const [details, setDetails] = useState({
+    marketPrice: initialProduct?.marketPrice?.toString() ?? "",
+    lowStockThreshold: String(initialProduct?.lowStockThreshold ?? 5),
+    description: initialProduct?.description ?? "", unitCode: initialProduct?.unitCode ?? "",
+    note: initialProduct?.note ?? "", defectNotes: initialProduct?.defectNotes ?? "",
+    packagingCostPerUnit: String(initialProduct?.packagingCostPerUnit ?? 0),
+    warrantyDurationValue: initialProduct?.warrantyDurationValue?.toString() ?? "",
+    warrantyDurationUnit: initialProduct?.warrantyDurationUnit ?? "MONTHS",
+    wholesaleMinQty: initialProduct?.wholesaleMinQty?.toString() ?? "",
+    wholesaleUnitPrice: initialProduct?.wholesaleUnitPrice?.toString() ?? "",
+    wholesaleNote: initialProduct?.wholesaleNote ?? "",
+  });
+  const [generating, setGenerating] = useState(false);
+  const busy = useRef(false);
+  const skuRun = useRef(0);
+  useEffect(() => { ++skuRun.current; setGenerating(false); }, [name, categoryId, auth.session?.businessId]);
+  useEffect(() => () => { ++skuRun.current; }, []);
+  const generateSku = async () => {
+    if (!categoryId || !name.trim() || generating || saving) return;
+    const run = ++skuRun.current;
+    setGenerating(true); setError("");
+    try {
+      const result = await auth.api<{sku:string}>(`/products/generate-sku?${new URLSearchParams({categoryId,name:name.trim()})}`);
+      if (run === skuRun.current) setSku(result.sku);
+    } catch(e) { if (run === skuRun.current) setError((e as Error).message); }
+    finally { if (run === skuRun.current) setGenerating(false); }
+  };
 
   useEffect(() => {
     let active = true;
@@ -58,7 +96,7 @@ export default function NewProductForm({ onCreated, onOpenExisting, contentStyle
       try {
         const params = new URLSearchParams({ status: "ACTIVE", q: query });
         const rows = await auth.api<ExistingProduct[]>(`/products?${params.toString()}`);
-        if (active) setProductSuggestions(Array.isArray(rows) ? rows.filter(item => item.name.toLowerCase().includes(query.toLowerCase())).slice(0, 8) : []);
+        if (active) setProductSuggestions(Array.isArray(rows) ? rows.filter(item => item.id !== initialProduct?.id && item.name.toLowerCase().includes(query.toLowerCase())).slice(0, 8) : []);
       } catch { if (active) setProductSuggestions([]); }
       finally { if (active) setSuggestionsLoading(false); }
     }, 250);
@@ -70,6 +108,7 @@ export default function NewProductForm({ onCreated, onOpenExisting, contentStyle
   const duplicateProduct = productSuggestions.find(item => item.name.trim().toLowerCase() === name.trim().toLowerCase());
 
   const save = async () => {
+    if (busy.current || generating) return;
     const hasQuantity = quantity.trim().length > 0;
     const hasCost = costPrice.trim().length > 0;
     const qty = hasQuantity ? Number(quantity) : 0;
@@ -83,24 +122,38 @@ export default function NewProductForm({ onCreated, onOpenExisting, contentStyle
     if (hasQuantity && (!Number.isFinite(qty) || qty <= 0)) return setError("Enter an opening quantity greater than zero.");
     if (hasCost && (!Number.isFinite(cost) || cost < 0)) return setError("Enter a valid unit cost.");
     if (hasCost && !hasQuantity) return setError("Enter an opening quantity to record a unit cost.");
-    setSaving(true); setError("");
+    for (const key of ["marketPrice","lowStockThreshold","packagingCostPerUnit","warrantyDurationValue","wholesaleMinQty","wholesaleUnitPrice"] as const) {
+      if (details[key].trim() && (!Number.isFinite(Number(details[key])) || Number(details[key]) < 0)) return setError("Enter valid non-negative numeric values.");
+    }
+    if (!Number.isInteger(Number(details.lowStockThreshold)) || (details.warrantyDurationValue && !Number.isInteger(Number(details.warrantyDurationValue)))) return setError("Stock threshold and warranty duration must be whole numbers.");
+    const shared = {
+      categoryId, name:name.trim(), sku:sku.trim(), sellingPrice:price,
+      marketPrice:details.marketPrice.trim() ? Number(details.marketPrice) : null,
+      lowStockThreshold:Number(details.lowStockThreshold), description:details.description.trim() || null,
+      unitCode:details.unitCode.trim() || selectedCategory?.defaultUnit || "pcs",
+      note:details.note.trim() || null, defectNotes:details.defectNotes.trim() || null,
+      packagingCostPerUnit:Number(details.packagingCostPerUnit),
+      warrantyDurationValue:details.warrantyDurationValue.trim() ? Number(details.warrantyDurationValue) : null,
+      warrantyDurationUnit:details.warrantyDurationValue.trim() ? details.warrantyDurationUnit : null,
+      wholesaleMinQty:details.wholesaleMinQty.trim() ? Number(details.wholesaleMinQty) : null,
+      wholesaleUnitPrice:details.wholesaleUnitPrice.trim() ? Number(details.wholesaleUnitPrice) : null,
+      wholesaleNote:details.wholesaleNote.trim() || null,
+    };
+    busy.current=true; setSaving(true); onSavingChange?.(true); setError("");
     try {
-      const category = categories.find(item => item.id === categoryId);
+      if (initialProduct && onUpdate) { await onUpdate(shared); return; }
       const product = await auth.api<CreatedProduct>("/products", {
         method: "POST",
         body: JSON.stringify({
-          categoryId, name: name.trim(), sku: sku.trim(), imageUrl: null, description: null, defectNotes: null,
-          unitCode: category?.defaultUnit || "pcs", sellingPrice: price, marketPrice: null,
-          packagingCostPerUnit: 0, lowStockThreshold: 5, attributesJson: "{}", note: null,
+          imageUrl: null, attributesJson: "{}",
           variantCombinations: hasQuantity ? [{ values: {}, qty, costPrice: cost }] : null,
           branchId: hasQuantity ? auth.session?.branchId : undefined,
-          warrantyDurationValue: null, warrantyDurationUnit: null, wholesaleMinQty: null,
-          wholesaleUnitPrice: null, wholesaleNote: null,
+          ...shared,
         }),
       });
-      onCreated(product);
+      onCreated?.(product);
     } catch (e) { setError((e as Error).message); }
-    finally { setSaving(false); }
+    finally { busy.current=false; setSaving(false); onSavingChange?.(false); }
   };
 
   return <KeyboardAwareScrollView enableOnAndroid extraScrollHeight={24} keyboardShouldPersistTaps="handled" contentContainerStyle={[s.content, contentStyle]}>
@@ -119,18 +172,35 @@ export default function NewProductForm({ onCreated, onOpenExisting, contentStyle
         {suggestionsOpen && name.trim().length >= 2 && (suggestionsLoading || productSuggestions.length > 0) && <View style={s.suggestions}>{suggestionsLoading ? <ActivityIndicator color={colors.primary} style={s.suggestionLoader} /> : productSuggestions.map(item => <Pressable key={item.id} onPress={() => { setName(item.name); setSuggestionsOpen(false); Keyboard.dismiss(); }} style={s.suggestionRow}><View style={s.suggestionCopy}><Text numberOfLines={1} style={s.suggestionName}>{item.name}</Text><Text style={s.suggestionMeta}>{item.categoryName} · SKU {item.sku}</Text></View><Ionicons name="chevron-forward" size={18} color={colors.muted} /></Pressable>)}</View>}
         {duplicateProduct && <View style={s.duplicateNotice}><Text style={s.duplicateText}>{lang === "bn" ? "এই কোম্পানিতে একই নামে একটি পণ্য আগে থেকেই আছে।" : "A product with this exact name already exists in this company."}</Text>{onOpenExisting && <Pressable onPress={() => onOpenExisting(duplicateProduct)} style={s.openExisting}><Text style={s.openExistingText}>Open existing product</Text><Ionicons name="arrow-forward" size={15} color={colors.primaryDark} /></Pressable>}</View>}
       </View>
-      <Field label={lang === "bn" ? "SKU কোড (ঐচ্ছিক)" : "SKU CODE (OPTIONAL)"} value={sku} onChangeText={value => { setSku(value); setError(""); }} placeholder={lang === "bn" ? "খালি রাখলে স্বয়ংক্রিয়ভাবে তৈরি হবে" : "Leave blank to generate automatically"} autoCapitalize="characters" />
+      <Field action={<Pressable accessibilityRole="button" disabled={saving || generating || !name.trim() || !categoryId} onPress={()=>void generateSku()} style={[s.openExisting, {marginLeft:"auto"}, (saving || generating || !name.trim()) && s.disabled]}>{generating ? <ActivityIndicator size="small" color={colors.primary}/> : <Text style={s.openExistingText}>{lang === "bn" ? "SKU কোড তৈরি করুন" : "Generate SKU Code"}</Text>}</Pressable>} label={lang === "bn" ? "SKU কোড (ঐচ্ছিক)" : "SKU CODE (OPTIONAL)"} note={lang === "bn" ? "খালি রাখলে ক্যাটাগরির ২টি অক্ষর, পণ্যের নামের ৩টি অক্ষর ও সিরিয়াল দিয়ে তৈরি হবে (যেমন SH-NIK-1)। একই ব্যবসায় একই SKU ব্যবহার করা যাবে না।" : "Leave blank for 2 category characters + 3 product-name characters + serial (e.g. SH-NIK-1). SKU must be unique within your business."} value={sku} onChangeText={value => { ++skuRun.current; setGenerating(false); setSku(value); setError(""); }} placeholder={lang === "bn" ? "খালি রাখলে স্বয়ংক্রিয়ভাবে তৈরি হবে" : "Leave blank to generate automatically"} autoCapitalize="characters" />
       <Field label={lang === "bn" ? "বিক্রয়মূল্য (ঐচ্ছিক)" : "SELLING PRICE (OPTIONAL)"} note={lang === "bn" ? "খালি রাখলে ০ হিসেবে সেভ হবে। পরে মূল্য নির্ধারণ করতে পারবেন।" : "Leave blank to save the price as zero. You can set it later."} value={sellingPrice} onChangeText={setSellingPrice} placeholder={lang === "bn" ? "০.০০" : "0.00"} keyboardType="decimal-pad" />
+      {!initialProduct && <>
       <Field label={lang === "bn" ? "শুরুর স্টক পরিমাণ (ঐচ্ছিক)" : "OPENING QUANTITY (OPTIONAL)"} value={quantity} onChangeText={setQuantity} placeholder={lang === "bn" ? "০" : "0"} keyboardType="decimal-pad" />
       <Field label={lang === "bn" ? "প্রতি ইউনিট ক্রয়মূল্য (ঐচ্ছিক)" : "UNIT COST (OPTIONAL)"} note={lang === "bn" ? "শুরুর স্টক না থাকলে খালি রাখুন।" : "Leave blank when there is no opening stock. Blank cost with opening stock is saved as zero."} value={costPrice} onChangeText={setCostPrice} placeholder={lang === "bn" ? "০.০০" : "0.00"} keyboardType="decimal-pad" />
       <Text style={s.hint}>{lang === "bn" ? "শুরুর স্টক দিলে একটি ডিফল্ট ভ্যারিয়েন্ট তৈরি হবে। খালি রাখলে পণ্যটি শূন্য স্টক দিয়ে তৈরি হবে।" : "Add opening stock now, or leave it blank to create the product with zero stock."}</Text>
-      <Pressable disabled={saving || loading || suggestionsLoading || !!duplicateProduct} onPress={() => void save()} style={[s.submit, (saving || loading || suggestionsLoading || !!duplicateProduct) && s.disabled]}>{saving ? <ActivityIndicator color={colors.white} /> : <Text style={s.submitText}>Save Product</Text>}</Pressable>
+      </>}
+      {initialProduct && <Text style={s.hint}>{lang === "bn" ? "স্টক ও ক্রয়মূল্য পরিবর্তন করতে Stock এবং Product Cost ট্যাব ব্যবহার করুন।" : "Use the Stock and Product Cost tabs to adjust quantity and purchase cost."}</Text>}
+      {([
+        ["marketPrice", "Market price", "বাজারমূল্য", true],
+        ["lowStockThreshold", "Low stock threshold", "কম স্টকের সীমা", true],
+        ["unitCode", "Unit", "ইউনিট", false],
+        ["packagingCostPerUnit", "Packaging cost per unit", "প্রতি ইউনিট প্যাকেজিং খরচ", true],
+        ["description", "Description", "বিবরণ", false],
+        ["defectNotes", "Defect notes", "ত্রুটির বিবরণ", false],
+        ["note", "Note", "নোট", false],
+        ["warrantyDurationValue", "Warranty duration (optional)", "ওয়ারেন্টির মেয়াদ (ঐচ্ছিক)", true],
+        ["wholesaleMinQty", "Wholesale minimum quantity (optional)", "পাইকারি সর্বনিম্ন পরিমাণ (ঐচ্ছিক)", true],
+        ["wholesaleUnitPrice", "Wholesale unit price (optional)", "পাইকারি ইউনিট মূল্য (ঐচ্ছিক)", true],
+        ["wholesaleNote", "Wholesale note", "পাইকারি নোট", false],
+      ] as const).map(([key,en,bn,numeric])=><Field key={key} label={lang==="bn"?bn:en} value={details[key]} onChangeText={value=>setDetails(current=>({...current,[key]:value}))} placeholder={key==="unitCode" ? selectedCategory?.defaultUnit || "pcs" : ""} keyboardType={numeric ? "decimal-pad" : undefined} multiline={["description","note","defectNotes","wholesaleNote"].includes(key)}/>)}
+      {!!details.warrantyDurationValue && <View style={s.field}><Text style={s.label}>{lang==="bn"?"ওয়ারেন্টির একক":"Warranty unit"}</Text><View style={s.fieldLabelRow}>{["DAYS","MONTHS","YEARS"].map(unit=><Pressable key={unit} accessibilityRole="radio" accessibilityState={{checked:details.warrantyDurationUnit===unit}} onPress={()=>setDetails(current=>({...current,warrantyDurationUnit:unit}))} style={{padding:10,backgroundColor:details.warrantyDurationUnit===unit?colors.primaryLight:colors.white}}><Text>{unit}</Text></Pressable>)}</View></View>}
+      <Pressable disabled={saving || generating || loading || suggestionsLoading || !!duplicateProduct} onPress={() => void save()} style={[s.submit, (saving || loading || suggestionsLoading || !!duplicateProduct) && s.disabled]}>{saving ? <ActivityIndicator color={colors.white} /> : <Text style={s.submitText}>{initialProduct ? (lang === "bn" ? "পরিবর্তন সেভ করুন" : "Save changes") : "Save Product"}</Text>}</Pressable>
     </> : null}
   </KeyboardAwareScrollView>;
 }
 
-function Field(props: { label: string; note?: string; value: string; onChangeText: (value: string) => void; placeholder: string; keyboardType?: "decimal-pad"; autoCapitalize?: "none" | "sentences" | "words" | "characters" }) {
-  return <View style={s.field}><View style={s.fieldLabelRow}><Text style={s.label}>{props.label}</Text>{props.note && <Text style={s.fieldNote}>({<Text>{props.note}</Text>})</Text>}</View><TextInput value={props.value} onChangeText={props.onChangeText} placeholder={props.placeholder} placeholderTextColor={colors.muted} keyboardType={props.keyboardType} autoCapitalize={props.autoCapitalize} style={s.input} /></View>;
+function Field(props: { label: string; action?: React.ReactNode; multiline?: boolean; note?: string; value: string; onChangeText: (value: string) => void; placeholder: string; keyboardType?: "decimal-pad"; autoCapitalize?: "none" | "sentences" | "words" | "characters" }) {
+  return <View style={s.field}><View style={s.fieldLabelRow}><Text style={s.label}>{props.label}</Text>{props.action}</View>{props.note && <Text style={s.fieldNote}>({<Text>{props.note}</Text>})</Text>}<TextInput multiline={props.multiline} value={props.value} onChangeText={props.onChangeText} placeholder={props.placeholder} placeholderTextColor={colors.muted} keyboardType={props.keyboardType} autoCapitalize={props.autoCapitalize} style={s.input} /></View>;
 }
 
 const s = StyleSheet.create({

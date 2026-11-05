@@ -120,8 +120,9 @@ public class OrderService : IOrderService
         // Auto-create customer
         var customer = await FindOrCreateCustomerAsync(request.CustomerPhone, request.CustomerName, request.CustomerAddress);
 
-        // Generate order number
-        var orderNo = await GenerateOrderNoAsync();
+        // POS sales and customer orders use separate, clearly labeled reference sequences.
+        var isPosSale = request.Source == "POS" || request.Channel is "SHOP" or "HAWKER";
+        var orderNo = await GenerateOrderNoAsync(isPosSale);
 
         var branchId = await ResolveOrderBranchIdAsync(request.BranchId);
 
@@ -173,6 +174,8 @@ public class OrderService : IOrderService
         order.PaymentStatus = OrderMath.ComputePaymentStatus(request.AdvancePaid, orderTotal);
 
         _db.Orders.Add(order);
+        if (order.Source is "CLIENTPAGE" or "EXTERNAL_WEBSITE")
+            _db.OrderNotificationEvents.Add(new OrderNotificationEvent { OrderId = order.Id });
         await _db.SaveChangesAsync();
 
         // Add initial advance payment if > 0
@@ -208,6 +211,33 @@ public class OrderService : IOrderService
                 order.DeletedAt = DateTime.UtcNow;
                 await _db.SaveChangesAsync();
                 throw;
+            }
+
+            // A POS sale is handed directly to the customer, so delivery and courier stages
+            // do not apply. Stock was committed above; mark it as completed at the counter.
+            if (isPosSale)
+            {
+                order.FulfillmentStatus = "DELIVERED";
+                order.DeliveredAt = DateTime.UtcNow;
+                order.OrderStatus = "COMPLETED";
+                order.CodRemittanceStatus = "NOT_APPLICABLE";
+                _db.OrderStatusHistories.Add(new OrderStatusHistory
+                {
+                    OrderId = order.Id,
+                    Track = "FULFILLMENT",
+                    FromStatus = "UNFULFILLED",
+                    ToStatus = "DELIVERED",
+                    UserId = userId
+                });
+                _db.OrderStatusHistories.Add(new OrderStatusHistory
+                {
+                    OrderId = order.Id,
+                    Track = "ORDER",
+                    FromStatus = "OPEN",
+                    ToStatus = "COMPLETED",
+                    UserId = userId
+                });
+                await _db.SaveChangesAsync();
             }
         }
 
@@ -442,7 +472,7 @@ public class OrderService : IOrderService
         return await GetAsync(id, true);
     }
 
-    // ── Revise (reduce/remove line items, pre-fulfillment) ─────────────────────
+    // ── Revise (change quantities/remove line items, pre-fulfillment) ─────────
     // Deliberately narrow scope: reduce qty or remove a line only — never increase qty or add a
     // new product (that would need the same atomic availability check as Confirm, GTR-4, and is
     // a separate feature). Only allowed while FulfillmentStatus == UNFULFILLED — once something
@@ -471,15 +501,15 @@ public class OrderService : IOrderService
         if (order.FulfillmentStatus != "UNFULFILLED")
             throw new InvalidOperationException("Can only revise an order before it's packed.");
 
-        // Validate each requested change against the order's actual current items — reduce-only.
+        // Validate each requested change against the order's actual current items.
         foreach (var change in request.Items)
         {
             var item = order.Items.FirstOrDefault(i => i.Id == change.OrderItemId && i.DeletedAt == null)
                 ?? throw new KeyNotFoundException($"Order item {change.OrderItemId} not found.");
             if (change.NewQty < 0)
                 throw new InvalidOperationException("Quantity cannot be negative.");
-            if (change.NewQty >= item.Qty)
-                throw new InvalidOperationException($"New quantity for {item.Variant?.Product?.Name ?? item.Id.ToString()} must be less than its current quantity (reduce or remove only).");
+            if (change.NewQty == item.Qty)
+                throw new InvalidOperationException("The revised quantity must differ from the current quantity.");
         }
 
         // Resulting order must retain at least one item with qty > 0
@@ -500,23 +530,24 @@ public class OrderService : IOrderService
                 var delta = item.Qty - change.NewQty; // amount being released
                 var itemLabel = item.Variant?.Product?.Name ?? item.VariantId.ToString();
 
-                // Release committed stock only if the order was confirmed — draft orders have
-                // zero stock effect (R8.3), so there's nothing to release yet.
+                // Confirmed orders reserve increases and release reductions. Drafts have no stock effect.
                 if (!order.IsDraft && order.ConfirmedAt.HasValue)
                 {
                     var inv = await _db.BranchVariantInventories
                         .FromSqlRaw("SELECT * FROM branch_variant_inventories WITH (UPDLOCK) WHERE [BranchId] = {0} AND [VariantId] = {1}", order.BranchId, item.VariantId)
                         .FirstOrDefaultAsync();
+                    if (inv == null && delta < 0)
+                        throw new InvalidOperationException($"Insufficient stock for {itemLabel}.");
                     if (inv != null)
                     {
-                        inv.Committed = Math.Max(0, inv.Committed - delta);
+                        inv.Committed = OrderMath.ComputeRevisedCommitted(inv.OnHand, inv.Committed, inv.Damaged, item.Qty, change.NewQty);
                         _db.StockMovements.Add(new StockMovement
                         {
                             BusinessId = _db.CurrentBusinessId,
                             BranchId = order.BranchId,
                             VariantId = item.VariantId,
-                            MovementType = "RELEASE",
-                            Qty = delta,
+                            MovementType = delta < 0 ? "COMMIT" : "RELEASE",
+                            Qty = Math.Abs(delta),
                             ReferenceType = "Order",
                             ReferenceId = order.Id,
                             UserId = userId,
@@ -1327,7 +1358,7 @@ public class OrderService : IOrderService
         return customer;
     }
 
-    private async Task<string> GenerateOrderNoAsync()
+    private async Task<string> GenerateOrderNoAsync(bool posSale = false)
     {
         // IgnoreQueryFilters is essential here, not just belt-and-suspenders: Order is
         // IBranchScoped, so a plain _db.Orders.CountAsync() is silently filtered down to only
@@ -1336,9 +1367,10 @@ public class OrderService : IOrderService
         // orders undercounts and reuses numbers already taken by another branch. Re-adding the
         // BusinessId filter manually keeps the business scope while dropping the branch/soft-
         // delete ones. Same class of bug as ProductService.GenerateSkuAsync.
+        var prefix = posSale ? "POS-" : "ORDER-";
         var count = await _db.Orders.IgnoreQueryFilters()
-            .CountAsync(o => o.BusinessId == _db.CurrentBusinessId) + 1;
-        return $"O-{count:D4}";
+            .CountAsync(o => o.BusinessId == _db.CurrentBusinessId && o.OrderNo.StartsWith(prefix)) + 1;
+        return $"{prefix}{count:D4}";
     }
 
     private async Task<Order?> LoadFullOrderAsync(Guid id)

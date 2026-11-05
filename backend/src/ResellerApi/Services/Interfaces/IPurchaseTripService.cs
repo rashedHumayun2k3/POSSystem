@@ -24,6 +24,7 @@ public interface IPurchaseTripService
     // ── Costs ─────────────────────────────────────────────────────────────────
     Task<PurchaseTripCostDto> AddCostAsync(Guid tripId, AddPurchaseTripCostRequest request, Guid userId);
     Task<PurchaseTripCostDto> UpdateCostAmountAsync(Guid tripId, Guid costId, decimal amount, Guid userId);
+    Task<PurchaseTripCostDto> UpdateCostDocumentAsync(Guid tripId, Guid costId, string? photoUrl, Guid userId);
     Task RemoveCostAsync(Guid tripId, Guid costId, Guid userId);
     Task<PurchaseShipmentDto?> GetShipmentAsync(Guid tripId);
     Task<PurchaseShipmentDto> SaveShipmentAsync(Guid tripId, SavePurchaseShipmentRequest request, Guid userId);

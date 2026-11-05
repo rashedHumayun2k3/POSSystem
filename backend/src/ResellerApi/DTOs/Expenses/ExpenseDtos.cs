@@ -43,7 +43,14 @@ public record ExpenseDto(
 )
 {
     public Guid? LastCorrectedBy { get; init; }
+    public string Source { get; init; } = "EXPENSE";
+    public Guid? TripId { get; init; }
+    public string? PoNumber { get; init; }
+    public Guid? LotId { get; init; }
+    public string? LotNo { get; init; }
+    public string? PayerName { get; init; }
     public string? Title { get; init; }
+    public Guid? PurchaseCostId { get; init; }
 }
 
 // ── Create ────────────────────────────────────────────────────────────────────
@@ -166,7 +173,8 @@ public record ExpenseListRequest(
     DateTime? From,
     DateTime? To,
     int Page,
-    int PageSize
+    int PageSize,
+    bool IncludePurchasePayments = false
 );
 
 public record PagedResult<T>(List<T> Items, int Total, int Page, int PageSize);

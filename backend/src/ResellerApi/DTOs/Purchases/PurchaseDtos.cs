@@ -43,6 +43,7 @@ public record AddPurchaseTripCostRequest(
 );
 
 public record UpdatePurchaseTripCostAmountRequest(decimal Amount);
+public record UpdatePurchaseTripCostDocumentRequest(string? PhotoUrl);
 
 // ── Receive session requests ───────────────────────────────────────────────────
 

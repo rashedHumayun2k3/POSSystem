@@ -6,6 +6,7 @@ using ResellerApi.Infrastructure;
 using ResellerApi.Services;
 using ResellerApi.Services.Interfaces;
 using System.Net.Mail;
+using Microsoft.EntityFrameworkCore;
 
 namespace ResellerApi.Controllers;
 
@@ -16,7 +17,6 @@ public class ProductsController : ControllerBase
 {
     private readonly IProductService _svc;
     private readonly IPriceHistoryService _priceSvc;
-    private readonly IPriceSlotService _slotSvc;
     private readonly IOrderService _orderSvc;
     private readonly IStockAdjustmentService _stockAdjSvc;
     private readonly IProductReviewService _reviewSvc;
@@ -24,17 +24,32 @@ public class ProductsController : ControllerBase
     private readonly IBusinessContext _business;
     private readonly IEmailSender _emailSender;
 
-    public ProductsController(IProductService svc, IPriceHistoryService priceSvc, IPriceSlotService slotSvc, IOrderService orderSvc, IStockAdjustmentService stockAdjSvc, IProductReviewService reviewSvc, ICurrentUserService user, IBusinessContext business, IEmailSender emailSender)
+    public ProductsController(IProductService svc, IPriceHistoryService priceSvc, IOrderService orderSvc, IStockAdjustmentService stockAdjSvc, IProductReviewService reviewSvc, ICurrentUserService user, IBusinessContext business, IEmailSender emailSender)
     {
         _svc = svc;
         _priceSvc = priceSvc;
-        _slotSvc = slotSvc;
         _orderSvc = orderSvc;
         _stockAdjSvc = stockAdjSvc;
         _reviewSvc = reviewSvc;
         _user = user;
         _business = business;
         _emailSender = emailSender;
+    }
+
+    [HttpGet("generate-sku")]
+    public async Task<IActionResult> GenerateSku([FromQuery] Guid categoryId, [FromQuery] string name,
+        [FromServices] ResellerApi.Data.AppDbContext db)
+    {
+        if (string.IsNullOrWhiteSpace(name) || name.Trim().Length > 200)
+            return BadRequest(new { message = "Enter a product name of up to 200 characters." });
+        var category = await db.Categories.AsNoTracking().FirstOrDefaultAsync(c => c.Id == categoryId);
+        if (category == null) return BadRequest(new { message = "Select an available category." });
+        var prefix = ProductSku.Prefix(category.Name, name.Trim());
+        var skus = await db.Products.IgnoreQueryFilters().AsNoTracking()
+            .Where(p => p.BusinessId == _business.CurrentBusinessId && p.Sku.Trim().ToUpper().StartsWith(prefix))
+            .Select(p => p.Sku).ToListAsync();
+        try { return Ok(new { sku = ProductSku.Next(prefix, skus) }); }
+        catch (ArgumentException e) { return BadRequest(new { message = e.Message }); }
     }
 
     [HttpGet]
@@ -97,7 +112,8 @@ public class ProductsController : ControllerBase
     private static object StripCost(ProductSearchResultDto p) => new
     {
         p.Id, p.VariantId, p.Name, p.Sku, p.Barcode, p.EffectivePrice, p.ImageUrl, p.UnitCode,
-        p.VariantValuesJson, p.Stock, p.MarketPrice, p.WholesaleMinQty, p.WholesaleUnitPrice, p.CategoryId
+        p.VariantValuesJson, p.Stock, p.MarketPrice, p.WholesaleMinQty, p.WholesaleUnitPrice, p.CategoryId,
+        p.OriginalPrice, p.ActiveOfferPercent
     };
 
     [HttpGet("today-sold")]
@@ -269,7 +285,13 @@ public class ProductsController : ControllerBase
     [HttpPut("{id:guid}")]
     [Authorize(Roles = "OWNER")]
     public async Task<IActionResult> Update(Guid id, [FromBody] UpdateProductRequest request)
-        => Ok(await _svc.UpdateAsync(id, request, _user.UserId));
+    {
+        try { return Ok(await _svc.UpdateAsync(id, request, _user.UserId)); }
+        catch (ArgumentException e) { return BadRequest(new { message = e.Message }); }
+        catch (DbUpdateException e) when (e.InnerException is Microsoft.Data.SqlClient.SqlException sql &&
+            (sql.Number == 2601 || sql.Number == 2627) && sql.Message.Contains("IX_products_BusinessId_Sku", StringComparison.OrdinalIgnoreCase))
+        { return Conflict(new { message = "This SKU is already used by another product in this business. Generate a new code or choose another SKU." }); }
+    }
 
     [HttpPatch("{id:guid}/archive")]
     [Authorize(Roles = "OWNER")]
@@ -401,47 +423,6 @@ public class ProductsController : ControllerBase
     {
         var req = request with { VariantId = variantId };
         return Ok(await _priceSvc.ChangePriceAsync(req, _user.UserId));
-    }
-
-    // ── Price slots ───────────────────────────────────────────────────────────
-
-    [HttpGet("variants/{variantId:guid}/slots")]
-    [Authorize(Roles = Roles.OwnerOrManager)]
-    public async Task<IActionResult> GetSlots(Guid variantId, [FromQuery] bool includeDeleted = false)
-        => Ok(await _slotSvc.GetSlotsAsync(variantId, includeDeleted));
-
-    [HttpPost("variants/{variantId:guid}/slots/{slotId:guid}/restore")]
-    [Authorize(Roles = "OWNER")]
-    public async Task<IActionResult> RestoreSlot(Guid variantId, Guid slotId)
-    {
-        await _slotSvc.RestoreSlotAsync(variantId, slotId);
-        return NoContent();
-    }
-
-    [HttpPost("variants/{variantId:guid}/slots")]
-    [Authorize(Roles = "OWNER")]
-    public async Task<IActionResult> CreateSlot(Guid variantId, [FromBody] CreateSlotRequest request)
-        => Ok(await _slotSvc.CreateSlotAsync(variantId, request, _user.UserId));
-
-    [HttpPost("variants/{variantId:guid}/slots/{slotId:guid}/activate")]
-    [Authorize(Roles = "OWNER")]
-    public async Task<IActionResult> ActivateSlot(Guid variantId, Guid slotId)
-    {
-        await _slotSvc.ActivateSlotAsync(variantId, slotId, _user.UserId);
-        return NoContent();
-    }
-
-    [HttpGet("variants/{variantId:guid}/slot-history")]
-    [Authorize(Roles = "OWNER")]
-    public async Task<IActionResult> GetSlotHistory(Guid variantId)
-        => Ok(await _slotSvc.GetActivationHistoryAsync(variantId));
-
-    [HttpDelete("variants/{variantId:guid}/slots/{slotId:guid}")]
-    [Authorize(Roles = "OWNER")]
-    public async Task<IActionResult> DeleteSlot(Guid variantId, Guid slotId)
-    {
-        await _slotSvc.DeleteSlotAsync(variantId, slotId, _user.UserId);
-        return NoContent();
     }
 
     // ── Stock adjustments ──────────────────────────────────────────────────────

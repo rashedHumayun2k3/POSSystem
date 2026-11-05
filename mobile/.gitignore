@@ -4,3 +4,6 @@ node_modules/
 dist/
 /android/
 *.log
+
+# Firebase client configuration is provided at build time.
+google-services.json

@@ -18,27 +18,6 @@ public class PriceSlotService : IPriceSlotService
         _business = business;
     }
 
-    public async Task<List<PriceSlotDto>> GetSlotsAsync(Guid variantId, bool includeDeleted = false)
-    {
-        // Reconcile scheduled Offers before reading (same reason as ProductService.GetAsync) —
-        // without this, this endpoint could show a slot as "active" that a different read path
-        // (e.g. the product detail fetch) already reconciled away, since nothing else tells this
-        // query that the schedule moved on.
-        await EnsureScheduledStateAsync(variantId);
-
-        var query = includeDeleted
-            ? _db.PriceSlots.IgnoreQueryFilters().Where(s => s.BusinessId == _business.CurrentBusinessId)
-            : _db.PriceSlots.AsQueryable();
-        var slots = await query
-            .AsNoTracking()
-            .Where(s => s.VariantId == variantId)
-            .Include(s => s.CreatedByUser)
-            .OrderByDescending(s => s.CreatedAt)
-            .ToListAsync();
-
-        return slots.Select(s => MapSlotDto(s)).ToList();
-    }
-
     public async Task<PriceSlotDto> CreateSlotAsync(Guid variantId, CreateSlotRequest request, Guid userId)
     {
         if (string.IsNullOrWhiteSpace(request.Label))
@@ -51,6 +30,10 @@ public class PriceSlotService : IPriceSlotService
             .FirstOrDefaultAsync(v => v.Id == variantId)
             ?? throw new KeyNotFoundException("Variant not found.");
 
+        if (request.ReusableDiscountId.HasValue && !await _db.ReusableDiscounts
+                .AnyAsync(d => d.Id == request.ReusableDiscountId.Value && d.BusinessId == _business.CurrentBusinessId))
+            throw new ArgumentException("The reusable discount is not available in this business.");
+
         var now = DateTime.UtcNow;
         var startDate = request.StartDate?.ToUniversalTime() ?? now;
 
@@ -58,6 +41,8 @@ public class PriceSlotService : IPriceSlotService
         {
             BusinessId = _business.CurrentBusinessId,
             VariantId = variantId,
+            ReusableDiscountId = request.ReusableDiscountId,
+            RegularPriceSnapshot = request.RegularPriceSnapshot,
             Label = request.Label.Trim(),
             Price = request.NewPrice,
             Reason = request.Reason?.Trim(),
@@ -116,7 +101,7 @@ public class PriceSlotService : IPriceSlotService
         var now = DateTime.UtcNow;
 
         var slots = await _db.PriceSlots
-            .Where(s => s.VariantId == variantId)
+            .Where(s => s.VariantId == variantId && (s.Label == "Original Price" || s.ReusableDiscountId != null))
             .ToListAsync();
         if (slots.Count == 0)
             return; // nothing scheduled, nothing to reconcile
@@ -202,51 +187,6 @@ public class PriceSlotService : IPriceSlotService
         }
     }
 
-    public async Task DeleteSlotAsync(Guid variantId, Guid slotId, Guid userId)
-    {
-        var slot = await _db.PriceSlots
-            .FirstOrDefaultAsync(s => s.Id == slotId && s.VariantId == variantId)
-            ?? throw new KeyNotFoundException("Price slot not found.");
-
-        if (slot.IsActive)
-            throw new InvalidOperationException("Cannot delete the currently active offer — unapply it first.");
-
-        slot.DeletedAt = DateTime.UtcNow;
-        await _db.SaveChangesAsync();
-    }
-
-    public async Task RestoreSlotAsync(Guid variantId, Guid slotId)
-    {
-        var slot = await _db.PriceSlots.IgnoreQueryFilters()
-            .FirstOrDefaultAsync(s => s.Id == slotId && s.VariantId == variantId
-                && s.BusinessId == _business.CurrentBusinessId)
-            ?? throw new KeyNotFoundException("Price slot not found.");
-        if (slot.DeletedAt == null) return;
-        slot.DeletedAt = null;
-        slot.IsActive = false;
-        await _db.SaveChangesAsync();
-    }
-
-    public async Task<List<PriceActivationLogDto>> GetActivationHistoryAsync(Guid variantId)
-    {
-        var logs = await _db.PriceActivationLogs
-            .AsNoTracking()
-            .Where(l => l.VariantId == variantId)
-            .Include(l => l.ActivatedByUser)
-            .OrderByDescending(l => l.ActivatedAt)
-            .ToListAsync();
-
-        return logs.Select(l => new PriceActivationLogDto(
-            l.Id,
-            l.SlotId,
-            l.LabelSnapshot,
-            l.PriceSnapshot,
-            l.ActivatedAt,
-            l.DeactivatedAt,
-            l.ActivatedByUser?.Name ?? "Unknown"
-        )).ToList();
-    }
-
     // Shared by ActivateSlotAsync, CreateSlotAsync (first-ever slot), and EnsureScheduledStateAsync
     // — deactivates whatever's currently active, activates targetSlot, applies its price to the
     // variant/product, and opens a fresh PriceActivationLog entry. Caller is responsible for
@@ -297,6 +237,7 @@ public class PriceSlotService : IPriceSlotService
         userName ?? s.CreatedByUser?.Name ?? "Unknown",
         s.StartDate,
         s.EndDate,
-        s.DeletedAt
+        s.DeletedAt,
+        s.ReusableDiscountId
     );
 }

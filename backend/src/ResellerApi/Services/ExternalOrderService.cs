@@ -74,7 +74,10 @@ public class ExternalOrderService : IExternalOrderService
             ClientUid: clientUid,
             CourierId: request.CourierId,
             BusinessDate: request.BusinessDate,
-            BranchId: branch.Id
+            BranchId: branch.Id,
+            Source: "EXTERNAL_WEBSITE",
+            ExternalSource: request.SourceWebsiteUrl ?? integration.SourceWebsiteUrl ?? integration.Name,
+            ExternalOrderId: request.ExternalOrderId
         ), storefrontUserId);
 
         var entity = await _db.Orders.FirstAsync(o => o.Id == order.Id);

@@ -354,6 +354,26 @@ public partial class PurchaseTripService : IPurchaseTripService
         return MapCost(cost);
     }
 
+    public async Task<PurchaseTripCostDto> UpdateCostDocumentAsync(Guid tripId, Guid costId, string? photoUrl, Guid userId)
+    {
+        var trip = await _db.PurchaseTrips.FirstOrDefaultAsync(t => t.Id == tripId)
+            ?? throw new KeyNotFoundException("Purchase trip not found.");
+        if (trip.Status == "CANCELLED") throw new InvalidOperationException("Cannot modify a cancelled trip.");
+        var cost = await _db.PurchaseTripCosts.FirstOrDefaultAsync(c => c.Id == costId && c.TripId == tripId)
+            ?? throw new KeyNotFoundException("Cost not found.");
+        var url = string.IsNullOrWhiteSpace(photoUrl) ? null : photoUrl.Trim();
+        if (url != null)
+        {
+            var pattern = "^/uploads/" + _business.CurrentBusinessId + @"/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\.(jpg|png|webp|pdf)$";
+            if (!System.Text.RegularExpressions.Regex.IsMatch(url, pattern))
+                throw new ArgumentException("Choose a document uploaded to this business.");
+        }
+        cost.PhotoUrl = url;
+        await _db.SaveChangesAsync();
+        await _log.LogAsync(_business.CurrentBusinessId, userId, "UPDATE", "PurchaseTripCost", cost.Id);
+        return MapCost(cost);
+    }
+
     public async Task<PurchaseShipmentDto?> GetShipmentAsync(Guid tripId)
     {
         var tripExists = await _db.PurchaseTrips.AsNoTracking().AnyAsync(t => t.Id == tripId);

@@ -4,7 +4,9 @@
     "slug": "lavlokshan-mobile",
     "icon": "./assets/app-icon.png",
     "scheme": "lavlokshan",
-    "web": { "bundler": "metro" },
+    "web": {
+      "bundler": "metro"
+    },
     "version": "0.1.6",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
@@ -21,7 +23,13 @@
     "plugins": [
       "expo-router",
       "expo-secure-store",
-      "./plugins/withUsbBackend"
+      "./plugins/withUsbBackend",
+      [
+        "expo-notifications",
+        {
+          "defaultChannel": "new-orders"
+        }
+      ]
     ]
   }
 }

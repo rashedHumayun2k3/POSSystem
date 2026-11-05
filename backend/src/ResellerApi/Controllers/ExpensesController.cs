@@ -68,9 +68,10 @@ public class ExpensesController : ControllerBase
         [FromQuery] DateTime? from,
         [FromQuery] DateTime? to,
         [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 30)
+        [FromQuery] int pageSize = 30,
+        [FromQuery] bool includePurchasePayments = false)
     {
-        var result = await _svc.ListAsync(new ExpenseListRequest(status, categoryId, from, to, page, pageSize));
+        var result = await _svc.ListAsync(new ExpenseListRequest(status, categoryId, from, to, page, pageSize, includePurchasePayments));
         return Ok(result);
     }
 
@@ -79,6 +80,14 @@ public class ExpensesController : ControllerBase
     {
         try { return Ok(await _svc.GetAsync(id)); }
         catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
+    }
+
+    [HttpGet("purchase-payments/{id:guid}")]
+    public async Task<IActionResult> GetPurchasePayment(Guid id,
+        [FromServices] ResellerApi.Data.AppDbContext db)
+    {
+        var row = (await ExpenseHistory.LoadPurchasesAsync(db)).FirstOrDefault(x => x.Id == id);
+        return row == null ? NotFound(new { message = "Purchase payment not found." }) : Ok(ExpenseHistory.ToExpense(row));
     }
 
     [HttpPost]
@@ -93,6 +102,29 @@ public class ExpensesController : ControllerBase
         catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
         catch (ArgumentException ex) { return BadRequest(new { message = ex.Message }); }
         catch (InvalidOperationException ex) { return Conflict(new { message = ex.Message }); }
+    }
+
+    public record ExpenseDocumentRequest(string? PhotoUrl);
+
+    [HttpPatch("{id:guid}/document")]
+    public async Task<IActionResult> AttachDocument(Guid id, ExpenseDocumentRequest request,
+        [FromServices] ResellerApi.Data.AppDbContext db, [FromServices] IBusinessContext business)
+    {
+        await using var tx = await _funding.BeginAsync();
+        var expense = await db.Expenses.FirstOrDefaultAsync(e => e.Id == id);
+        if (expense == null) return NotFound();
+        if (expense.CreatedBy != _user.UserId && !_user.IsOwner) return Forbid();
+        var url = request.PhotoUrl?.Trim() ?? "";
+        var pattern = "^/uploads/" + business.CurrentBusinessId + @"/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\.(jpg|png|webp|pdf)$";
+        if (url.Length > 0 && !System.Text.RegularExpressions.Regex.IsMatch(url, pattern))
+            return BadRequest(new { message = "Choose a document uploaded to this business." });
+        if (expense.PhotoUrl != url)
+        {
+            expense.PhotoUrl = url.Length == 0 ? null : url;
+            await db.SaveChangesAsync();
+        }
+        if (tx != null) await tx.CommitAsync();
+        return Ok(new { photoUrl = expense.PhotoUrl });
     }
 
     [HttpPut("{id:guid}")]

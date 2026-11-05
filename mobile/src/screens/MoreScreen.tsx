@@ -31,6 +31,8 @@ const items: MenuItem[] = [
   { key: "pre-orders", title: "Pre-orders", description: "Reserve available stock or record waiting demand", icon: "time-outline", roles: ["OWNER", "MANAGER", "STAFF"], webPath: "/more/pre-orders" },
   { key: "partner-approvals", title: "Business Partner", description: "Review partnership and investment requests", icon: "people-outline", roles: ["PARTNER"], webPath: "/more/settings/partners" },
   { key: "categories", title: "Categories", description: "Product categories & fields", icon: "pricetag-outline", roles: ["OWNER"], webPath: "/more/categories" },
+  { key: "discounts", title: "Discounts", description: "Create reusable offers for products and categories", icon: "pricetag-outline", roles: ["OWNER"], webPath: "/more/discounts" },
+  { key: "backdated-pos", title: "Backdated POS Sale", description: "Record a missed cash sale for an earlier date", icon: "calendar-outline", roles: ["OWNER", "MANAGER", "STAFF", "PARTNER"], webPath: "/more/backdated-pos" },
   { key: "catalog-templates", title: "Quick Add Products", description: "Add ready-made categories & products to your shop in a few taps", icon: "albums-outline", roles: ["OWNER"], webPath: "/more/catalog-templates" },
   { key: "purchases", title: "Purchases", description: "Lots & landed cost", icon: "cart-outline", roles: ["OWNER", "MANAGER", "WAREHOUSE"], webPath: "/more/purchases" },
   // Temporarily hidden from navigation. Keep the storeroom routes and feature code intact.
@@ -52,6 +54,7 @@ const reports: ChildItem[] = [
   { key: "sales", title: "Sales Reports", description: "Revenue, orders, by product & category", icon: "trending-up-outline", webPath: "/more/reports/sales" },
   { key: "inventory", title: "Inventory Reports", description: "Stock levels, low stock, movements", icon: "cube-outline", webPath: "/more/reports/inventory" },
   { key: "financial", title: "Financial Reports", description: "P&L, gross profit, expenses", icon: "cash-outline", webPath: "/more/reports/financial" },
+  { key: "product-profit", title: "Product Profit Report", description: "Daily profit, product costs and top performers", icon: "trending-up-outline", webPath: "/more/reports/product-profit" },
   { key: "orders", title: "Order Reports", description: "Status breakdown, returns, channels", icon: "receipt-outline", webPath: "/more/reports/orders" },
   { key: "stock-valuation", title: "Stock Valuation", description: "Stock value, potential & realized profit by category", icon: "scale-outline", webPath: "/more/reports/stock-valuation" },
 ];
@@ -120,6 +123,7 @@ export default function MoreScreen() {
     if (item.key === "sales") return router.push("/more/reports/sales");
     if (item.key === "inventory") return router.push("/more/reports/inventory");
     if (item.key === "financial") return router.push("/more/reports/financial");
+    if (item.key === "product-profit") return router.push("/more/reports/product-profit");
     if (item.key === "orders") return router.push("/more/reports/orders");
     if (item.key === "stock-valuation") return router.push("/more/reports/stock-valuation");
     openEnvironmentPath(item.webPath);
@@ -130,6 +134,8 @@ export default function MoreScreen() {
     if (item.key === "reports") return setReportsOpen(value => !value);
     if (item.key === "settings") return setSettingsOpen(value => !value);
     if (item.key === "categories") return router.push("/more/categories");
+    if (item.key === "discounts") return router.push("/more/discounts");
+    if (item.key === "backdated-pos") return router.push("/more/backdated-pos" as never);
     if (item.key === "catalog-templates") return setQuickAddOpen(value => !value);
     if (item.key === "purchases") return setPurchasesOpen(value => !value);
     if (item.key === "storeroom") return router.push("/more/storeroom" as never);

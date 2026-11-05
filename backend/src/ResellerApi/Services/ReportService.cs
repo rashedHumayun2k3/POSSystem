@@ -346,10 +346,10 @@ public class ReportService : IReportService
 
     public async Task<SalesSummaryDto> GetSalesSummaryAsync(DateTime from, DateTime to, string groupBy)
     {
-        var toExclusive = to.Date.AddDays(1);
-
+        var fromBusinessDate = DateOnly.FromDateTime(from.Date);
+        var toBusinessDate = DateOnly.FromDateTime(to.Date);
         var orders = await _db.Orders.AsNoTracking()
-            .Where(OrderFinancials.SoldOrderFilter(from.Date, toExclusive))
+            .Where(o => o.BusinessDate >= fromBusinessDate && o.BusinessDate <= toBusinessDate && o.OrderStatus != "CANCELLED" && !o.IsDraft)
             .Include(o => o.Items.Where(i => i.DeletedAt == null))
             .Include(o => o.Payments)
             .ToListAsync();
@@ -369,7 +369,7 @@ public class ReportService : IReportService
 
         // Revenue by period
         var revenueByPeriod = BuildDatePoints(
-            orders.Select(o => (o.CreatedAt.Date, OrderFinancials.ComputeOrderRevenue(o))),
+            orders.Select(o => (o.BusinessDate.ToDateTime(TimeOnly.MinValue), OrderFinancials.ComputeOrderRevenue(o))),
             from.Date, to.Date, groupBy);
 
         // Top products
@@ -406,18 +406,16 @@ public class ReportService : IReportService
             .ToList();
 
         // By payment method
-        var byPaymentMethod = await _db.Set<ResellerApi.Entities.OrderPayment>().AsNoTracking()
-            .Where(p => p.CreatedAt >= from.Date && p.CreatedAt < toExclusive)
+        var byPaymentMethod = orders.SelectMany(o => o.Payments)
             .GroupBy(p => p.Method)
             .Select(g => new NameValue(g.Key, g.Sum(x => x.Amount)))
-            .ToListAsync();
+            .ToList();
 
         // Hourly sales
-        var hourlyRaw = await _db.Set<ResellerApi.Entities.OrderPayment>().AsNoTracking()
-            .Where(p => p.CreatedAt >= from.Date && p.CreatedAt < toExclusive)
+        var hourlyRaw = orders.SelectMany(o => o.Payments)
             .GroupBy(p => p.CreatedAt.Hour)
             .Select(g => new { Hour = g.Key, Total = g.Sum(x => x.Amount) })
-            .ToListAsync();
+            .ToList();
 
         var hourlySales = Enumerable.Range(0, 24).Select(h =>
             new DatePoint($"{h:D2}:00", hourlyRaw.FirstOrDefault(x => x.Hour == h)?.Total ?? 0)

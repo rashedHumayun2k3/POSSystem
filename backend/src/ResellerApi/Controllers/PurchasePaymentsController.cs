@@ -19,7 +19,12 @@ public sealed class PurchasePaymentsController(PurchasePaymentService service, I
     [Authorize(Roles = Roles.OwnerOrManager)]
     public async Task<IActionResult> Pay(Guid tripId, PurchasePaymentRequest request)
     {
-        try { return Ok(await service.Pay(tripId, request, user.UserId)); }
+        try
+        {
+            var payment = await service.Pay(tripId, request, user.UserId);
+            await service.PopulatePayerNames([payment]);
+            return Ok(payment);
+        }
         catch (ArgumentException e) { return BadRequest(new { message = e.Message }); }
         catch (KeyNotFoundException e) { return NotFound(new { message = e.Message }); }
         catch (InvalidOperationException e) { return Conflict(new { message = e.Message }); }

@@ -1,3 +1,5 @@
+import { useQueryClient } from "@tanstack/react-query";
+import { invalidatePickerMutation } from "../query/cache";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { Platform } from "react-native";
 import * as SecureStore from "expo-secure-store";
@@ -22,16 +24,19 @@ async function save(session: Session | null) {
 }
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 15000);
+  const abort = () => controller.abort();
+  if (options.signal?.aborted) abort();
+  options.signal?.addEventListener("abort", abort);
+  const timer = setTimeout(abort, 15000);
   try {
-    const response = await fetch(`${API_URL}${path}`, { ...options, signal: options.signal ?? controller.signal });
+    const response = await fetch(`${API_URL}${path}`, { ...options, signal: controller.signal });
     const body = await response.json().catch(() => ({}));
     if (!response.ok) throw Object.assign(new Error(body.message || (response.status === 401 ? "Your session expired. Please sign in again." : `Request failed (${response.status}).`)), { status: response.status, data: body });
     return body;
   } catch (error) {
     if (error instanceof TypeError || (error as Error).name === "AbortError") throw new Error("We couldn’t connect to the server. Please check your internet connection and try again. If the problem continues, please try again shortly.");
     throw error;
-  } finally { clearTimeout(timer); }
+  } finally { clearTimeout(timer); options.signal?.removeEventListener("abort", abort); }
 }
 const Context = createContext<{
   session: Session | null; ready: boolean;
@@ -51,14 +56,24 @@ const Context = createContext<{
   updateCurrentBusinessSalesChannels: (salesChannels: string[], shopType: Business["shopType"]) => Promise<void>;
   completeCurrentBusinessOnboarding: (businessTypes: string[]) => Promise<void>;
   api: <T>(path: string, options?: RequestInit) => Promise<T>;
+  getLiveAccessToken: () => Promise<string>;
 } | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const queryClient = useQueryClient();
   const [session, setSession] = useState<Session | null>(null);
   const current = useRef<Session | null>(null);
   const [ready, setReady] = useState(false);
   const refresh = useRef<Promise<Session> | null>(null);
-  const update = async (value: Session | null) => { await save(value); current.current = value; setSession(value); };
+  const update = async (value: Session | null) => {
+    await save(value);
+    const previous = current.current;
+    if (!value || previous?.user.id !== value.user.id || previous?.user.phone !== value.user.phone || previous?.businessId !== value.businessId || previous?.branchId !== value.branchId) {
+      queryClient.clear();
+    }
+    current.current = value;
+    setSession(value);
+  };
   useEffect(() => {
     (async () => {
       try {
@@ -85,7 +100,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
     const initial = current.current;
     if (!initial) throw new Error("Please sign in.");
-    const send = (value: Session) => request<T>(path, { ...options, headers: { "Content-Type": "application/json", Authorization: `Bearer ${value.accessToken}`, ...(value.businessId ? { "X-Business-Id": value.businessId } : {}), ...(value.branchId ? { "X-Branch-Id": value.branchId } : {}), ...options.headers } });
+    const send = async (value: Session) => { const result = await request<T>(path, { ...options, headers: { "Content-Type": "application/json", Authorization: `Bearer ${value.accessToken}`, ...(value.businessId ? { "X-Business-Id": value.businessId } : {}), ...(value.branchId ? { "X-Branch-Id": value.branchId } : {}), ...options.headers } });
+      invalidatePickerMutation(queryClient, path, options.method ?? "GET", initial.businessId);
+      return result;
+    };
     try { return await send(initial); }
     catch (error) {
       if ((error as { status?: number }).status !== 401) throw error;
@@ -107,6 +125,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return api<Branch[]>("/branches/mine");
   }
   return <Context.Provider value={{ session, ready, api,
+    getLiveAccessToken: async () => { await api("/branches/mine"); return current.current?.accessToken ?? ""; },
     login: async (phone, password) => { const value = await request<Session>("/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ phone: phone.trim(), password }) }); await update({ ...value, businessId: undefined, branchId: undefined }); },
     requestSignupCode: async email => { await request("/auth/signup/request-code", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: email.trim() }) }); },
     verifySignupCode: async (email, code) => { await request("/auth/signup/verify-code", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: email.trim(), code }) }); },

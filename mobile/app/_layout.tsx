@@ -1,3 +1,6 @@
+import NotificationProvider from "../src/notifications/NotificationProvider";
+import AppQueryProvider from "../src/query/AppQueryProvider";
+import PickerSync from "../src/query/PickerSync";
 import SupplierPicker from "../src/components/SupplierPicker";
 import { Text } from "../src/i18n/LocalizedText";
 import { colors } from "../src/theme";
@@ -44,6 +47,8 @@ const moreItems: MoreNavItem[] = [
   { key: "tasks", label: "Tasks", icon: "checkbox-outline", roles: ["OWNER", "MANAGER", "PARTNER"] },
   { key: "pre-orders", label: "Pre-orders", icon: "time-outline", roles: ["OWNER", "MANAGER", "STAFF"] },
   { key: "categories", label: "Categories", icon: "pricetag-outline", roles: ["OWNER"], route: "/more/categories" },
+  { key: "discounts", label: "Discounts", icon: "pricetag-outline", roles: ["OWNER"] },
+  { key: "backdated-pos", label: "Backdated POS Sale", icon: "calendar-outline", roles: ["OWNER", "MANAGER", "STAFF", "PARTNER"] },
   { key: "quick-add", label: "Quick Add Products", icon: "albums-outline", roles: ["OWNER"] },
   { key: "purchases", label: "Purchases", icon: "cart-outline", roles: ["OWNER", "MANAGER", "WAREHOUSE"] },
   // Temporarily hidden from navigation. Keep the storeroom routes and feature code intact.
@@ -65,6 +70,7 @@ const reportItems: MoreNavItem[] = [
   { key: "report-sales", label: "Sales Reports", icon: "trending-up-outline" },
   { key: "report-inventory", label: "Inventory Reports", icon: "cube-outline", route: "/products" },
   { key: "report-financial", label: "Financial Reports", icon: "cash-outline" },
+  { key: "report-product-profit", label: "Product Profit Report", icon: "trending-up-outline", route: "/more/reports/product-profit" },
   { key: "report-orders", label: "Order Reports", icon: "receipt-outline", route: "/orders" },
   { key: "report-stock-valuation", label: "Stock Valuation", icon: "scale-outline" },
 ];
@@ -156,6 +162,8 @@ function AppShell() {
     if (item.key === "purchase-history") return router.push("/more/purchases");
     if (item.key === "tasks") return router.push("/more/tasks");
     if (item.key === "categories") return router.push("/more/categories");
+    if (item.key === "discounts") return router.push("/more/discounts");
+    if (item.key === "backdated-pos") return router.push("/more/backdated-pos" as never);
     if (item.key === "quick-add") return router.push("/more/catalog-templates");
     if (item.key === "bulk-products") return router.push("/more/bulk-products");
     if (item.key === "purchases") return router.push("/more/purchases");
@@ -165,7 +173,7 @@ function AppShell() {
     return item.route ? router.push(item.route) : router.push({ pathname: "/more", params: { focus: item.key } });
   };
   const openQuickAction=(key:string)=>{setQuickActionsOpen(false);if(key==="task")return router.push({pathname:"/more/tasks",params:{new:"1"}});if(key==="pre-order")return openEnvironmentPath("/more/pre-orders");if(key==="sale")return router.push("/sale");if(key==="order"||key==="customer")return router.push("/orders/new");if(key==="supplier")return setSupplierFormOpen(true);if(key==="purchase")return router.push("/more/purchases/new");if(key==="category")return router.push({pathname:"/more/categories",params:{new:"1"}});if(key==="product")return router.push("/products/new");if(key==="expense")return openEnvironmentPath("/more/expenses/new")};
-  const itemPath = (item: MoreNavItem) => item.key === "bulk-products" ? "/more/bulk-products" : item.key === "categories" ? "/more/categories" : item.key === "quick-add" ? "/more/catalog-templates" : item.key === "purchases" ? "/more/purchases" : item.key === "barcodes" ? "/more/barcodes" : frontendPaths[item.key] ?? item.route;
+  const itemPath = (item: MoreNavItem) => item.key === "bulk-products" ? "/more/bulk-products" : item.key === "categories" ? "/more/categories" : item.key === "quick-add" ? "/more/catalog-templates" : item.key === "purchases" ? "/more/purchases" : item.key === "barcodes" ? "/more/barcodes" : item.key === "backdated-pos" ? "/more/backdated-pos" : frontendPaths[item.key] ?? item.route;
   const itemActive = (item: MoreNavItem) => { const target = itemPath(item); return !!target && ((item.key === "expense-history" || item.key === "purchase-history") ? path === target : target === "/" ? path === "/" : path === target || path.startsWith(`${target}/`)); };
   const moreRows = (entries: MoreNavItem[], nested = false) => entries.map(item => { const active=itemActive(item); return <Pressable key={item.key} accessibilityState={{selected:active}} onPress={() => openMoreItem(item)} style={({ pressed }) => [s.moreRow, nested && s.nestedRow, active&&s.activeMoreRow, pressed && s.pressed]}>
     <Ionicons name={item.icon} size={nested ? 17 : 19} color={active?colors.primaryDark:colors.neutralIcon} />
@@ -246,7 +254,7 @@ export default function RootLayout() {
     </View></SafeAreaProvider>;
   }
 
-  return <SafeAreaProvider style={s.background}><LanguageProvider><AuthProvider><ModalChromeProvider><AppShell /></ModalChromeProvider></AuthProvider></LanguageProvider></SafeAreaProvider>;
+  return <SafeAreaProvider style={s.background}><LanguageProvider><AppQueryProvider><AuthProvider><PickerSync /><NotificationProvider><ModalChromeProvider><AppShell /></ModalChromeProvider></NotificationProvider></AuthProvider></AppQueryProvider></LanguageProvider></SafeAreaProvider>;
 }
 
 const s = StyleSheet.create({

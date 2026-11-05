@@ -98,6 +98,9 @@ public class AuthService : IAuthService
         var businesses = user.BusinessUsers.Select(bu => bu.Business).ToList();
 
         var (accessToken, refreshTokenValue) = await GenerateTokensAsync(user);
+        var renewedToken = _db.RefreshTokens.Local.Single(t => t.Token == refreshTokenValue);
+        foreach (var device in await _db.PushDevices.Where(d => d.RefreshTokenId == stored.Id).ToListAsync())
+            device.RefreshTokenId = renewedToken.Id;
         await _db.SaveChangesAsync();
 
         return new AuthResponse(
@@ -114,6 +117,8 @@ public class AuthService : IAuthService
             .FirstOrDefaultAsync(rt => rt.Token == refreshToken);
         if (stored is null) return;
         stored.IsRevoked = true;
+        foreach (var device in await _db.PushDevices.Where(d => d.RefreshTokenId == stored.Id).ToListAsync())
+            device.Enabled = false;
         await _db.SaveChangesAsync();
     }
 

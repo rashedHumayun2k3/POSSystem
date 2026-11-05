@@ -23,6 +23,10 @@ public class AppDbContext : DbContext
     public DbSet<Business> Businesses => Set<Business>();
     public DbSet<User> Users => Set<User>();
     public DbSet<BusinessUser> BusinessUsers => Set<BusinessUser>();
+    public DbSet<OrderNotificationEvent> OrderNotificationEvents => Set<OrderNotificationEvent>();
+    public DbSet<OrderNotification> OrderNotifications => Set<OrderNotification>();
+    public DbSet<PushDevice> PushDevices => Set<PushDevice>();
+    public DbSet<OrderPushDelivery> OrderPushDeliveries => Set<OrderPushDelivery>();
     public DbSet<WorkTask> WorkTasks => Set<WorkTask>();
     public DbSet<TaskEntry> TaskEntries => Set<TaskEntry>();
     public DbSet<TaskNotification> TaskNotifications => Set<TaskNotification>();
@@ -39,6 +43,7 @@ public class AppDbContext : DbContext
     public DbSet<ProductVariant> ProductVariants => Set<ProductVariant>();
     public DbSet<PriceHistory> PriceHistories => Set<PriceHistory>();
     public DbSet<PriceSlot> PriceSlots => Set<PriceSlot>();
+    public DbSet<ReusableDiscount> ReusableDiscounts => Set<ReusableDiscount>();
     public DbSet<PriceActivationLog> PriceActivationLogs => Set<PriceActivationLog>();
 
     // ── Settings ──────────────────────────────────────────────────────────
@@ -141,6 +146,7 @@ public class AppDbContext : DbContext
     {
         base.OnModelCreating(modelBuilder);
         TaskModel.Configure(modelBuilder);
+        OrderNotificationModel.Configure(modelBuilder);
 
         // ── Rowversion on all BaseEntity tables ────────────────────────────
         foreach (var entity in modelBuilder.Model.GetEntityTypes()
@@ -483,13 +489,31 @@ public class AppDbContext : DbContext
             e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
             e.Property(x => x.Label).HasMaxLength(100).IsRequired();
             e.Property(x => x.Price).HasColumnType("DECIMAL(14,2)");
+            e.Property(x => x.RegularPriceSnapshot).HasColumnType("DECIMAL(14,2)");
             e.Property(x => x.Reason).HasMaxLength(500);
             e.Property(x => x.IsActive).HasDefaultValue(false);
+            e.HasOne(x => x.ReusableDiscount).WithMany(x => x.Applications)
+                .HasForeignKey(x => x.ReusableDiscountId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne(x => x.Variant).WithMany()
                 .HasForeignKey(x => x.VariantId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne(x => x.CreatedByUser).WithMany()
                 .HasForeignKey(x => x.CreatedBy).OnDelete(DeleteBehavior.Restrict);
             e.HasIndex(x => new { x.VariantId, x.IsActive });
+            e.HasIndex(x => x.ReusableDiscountId);
+        });
+
+        modelBuilder.Entity<ReusableDiscount>(e =>
+        {
+            e.ToTable("reusable_discounts");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
+            e.Property(x => x.Name).HasMaxLength(120).IsRequired();
+            e.Property(x => x.Percent).HasColumnType("DECIMAL(5,2)");
+            e.Property(x => x.Reason).HasMaxLength(500);
+            e.Property(x => x.IsArchived).HasDefaultValue(false);
+            e.HasOne(x => x.CreatedByUser).WithMany().HasForeignKey(x => x.CreatedBy)
+                .OnDelete(DeleteBehavior.Restrict);
+            e.HasIndex(x => new { x.BusinessId, x.IsArchived, x.CreatedAt });
         });
 
         // ── PriceActivationLog ─────────────────────────────────────────────────

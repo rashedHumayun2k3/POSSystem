@@ -1,2 +1,2 @@
-import ExpenseReportScreen from "../../../src/screens/ExpenseReportScreen";
-export default ExpenseReportScreen;
+import { Redirect } from "expo-router";
+export default function ExpensesReportRedirect(){return <Redirect href="/more/expenses?tab=report"/>;}

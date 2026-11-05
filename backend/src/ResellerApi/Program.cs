@@ -68,6 +68,9 @@ builder.Services.AddAuthorization();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
 builder.Services.AddScoped<TaskService>();
+builder.Services.AddScoped<OrderNotificationService>();
+builder.Services.AddScoped<OrderNotificationWorker>();
+builder.Services.AddHttpClient("ExpoPush", client => client.Timeout = TimeSpan.FromSeconds(15));
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IActivityLogService, ActivityLogService>();
 builder.Services.AddScoped<IEmailSender, EmailSender>();
@@ -78,6 +81,7 @@ builder.Services.AddScoped<IProductService, ProductService>();
 builder.Services.AddScoped<ProductImportService>();
 builder.Services.AddScoped<IPriceHistoryService, PriceHistoryService>();
 builder.Services.AddScoped<IPriceSlotService, PriceSlotService>();
+builder.Services.AddScoped<IReusableDiscountService, ReusableDiscountService>();
 builder.Services.AddScoped<IPopularityService, PopularityService>();
 builder.Services.AddScoped<IStockAdjustmentService, StockAdjustmentService>();
 // Phase 3 — Inventory / Purchases
@@ -252,6 +256,7 @@ app.UseRateLimiter();
 app.UseMiddleware<BusinessContextMiddleware>();
 app.UseMiddleware<SubscriptionGateMiddleware>();
 app.UseMiddleware<ClientPageShopContextMiddleware>();
+app.UseMiddleware<PickerCacheNotificationMiddleware>();
 
 app.UseHangfireDashboard("/hangfire", new DashboardOptions
 {
@@ -259,6 +264,8 @@ app.UseHangfireDashboard("/hangfire", new DashboardOptions
 });
 
 // ── Hangfire recurring jobs ───────────────────────────────────────────────
+RecurringJob.AddOrUpdate<OrderNotificationWorker>("order-notifications", worker => worker.Run(), Cron.Minutely());
+
 RecurringJob.AddOrUpdate<IPriceHistoryService>(
     "apply-scheduled-prices",
     svc => svc.ApplyScheduledPriceChangesAsync(),

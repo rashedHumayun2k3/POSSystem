@@ -9,6 +9,19 @@ using ResellerApi.Services.Interfaces;
 namespace ResellerApi.Tests;
 public class PurchasePaymentTests
 {
+    [Fact] public async Task ExistingPersonalPaymentsExposePartnerNameEvenAfterPartnerIsArchived()
+    {
+        await using var f = new Fixture(); await f.Seed();
+        await f.Payments.Pay(f.Trip.Id, f.Request("PERSONAL"), f.User);
+        f.Partner.Name = "Test payer";
+        f.Partner.DeletedAt = DateTime.UtcNow;
+        await f.Db.SaveChangesAsync();
+        var payment = Assert.Single(await f.Payments.List(f.Trip.Id));
+        Assert.Equal("Test payer", payment.PayerName);
+        Assert.Equal(200, payment.Amount);
+        Assert.Single(f.Db.PurchasePayments);
+    }
+
     private sealed class TestDb(DbContextOptions<AppDbContext> options, IBusinessContext context) : AppDbContext(options, context)
     {
         public override Task<int> SaveChangesAsync(CancellationToken ct = default)

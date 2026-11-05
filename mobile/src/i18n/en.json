@@ -33,7 +33,7 @@
   "keepOrderConfirmation": "No, Keep Order",
   "expenseMenu": {"history": "Expense History", "addHint": "Record a new expense", "historyHint": "View your recorded expenses"},
   "purchaseMenu": {"add": "Add New Purchase", "history": "Purchase History", "addHint": "Create a new purchase order", "historyHint": "View your purchase orders"},
-  "poCostPayment": {"heading": "PO Costs & Payments", "products": "Product Purchase Cost", "shipping": "Shipping Cost", "unpaid": "Payment not recorded", "paid": "Paid", "amount": "Payment amount", "confirm": "Confirm Payment", "confirmHint": "Confirm only after paying the supplier. This immediately records the payment and updates the selected funding source.", "loadFailed": "Payment records could not be loaded. Retry before paying.", "unknown": "Payment status unavailable"},
+  "poCostPayment": {"poCosts": "PO Costs", "payAll": "Pay all unpaid products", "pendingOne": "{count} product payment pending", "pendingMany": "{count} product payments pending", "allProductsPaid": "All product payments complete", "heading": "PO Costs & Payments", "products": "Product Purchase Cost", "shipping": "Shipping Cost", "unpaid": "Payment not recorded", "paid": "Paid", "amount": "Payment amount", "confirm": "Confirm Payment", "confirmHint": "Confirm only after paying the supplier. This immediately records the payment and updates the selected funding source.", "loadFailed": "Payment records could not be loaded. Retry before paying.", "unknown": "Payment status unavailable"},
   "poPaymentAmounts": {"products": "Product cost", "costs": "Additional PO costs", "total": "PO total", "available": "Available business balance", "failed": "Could not load the business balance. Please try again."},
   "poPayment": {"add": "Add Payment", "question": "Where will the payment come from?", "business": "Business funds", "businessHint": "Pay using the business’s money.", "personal": "Own money", "personalHint": "Pay using your own money.", "previewNotice": "Selecting a source does not record a payment. Payment saving is not available yet."},
   "expenseTitlePlaceholder": "e.g. Buy new lock and new fan",
@@ -2259,13 +2259,13 @@
     "paid": "Paid",
     "courier": "Courier"
   },
-  "productPriceHelp": "Enter the regular selling price. You can add offers or discounts later.",
+  "productPriceHelp": "Enter the regular selling price. Create and apply discounts from the Discounts menu.",
   "posPermission": {
     "title": "POS access denied",
     "message": "You don’t have permission to access this section. Contact your owner to enable Daily Sale / POS access."
 },
   "expenseReviews": {
-  "title": "Partner expenses",
+  "title": "Partner expenses :: Please review each expense and confirm you have checked it.",
   "open": "Check partner expenses ({count})",
   "hint": "These expenses are already approved. Tick the entries you have checked. Your checkmarks do not change balances.",
   "failed": "Could not load partner expenses. Tap to retry.",
@@ -2277,5 +2277,39 @@
   "save": "Save checked entries ({count})",
   "later": "Later",
   "more": "{count} more entries will appear after you save."
-}
+},
+  "salesReportLabels": {
+    "title": "Sales Reports",
+    "subtitle": "Revenue, orders, products and payment performance",
+    "revenue": "Total Revenue",
+    "orders": "Total Orders",
+    "average": "Avg. Order Value",
+    "discount": "Total Discount",
+    "products": "Products sold",
+    "name": "Product name",
+    "quantity": "Qty sold",
+    "amount": "Sold amount",
+    "profit": "Product profit",
+    "trend": "Revenue Trend",
+    "hourly": "Hourly Sales Distribution",
+    "top": "Top Products by Revenue",
+    "category": "Sales by Category",
+    "cashier": "Sales by Cashier",
+    "payment": "Payment Method Distribution",
+    "date": "Report for a date",
+    "empty": "No products sold in this period.",
+    "loading": "Loading sales report…",
+    "noData": "No data available",
+    "unavailable": "Not available",
+    "permission": "Product profit is available to owners and managers.",
+    "basis": "Recorded sale date. Excludes drafts, cancelled and returned orders. Amounts are before order-level discounts and exclude delivery charges. Product profit is sold amount minus the cost saved on each sale; it excludes business expenses.",
+    "missing": "Saved cost is missing or zero on {count} sale lines. Affected profit totals are unavailable.",
+    "count": "{count} products",
+    "showing": "Showing sales for {date}",
+    "unknown": "Unknown",
+    "bkash": "BKASH",
+    "nagad": "NAGAD",
+    "card": "CARD",
+    "cash": "CASH"
+  }
 }

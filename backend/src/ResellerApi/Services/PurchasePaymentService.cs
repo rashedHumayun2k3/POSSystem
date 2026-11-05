@@ -11,7 +11,20 @@ public sealed class PurchasePaymentService(AppDbContext db, IBusinessContext bus
     public async Task<List<PurchasePayment>> List(Guid tripId)
     {
         if (!await db.PurchaseTrips.AnyAsync(x => x.Id == tripId)) throw new KeyNotFoundException("Purchase not found.");
-        return await db.PurchasePayments.Include(x => x.Items).AsNoTracking().Where(x => x.TripId == tripId).ToListAsync();
+        var payments = await db.PurchasePayments.Include(x => x.Items).AsNoTracking().Where(x => x.TripId == tripId).ToListAsync();
+        await PopulatePayerNames(payments);
+        return payments;
+    }
+    public async Task PopulatePayerNames(List<PurchasePayment> payments)
+    {
+        var partnerIds = payments.Where(p => p.PartnerId.HasValue).Select(p => p.PartnerId!.Value).Distinct().ToList();
+        var partners = await db.Partners.IgnoreQueryFilters().AsNoTracking()
+            .Where(p => p.BusinessId == business.CurrentBusinessId && partnerIds.Contains(p.Id)).ToDictionaryAsync(p => p.Id, p => p.Name);
+        var userIds = payments.Select(p => p.CreatedBy).Distinct().ToList();
+        var users = await db.Users.IgnoreQueryFilters().AsNoTracking().Where(u => userIds.Contains(u.Id)).ToDictionaryAsync(u => u.Id, u => u.Name);
+        foreach (var payment in payments)
+            payment.PayerName = payment.FundingSource == "PERSONAL" && payment.PartnerId.HasValue && partners.TryGetValue(payment.PartnerId.Value, out var name)
+                ? name : users.GetValueOrDefault(payment.CreatedBy);
     }
     public async Task<PurchasePayment> Pay(Guid tripId, PurchasePaymentRequest request, Guid userId)
     {

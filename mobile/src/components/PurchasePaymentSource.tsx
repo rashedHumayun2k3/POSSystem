@@ -8,7 +8,7 @@ import { useLanguage } from "../i18n/LanguageContext";
 import { useAuth } from "../auth/AuthContext";
 import { colors } from "../theme";
 
-export type PurchasePayment = { id: string; tripId: string; costKey: string; purchaseItemId?: string | null; amount: number; fundingSource: "BUSINESS" | "PERSONAL"; paidAt: string; items?: { purchaseItemId:string; amount:number }[] };
+export type PurchasePayment = { payerName?: string | null; id: string; tripId: string; costKey: string; purchaseItemId?: string | null; amount: number; fundingSource: "BUSINESS" | "PERSONAL"; paidAt: string; items?: { purchaseItemId:string; amount:number }[] };
 const requestId = () => "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => { const r = Math.random()*16|0; return (c === "x" ? r : (r&3)|8).toString(16); });
 type Source = "BUSINESS" | "PERSONAL";
 type Funding = { initialized: boolean; balance: number | null; partnerId: string | null; partnerName: string | null; canInitialize: boolean };
@@ -75,7 +75,7 @@ export default function PurchasePaymentSource({ tripId, costKey, poNumber, itemT
     <Pressable accessibilityRole="button" accessibilityLabel={triggerLabel??t("poPayment.add")} onPress={() => setOpen(true)} style={[s.add, compact && s.compactAdd, danger&&s.dangerAdd]}>
       <Ionicons name="add" size={compact ? 16 : 20} color={danger?colors.white:compact?colors.primaryDark:colors.white}/><Text numberOfLines={1} style={[s.addText, compact && {color: colors.primaryDark, fontSize: 12},danger&&{color:colors.white}]}>{triggerLabel??t("poPayment.add")}</Text>
     </Pressable>
-    <BottomSheet visible={open} close={close} title={bulkItems ? "Pay all unpaid products" : t("poPayment.add")} mobile={width < 768}>{form}</BottomSheet>
+    <BottomSheet visible={open} close={close} title={bulkItems ? t("poCostPayment.payAll") : t("poPayment.add")} mobile={width < 768}>{form}</BottomSheet>
   </>;
 }
 const s = StyleSheet.create({

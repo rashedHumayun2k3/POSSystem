@@ -54,7 +54,10 @@ public record VariantDto(
     bool IsDefault,
     decimal AvgLandedCost,     // OWNER only — stripped from STAFF responses
     decimal Stock,             // OWNER only — current on-hand in the active branch scope
-    byte[] RowVer
+    byte[] RowVer,
+    decimal? OfferRegularPrice = null,
+    decimal ActiveOfferPercent = 0,
+    string? ActiveOfferName = null
 );
 
 public record VariantStaffDto(
@@ -93,7 +96,8 @@ public record ProductSummaryDto(
     bool ShowOnMarketplace,
     decimal? WholesaleMinQty,      // both null = no wholesale tier for this product
     decimal? WholesaleUnitPrice,
-    decimal ActiveOfferPercent = 0
+    decimal ActiveOfferPercent = 0,
+    Guid CategoryId = default
 );
 
 public record ProductMarketplaceDetailDto(Guid Id, string Section, string Label, string Value, int SortOrder);
@@ -184,7 +188,9 @@ public record ProductSearchResultDto(
     decimal? MarketPrice,
     decimal? WholesaleMinQty,
     decimal? WholesaleUnitPrice,
-    Guid CategoryId
+    Guid CategoryId,
+    decimal? OriginalPrice = null,
+    decimal ActiveOfferPercent = 0
 );
 
 // Hawker night-entry tile grid — qty AND revenue sold today for a variant, at the actual price
@@ -259,7 +265,8 @@ public record UpdateProductRequest(
     string? WarrantyDurationUnit,
     decimal? WholesaleMinQty,
     decimal? WholesaleUnitPrice,
-    string? WholesaleNote
+    string? WholesaleNote,
+    string? Sku = null
 );
 
 public record SetProductMarketplaceVisibilityRequest(bool Show);

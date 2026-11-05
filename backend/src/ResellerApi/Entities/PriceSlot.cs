@@ -5,6 +5,8 @@ namespace ResellerApi.Entities;
 public class PriceSlot : BusinessScopedEntity
 {
     public Guid VariantId { get; set; }
+    public Guid? ReusableDiscountId { get; set; }
+    public decimal? RegularPriceSnapshot { get; set; }
     public string Label { get; set; } = null!;
     public decimal Price { get; set; }
     public string? Reason { get; set; }
@@ -16,6 +18,7 @@ public class PriceSlot : BusinessScopedEntity
     public DateTime? EndDate { get; set; }
 
     public ProductVariant Variant { get; set; } = null!;
+    public ReusableDiscount? ReusableDiscount { get; set; }
     public User CreatedByUser { get; set; } = null!;
     public ICollection<PriceActivationLog> ActivationLogs { get; set; } = [];
 }

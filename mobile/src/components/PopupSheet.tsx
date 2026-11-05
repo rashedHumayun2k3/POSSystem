@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Text } from "../i18n/LocalizedText";
@@ -12,6 +12,7 @@ type Props = {
   title: string;
   headerAction?: ReactNode;
   fitContent?: boolean;
+  keyboardAware?: boolean;
   onShow?: () => void;
   children: ReactNode;
 };
@@ -19,7 +20,40 @@ type Props = {
 // Keep the navigation hidden until the last sheet in this provider closes.
 const openSheets = new Map<(hidden: boolean) => void, number>();
 
-export default function PopupSheet({ visible, onClose, title, headerAction, onShow, children, fitContent = false }: Props) {
+export default function PopupSheet({ visible, onClose, title, headerAction, onShow, children, fitContent = false, keyboardAware = false }: Props) {
+  const panelRef = useRef<View>(null);
+  const [viewport, setViewport] = useState<{ height: number; top: number } | null>(null);
+  useEffect(() => {
+    if (!visible || !keyboardAware || Platform.OS !== "web" || typeof window === "undefined") return;
+    const visual = window.visualViewport;
+    let frame = 0;
+    let timer: ReturnType<typeof setTimeout>;
+    const reveal = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const panel = panelRef.current as unknown as HTMLElement | null;
+        const focused = document.activeElement;
+        if (focused instanceof HTMLElement && panel?.contains(focused) && focused.matches("input, textarea")) {
+          focused.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "auto" });
+        }
+      });
+    };
+    const update = () => { setViewport({ height: visual?.height ?? window.innerHeight, top: visual?.offsetTop ?? 0 }); reveal(); };
+    const focus = () => { reveal(); clearTimeout(timer); timer = setTimeout(update, 350); };
+    update();
+    visual?.addEventListener("resize", update);
+    visual?.addEventListener("scroll", update);
+    window.addEventListener("resize", update);
+    document.addEventListener("focusin", focus);
+    return () => {
+      cancelAnimationFrame(frame); clearTimeout(timer);
+      visual?.removeEventListener("resize", update);
+      visual?.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+      document.removeEventListener("focusin", focus);
+      setViewport(null);
+    };
+  }, [visible, keyboardAware]);
   const desktop = useWindowDimensions().width >= 768;
   const insets = useSafeAreaInsets();
   const { setBottomNavHidden } = useModalChrome();
@@ -38,9 +72,9 @@ export default function PopupSheet({ visible, onClose, title, headerAction, onSh
   }, [visible, desktop, setBottomNavHidden]);
 
   return <Modal visible={visible} transparent animationType={desktop ? "fade" : "slide"} onRequestClose={onClose} onShow={onShow}>
-    <KeyboardAvoidingView style={s.fill} behavior="padding" enabled={!desktop && Platform.OS === "ios"}>
+    <KeyboardAvoidingView style={[s.fill, keyboardAware && viewport ? { position: "absolute", top: viewport.top, left: 0, right: 0, height: viewport.height } : undefined]} behavior={Platform.OS === "ios" ? "padding" : "height"} enabled={Platform.OS === "ios" ? !desktop : keyboardAware && Platform.OS === "android"}>
       <View style={[s.overlay, !desktop && s.mobileOverlay]}>
-        <View style={[s.panel, desktop ? s.desktopPanel : s.mobilePanel, fitContent && s.fitContent, !desktop && { paddingBottom: insets.bottom }]}>
+        <View ref={panelRef} style={[s.panel, desktop ? s.desktopPanel : s.mobilePanel, fitContent && s.fitContent, keyboardAware && { minHeight: 0 }, !desktop && { paddingBottom: insets.bottom }]}>
           {!desktop && <View style={s.handle} />}
           <View style={s.header}>
             <Text style={s.title}>{title}</Text>

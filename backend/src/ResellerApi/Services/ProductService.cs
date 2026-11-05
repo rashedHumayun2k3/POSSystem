@@ -108,7 +108,7 @@ public class ProductService : IProductService
         if (variantIds.Any())
         {
             var slots = await _db.PriceSlots.AsNoTracking()
-                .Where(slot => variantIds.Contains(slot.VariantId))
+                .Where(slot => variantIds.Contains(slot.VariantId) && slot.ReusableDiscountId != null && slot.DeletedAt == null)
                 .Select(slot => new { slot.VariantId, slot.Label, slot.IsActive, slot.StartDate, slot.EndDate })
                 .ToListAsync();
             var now = DateTime.UtcNow;
@@ -178,6 +178,26 @@ public class ProductService : IProductService
             .Select(i => new ProductImageDto(i.Id, i.ImageUrl, i.SortOrder))
             .ToList();
 
+        var detailVariantIds = p.Variants.Where(v => v.DeletedAt == null).Select(v => v.Id).ToArray();
+        var now = DateTime.UtcNow;
+        var activeOfferSlots = await _db.PriceSlots.AsNoTracking()
+            .Where(s => detailVariantIds.Contains(s.VariantId) && s.ReusableDiscountId != null && s.IsActive
+                && s.StartDate <= now && (s.EndDate == null || s.EndDate >= now))
+            .Select(s => new { s.VariantId, s.Label, s.Price, s.RegularPriceSnapshot, s.StartDate })
+            .ToListAsync();
+        var offersByVariant = new Dictionary<Guid, (decimal RegularPrice, decimal Percent, string Name)>();
+        foreach (var offer in activeOfferSlots.GroupBy(s => s.VariantId).Select(g => g.OrderByDescending(s => s.StartDate).First()))
+        {
+            var match = System.Text.RegularExpressions.Regex.Match(offer.Label, @"(\d+(?:\.\d+)?)%");
+            if (!match.Success || !decimal.TryParse(match.Groups[1].Value,
+                    System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var percent)
+                || percent <= 0 || percent >= 100) continue;
+            var regularPrice = offer.RegularPriceSnapshot
+                ?? Math.Round(offer.Price / (1m - percent / 100m), 2, MidpointRounding.AwayFromZero);
+            var offerName = System.Text.RegularExpressions.Regex.Replace(offer.Label, @"\s*\(\d+(?:\.\d+)?%\)\s*$", "");
+            offersByVariant[offer.VariantId] = (regularPrice, percent, offerName);
+        }
+
         if (isOwner)
         {
             var inv = await LoadInventoryAsync(p.Variants.Select(v => v.Id));
@@ -185,7 +205,8 @@ public class ProductService : IProductService
                 p.Id, p.CategoryId, p.Name, p.Sku, p.ImageUrl, p.ImageSource, p.SuggestedProductId, p.Description, p.DefectNotes,
                 p.UnitCode, p.SellingPrice, p.MarketPrice, p.MarketplacePrice, p.PackagingCostPerUnit, p.LowStockThreshold,
                 p.AttributesJson, p.Note, p.Status, p.Category.Name,
-                p.Variants.Where(v => v.DeletedAt == null).Select(v => MapVariantDto(v, inv)).ToList(),
+                p.Variants.Where(v => v.DeletedAt == null).Select(v => MapVariantDto(v, inv,
+                    offersByVariant.TryGetValue(v.Id, out var offer) ? offer : null)).ToList(),
                 p.RowVer, p.ShowOnMarketplace, p.YoutubeUrl, details, images,
                 p.WarrantyDurationValue, p.WarrantyDurationUnit,
                 p.AverageRating, p.ReviewCount,
@@ -373,7 +394,7 @@ public class ProductService : IProductService
             .FirstOrDefaultAsync(v => v.Id == variantId.Value);
         if (variant == null) return null;
         var inv = await LoadInventoryAsync(new[] { variant.Id });
-        return MapSearchResult(variant, inv, variant.AvgLandedCost);
+        return (await AddPickerOffersAsync([MapSearchResult(variant, inv, variant.AvgLandedCost)]))[0];
     }
 
     public Task<List<ProductSearchResultDto>> BrowseAsync(Guid? categoryId, bool onlyInStock = false) =>
@@ -410,8 +431,10 @@ public class ProductService : IProductService
             .Take(take)
             .ToListAsync();
 
+        variants = await ReconcileAndReloadScheduledPricesAsync(variants);
+
         var inv = await LoadInventoryAsync(variants.Select(v => v.Id));
-        return variants.Select(v => MapSearchResult(v, inv, v.AvgLandedCost)).ToList();
+        return await AddPickerOffersAsync(variants.Select(v => MapSearchResult(v, inv, v.AvgLandedCost)).ToList());
     }
 
     // For the hawker night-entry tile grid — qty AND revenue "sold today" per variant,
@@ -469,12 +492,15 @@ public class ProductService : IProductService
             .Where(v => recentVariantIds.Contains(v.Id) && v.Product.Status == "ACTIVE")
             .ToListAsync();
 
+        variants = await ReconcileAndReloadScheduledPricesAsync(variants);
+
         var inv = await LoadInventoryAsync(recentVariantIds);
-        return recentVariantIds
+        var results = recentVariantIds
             .Select(id => variants.FirstOrDefault(v => v.Id == id))
             .Where(v => v != null)
             .Select(v => MapSearchResult(v!, inv, v!.AvgLandedCost))
             .ToList();
+        return await AddPickerOffersAsync(results);
     }
 
     public async Task<List<ActiveCategoryDto>> ActiveCategoriesAsync()
@@ -494,10 +520,44 @@ public class ProductService : IProductService
 
     public async Task<ProductDetailDto> CreateAsync(CreateProductRequest request, Guid userId)
     {
+        // Serialize SKU allocation and manual duplicate checks per business across API
+        // instances. Reuse the bulk import transaction when one already exists.
+        await using var transaction = _db.Database.IsRelational() && _db.Database.CurrentTransaction is null
+            ? await _db.Database.BeginTransactionAsync() : null;
+        try
+        {
+            if (_db.Database.IsSqlServer())
+            {
+                var resource = $"product-sku:{_business.CurrentBusinessId:D}";
+                await _db.Database.ExecuteSqlInterpolatedAsync($@"
+                    DECLARE @result int;
+                    EXEC @result = sys.sp_getapplock @Resource = {resource},
+                        @LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = 15000;
+                    IF @result < 0 THROW 51001, 'Could not reserve a product SKU. Please try again.', 1;");
+            }
+            var result = await CreateProductAsync(request, userId);
+            if (transaction is not null) await transaction.CommitAsync();
+            return result;
+        }
+        catch (DbUpdateException e) when (e.InnerException is Microsoft.Data.SqlClient.SqlException sql &&
+            (sql.Number == 2601 || sql.Number == 2627) && sql.Message.Contains("IX_products_BusinessId_Sku", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException("This SKU is already used by another product in this business. Please choose a different SKU.", e);
+        }
+        catch (Microsoft.Data.SqlClient.SqlException e) when (e.Number == 51001)
+        {
+            throw new ArgumentException("Could not reserve a product SKU. Please try again.", e);
+        }
+    }
+
+    private async Task<ProductDetailDto> CreateProductAsync(CreateProductRequest request, Guid userId)
+    {
         ValidateWholesaleTier(request.WholesaleMinQty, request.WholesaleUnitPrice, request.SellingPrice);
 
         var productName = request.Name.Trim();
         if (productName.Length == 0) throw new ArgumentException("Product name is required.");
+        var categoryName = await _db.Categories.Where(c => c.Id == request.CategoryId).Select(c => c.Name).FirstOrDefaultAsync()
+            ?? throw new ArgumentException("Select an available category.");
 
         var normalizedProductName = productName.ToLower();
         var existingProduct = await _db.Products
@@ -553,12 +613,12 @@ public class ProductService : IProductService
             throw new ArgumentException("SKU cannot exceed 50 characters.");
         if (requestedSku is { Length: > 0 })
         {
-            var normalizedSku = requestedSku.ToLower();
+            var normalizedSku = requestedSku.ToUpperInvariant();
             var skuExists = await _db.Products.IgnoreQueryFilters().AsNoTracking()
-                .AnyAsync(p => p.BusinessId == _business.CurrentBusinessId && p.Sku.ToLower() == normalizedSku);
-            if (skuExists) throw new ArgumentException($"SKU '{requestedSku}' is already used by another product.");
+                .AnyAsync(p => p.BusinessId == _business.CurrentBusinessId && p.Sku.Trim().ToUpper() == normalizedSku);
+            if (skuExists) throw new ArgumentException($"SKU '{requestedSku}' is already used by another product in this business.");
         }
-        var sku = requestedSku is { Length: > 0 } ? requestedSku : await GenerateSkuAsync();
+        var sku = requestedSku is { Length: > 0 } ? requestedSku : await GenerateSkuAsync(categoryName, productName);
         var usesSuggestedImage = suggestedProduct?.ImageUrl is { Length: > 0 } suggestedImageUrl
             && string.Equals(request.ImageUrl, suggestedImageUrl, StringComparison.OrdinalIgnoreCase);
 
@@ -742,6 +802,23 @@ public class ProductService : IProductService
         // Optimistic concurrency check
         if (!product.RowVer.SequenceEqual(request.RowVer))
             throw new DbUpdateConcurrencyException();
+
+        if (request.Sku != null)
+        {
+            var sku = request.Sku.Trim();
+            if (sku.Length > 50)
+                throw new ArgumentException("SKU code cannot exceed 50 characters.");
+            if (sku.Length == 0)
+            {
+                var categoryName = await _db.Categories.Where(c => c.Id == request.CategoryId).Select(c => c.Name).FirstOrDefaultAsync()
+                    ?? throw new ArgumentException("Select an available category.");
+                sku = await GenerateSkuAsync(categoryName, request.Name.Trim());
+            }
+            var normalized = sku.ToUpperInvariant();
+            if (await _db.Products.IgnoreQueryFilters().AnyAsync(p => p.BusinessId == _business.CurrentBusinessId && p.Id != id && p.Sku.Trim().ToUpper() == normalized))
+                throw new ArgumentException("This SKU is already used by another product in this business.");
+            product.Sku = sku;
+        }
 
         if (string.IsNullOrWhiteSpace(product.ImageUrl) && !string.IsNullOrWhiteSpace(request.ImageUrl))
         {
@@ -1122,14 +1199,24 @@ public class ProductService : IProductService
 
     // ── Helpers ────────────────────────────────────────────────────────────────
 
-    private async Task<string> GenerateSkuAsync()
+    private async Task<string> GenerateSkuAsync(string categoryName, string productName)
     {
-        // IgnoreQueryFilters so an archived (soft-deleted) product's number is never reused —
-        // its row still occupies the (BusinessId, Sku) unique index. Scoped to this business
-        // only: Sku uniqueness is per-business, not global (two tenants can both have "P-0001").
-        var count = await _db.Products.IgnoreQueryFilters()
-            .CountAsync(p => p.BusinessId == _business.CurrentBusinessId) + 1;
-        return $"P-{count:D4}";
+        var prefix = ProductSku.Prefix(categoryName, productName);
+        // Include archived products and manually assigned codes. The transaction's
+        // business lock remains held until both product and variants are saved.
+        var skus = await _db.Products.IgnoreQueryFilters().AsNoTracking()
+            .Where(p => p.BusinessId == _business.CurrentBusinessId && p.Sku.Trim().ToUpper().StartsWith(prefix))
+            .Select(p => p.Sku).ToListAsync();
+        var candidate = ProductSku.Next(prefix, skus);
+        // SQL collation may consider additional spellings equivalent (for example,
+        // accents). Match the database's uniqueness semantics before choosing a code.
+        while (await _db.Products.IgnoreQueryFilters().AnyAsync(p =>
+            p.BusinessId == _business.CurrentBusinessId && p.Sku.Trim().ToUpper() == candidate))
+        {
+            skus.Add(candidate);
+            candidate = ProductSku.Next(prefix, skus);
+        }
+        return candidate;
     }
 
     private async Task<string> GenerateBarcodeAsync()
@@ -1151,9 +1238,10 @@ public class ProductService : IProductService
         return (char)('0' + check);
     }
 
-    private static VariantDto MapVariantDto(ProductVariant v, Dictionary<Guid, decimal> inv) => new(
+    private static VariantDto MapVariantDto(ProductVariant v, Dictionary<Guid, decimal> inv, (decimal RegularPrice, decimal Percent, string Name)? offer = null) => new(
         v.Id, v.VariantValuesJson, v.Sku, v.Barcode, v.ImageUrl, v.Note, v.PriceOverride, v.IsDefault, v.AvgLandedCost,
-        inv.TryGetValue(v.Id, out var available) ? available : 0m, v.RowVer
+        inv.TryGetValue(v.Id, out var available) ? available : 0m, v.RowVer,
+        offer?.RegularPrice, offer?.Percent ?? 0m, offer?.Name
     );
 
     private static VariantStaffDto MapVariantStaffDto(ProductVariant v) => new(
@@ -1215,6 +1303,57 @@ public class ProductService : IProductService
             .ToDictionaryAsync(x => x.ProductId, x => (x.OrderCount, x.QtySold, x.RawProfit));
     }
 
+    private async Task<List<ProductSearchResultDto>> AddPickerOffersAsync(List<ProductSearchResultDto> products)
+    {
+        var ids = products.Select(p => p.VariantId).ToList();
+        var now = DateTime.UtcNow;
+        var slots = await _db.PriceSlots.AsNoTracking()
+            .Where(s => ids.Contains(s.VariantId) && s.ReusableDiscountId != null && s.DeletedAt == null && s.IsActive && s.StartDate <= now && (s.EndDate == null || s.EndDate >= now))
+            .ToListAsync();
+        return products.Select(product =>
+        {
+            var slot = slots.Where(s => s.VariantId == product.VariantId).OrderByDescending(s => s.StartDate).FirstOrDefault();
+            if (slot == null || slot.Label == "Original Price" || slot.Price != product.EffectivePrice) return product;
+            var match = System.Text.RegularExpressions.Regex.Match(slot.Label, @"(\d+(?:\.\d+)?)%");
+            if (!match.Success || !decimal.TryParse(match.Groups[1].Value, System.Globalization.NumberStyles.Number,
+                    System.Globalization.CultureInfo.InvariantCulture, out var percent) || percent <= 0 || percent >= 100) return product;
+            return product with { OriginalPrice = Math.Round(slot.Price / (1 - percent / 100), 2), ActiveOfferPercent = percent };
+        }).ToList();
+    }
+
+    private async Task<List<ProductVariant>> ReconcileAndReloadScheduledPricesAsync(List<ProductVariant> variants)
+    {
+        if (variants.Count == 0) return variants;
+
+        var ids = variants.Select(v => v.Id).ToArray();
+        var now = DateTime.UtcNow;
+        var slots = await _db.PriceSlots.AsNoTracking()
+            .Where(s => ids.Contains(s.VariantId) && (s.Label == "Original Price" || s.ReusableDiscountId != null))
+            .Select(s => new { s.VariantId, s.Label, s.IsActive, s.StartDate, s.EndDate })
+            .ToListAsync();
+        var reconcileIds = slots.GroupBy(s => s.VariantId)
+            .Where(group =>
+            {
+                var active = group.FirstOrDefault(s => s.IsActive);
+                var activeIsValid = active != null && active.StartDate <= now && (active.EndDate == null || active.EndDate >= now);
+                var hasDueSlot = group.Any(s => s.StartDate <= now && (s.EndDate == null || s.EndDate >= now));
+                var activeExpired = active?.EndDate is DateTime activeEnd && activeEnd < now;
+                return !activeIsValid && (hasDueSlot || activeExpired);
+            })
+            .Select(group => group.Key)
+            .ToArray();
+        if (reconcileIds.Length == 0) return variants;
+
+        foreach (var id in reconcileIds)
+            await _priceSlots.EnsureScheduledStateAsync(id);
+
+        var refreshed = await _db.ProductVariants.AsNoTracking()
+            .Include(v => v.Product)
+            .Where(v => reconcileIds.Contains(v.Id))
+            .ToDictionaryAsync(v => v.Id);
+        return variants.Select(variant => refreshed.GetValueOrDefault(variant.Id) ?? variant).ToList();
+    }
+
     private static ProductSearchResultDto MapSearchResult(
         ProductVariant v,
         Dictionary<Guid, decimal> inv,
@@ -1256,7 +1395,8 @@ public class ProductService : IProductService
             stats.OrderCount, totalProfit,
             p.ShowOnMarketplace,
             p.WholesaleMinQty, p.WholesaleUnitPrice,
-            p.Variants.Select(v => offerByVariant?.GetValueOrDefault(v.Id) ?? 0m).DefaultIfEmpty(0m).Max()
+            p.Variants.Select(v => offerByVariant?.GetValueOrDefault(v.Id) ?? 0m).DefaultIfEmpty(0m).Max(),
+            p.CategoryId
         );
     }
 }

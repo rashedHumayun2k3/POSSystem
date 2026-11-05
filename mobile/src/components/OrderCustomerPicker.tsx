@@ -1,3 +1,4 @@
+import { useDebouncedSearch, usePickerQuery } from "../query/usePickerQuery";
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, TextInput, useWindowDimensions, View } from "react-native";
@@ -20,9 +21,6 @@ export default function OrderCustomerPicker({ visible, onClose, onSelect }: Prop
   const { setBottomNavHidden } = useModalChrome();
   const desktop = width >= 768;
   const [search, setSearch] = useState("");
-  const [customers, setCustomers] = useState<OrderCustomer[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
@@ -43,20 +41,11 @@ export default function OrderCustomerPicker({ visible, onClose, onSelect }: Prop
     return () => clearTimeout(timer);
   }, [visible, adding, desktop]);
 
-  useEffect(() => {
-    if (!visible || adding) return;
-    let active = true;
-    const query = search.trim();
-    const timer = setTimeout(async () => {
-      setLoading(true); setError("");
-      try {
-        const rows = await api.current<OrderCustomer[]>(`/customers${query ? `?q=${encodeURIComponent(query)}` : ""}`);
-        if (active) setCustomers(Array.isArray(rows) ? rows.slice(0, 20) : []);
-      } catch (e) { if (active) { setCustomers([]); setError((e as Error).message || "Could not load customers."); } }
-      finally { if (active) setLoading(false); }
-    }, query ? 250 : 0);
-    return () => { active = false; clearTimeout(timer); };
-  }, [visible, adding, search, auth.session?.businessId]);
+  const debouncedSearch = useDebouncedSearch(search.trim(), 250);
+  const customerQuery = usePickerQuery<OrderCustomer[]>("customers", `/customers${debouncedSearch ? `?q=${encodeURIComponent(debouncedSearch)}` : ""}`, visible && !adding && search.trim() === debouncedSearch);
+  const customers = (customerQuery.data ?? []).slice(0, 20);
+  const loading = search.trim() !== debouncedSearch || customerQuery.isLoading;
+  const error = customerQuery.error ? (customerQuery.data ? "Could not refresh customers. Showing saved results." : "Could not load customers. Please try again.") : "";
 
   useEffect(() => {
     if (!visible || !adding || digits(phone).length < 7) { setPhoneMatches([]); setCheckingPhone(false); return; }
@@ -74,7 +63,7 @@ export default function OrderCustomerPicker({ visible, onClose, onSelect }: Prop
     return () => { active = false; clearTimeout(timer); };
   }, [visible, adding, phone, auth.session?.businessId]);
 
-  const reset = () => { setSearch(""); setAdding(false); setName(""); setPhone(""); setAddress(""); setCustomers([]); setPhoneMatches([]); setError(""); };
+  const reset = () => { setSearch(""); setAdding(false); setName(""); setPhone(""); setAddress(""); setPhoneMatches([]); };
   const close = () => { reset(); onClose(); };
   const choose = (customer: OrderCustomer) => { reset(); onSelect(customer); };
   const canUseNew = !!name.trim() && !!phone.trim() && !!address.trim() && !checkingPhone && phoneMatches.length === 0;
@@ -92,8 +81,9 @@ export default function OrderCustomerPicker({ visible, onClose, onSelect }: Prop
           </View>
           {!adding ? <>
             <View style={s.searchBox}><Ionicons name="search-outline" size={18} color={colors.muted}/><TextInput ref={searchInput} accessibilityLabel="Search customers" value={search} onChangeText={setSearch} placeholder="Search by phone or name" placeholderTextColor={colors.muted} style={s.search} returnKeyType="search"/>{!!search&&<Pressable onPress={()=>setSearch("")}><Ionicons name="close-circle" size={18} color={colors.muted}/></Pressable>}</View>
+            {!!error && <Text style={s.error}>{error}</Text>}
             <ScrollView style={s.list} keyboardShouldPersistTaps="handled" keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"} contentContainerStyle={s.listContent}>
-              {loading ? <ActivityIndicator color={colors.primary} style={s.loader}/> : error ? <Text style={s.error}>{error}</Text> : customers.length ? customers.map(customer=><Pressable key={customer.id} onPress={()=>choose(customer)} style={s.customerRow}><View style={s.avatar}><Ionicons name="person-outline" size={18} color={colors.primaryDark}/></View><View style={s.customerCopy}><Text style={s.customerName}>{customer.name}</Text><Text style={s.meta}>{customer.phone}</Text>{!!customer.address&&<Text numberOfLines={1} style={s.meta}>{customer.address}</Text>}</View><Ionicons name="chevron-forward" size={17} color={colors.muted}/></Pressable>) : <Text style={s.empty}>{search.trim()?"No matching customers found.":"No customers found yet."}</Text>}
+              {loading ? <ActivityIndicator color={colors.primary} style={s.loader}/> : customers.length ? customers.map(customer=><Pressable key={customer.id} onPress={()=>choose(customer)} style={s.customerRow}><View style={s.avatar}><Ionicons name="person-outline" size={18} color={colors.primaryDark}/></View><View style={s.customerCopy}><Text style={s.customerName}>{customer.name}</Text><Text style={s.meta}>{customer.phone}</Text>{!!customer.address&&<Text numberOfLines={1} style={s.meta}>{customer.address}</Text>}</View><Ionicons name="chevron-forward" size={17} color={colors.muted}/></Pressable>) : <Text style={s.empty}>{search.trim()?"No matching customers found.":"No customers found yet."}</Text>}
             </ScrollView>
           </> : <ScrollView contentContainerStyle={s.form} keyboardShouldPersistTaps="handled">
             <Text style={s.formHint}>Enter the customer details. The customer will be saved when the order or sale is completed.</Text>

@@ -1,1 +1,1 @@
-export { default } from "../src/screens/TaskNotificationsScreen";
+export { default } from "../src/notifications/NotificationsScreen";

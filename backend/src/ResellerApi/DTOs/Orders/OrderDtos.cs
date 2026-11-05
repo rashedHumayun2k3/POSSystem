@@ -186,7 +186,7 @@ public record DeleteOrderRequest(string Reason);
 
 public record ReviseOrderItemInput(
     Guid OrderItemId,
-    decimal NewQty   // 0 = remove the line entirely; must be < the item's current Qty (reduce-only)
+    decimal NewQty   // 0 = remove the line; increases on confirmed orders require available stock
 );
 
 public record ReviseOrderRequest(

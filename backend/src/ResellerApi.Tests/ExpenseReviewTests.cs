@@ -36,6 +36,31 @@ public class ExpenseReviewTests
         public ValueTask DisposeAsync() => Db.DisposeAsync();
     }
 
+    [Fact] public async Task DocumentAttachmentPreservesPaymentAndRequiresFreshReview()
+    {
+        await using var f = new Fixture(); await f.Db.SaveChangesAsync();
+        await f.Seen(f.B);
+        var user = new CurrentUserService(new HttpContextAccessor { HttpContext = new DefaultHttpContext {
+            User = new ClaimsPrincipal(new ClaimsIdentity(new[] { new Claim(ClaimTypes.NameIdentifier, f.A.ToString()) }, "test")) } });
+        var controller = new ExpensesController(null!, user, new ResellerApi.Services.ExpenseFundingService(f.Db, f.Scope));
+        var url = $"/uploads/{f.Scope.CurrentBusinessId}/{Guid.NewGuid()}.pdf";
+        Assert.IsType<OkObjectResult>(await controller.AttachDocument(f.Expense.Id, new(url), f.Db, f.Scope));
+        Assert.Equal(url, f.Expense.PhotoUrl);
+        Assert.Equal(300, f.Expense.Amount);
+        Assert.Equal("APPROVED", f.Expense.Status);
+        Assert.Empty(f.Db.CapitalLedgerEntries);
+        var version = f.Expense.ReviewVersion;
+        Assert.IsType<OkObjectResult>(await controller.AttachDocument(f.Expense.Id, new(url), f.Db, f.Scope));
+        Assert.Equal(version, f.Expense.ReviewVersion);
+        Assert.IsType<BadRequestObjectResult>(await controller.AttachDocument(f.Expense.Id, new($"/uploads/{Guid.NewGuid()}/{Guid.NewGuid()}.pdf"), f.Db, f.Scope));
+        Assert.Equal(url, f.Expense.PhotoUrl);
+        Assert.Equal(1, await f.Count(f.B));
+        var otherUser = new CurrentUserService(new HttpContextAccessor { HttpContext = new DefaultHttpContext {
+            User = new ClaimsPrincipal(new ClaimsIdentity(new[] { new Claim(ClaimTypes.NameIdentifier, f.B.ToString()) }, "test")) } });
+        var other = new ExpensesController(null!, otherUser, new ResellerApi.Services.ExpenseFundingService(f.Db, f.Scope));
+        Assert.IsType<ForbidResult>(await other.AttachDocument(f.Expense.Id, new(url), f.Db, f.Scope));
+    }
+
     [Fact] public async Task EachPartnerAcknowledgesIndependentlyWithoutChangingMoney()
     {
         await using var f = new Fixture(); await f.Db.SaveChangesAsync();

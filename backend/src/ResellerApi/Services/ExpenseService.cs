@@ -81,11 +81,21 @@ public class ExpenseService : IExpenseService
 
         var items = await q
             .OrderByDescending(e => e.ExpenseDate)
-            .ThenByDescending(e => e.CreatedAt)
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
+            .ThenByDescending(e => e.CreatedAt).ThenByDescending(e => e.Id)
+            .Skip(req.IncludePurchasePayments ? 0 : (page - 1) * pageSize)
+            .Take(req.IncludePurchasePayments ? page * pageSize : pageSize)
             .Select(e => MapDto(e))
             .ToListAsync();
+
+        if (req.IncludePurchasePayments)
+        {
+            var purchaseRows = await ExpenseHistory.LoadPurchasesAsync(_db, req.From, req.To, req.CategoryId);
+            if (!string.IsNullOrEmpty(req.Status) && req.Status != "APPROVED") purchaseRows.Clear();
+            total += purchaseRows.Count;
+            items = items.Concat(purchaseRows.Select(ExpenseHistory.ToExpense))
+                .OrderByDescending(e => e.ExpenseDate).ThenByDescending(e => e.CreatedAt).ThenByDescending(e => e.Id)
+                .Skip((page - 1) * pageSize).Take(pageSize).ToList();
+        }
 
         var itemIds = items.Select(e => e.Id).ToList();
         var corrections = await _db.ActivityLogs.AsNoTracking()

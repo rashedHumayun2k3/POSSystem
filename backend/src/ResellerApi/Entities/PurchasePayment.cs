@@ -4,6 +4,8 @@ namespace ResellerApi.Entities;
 // Immutable full payment of product lines or one PO cost row. Guid.Empty is reserved for historical product subtotal payments.
 public class PurchasePayment : BusinessScopedEntity, IBranchScoped
 {
+    [System.ComponentModel.DataAnnotations.Schema.NotMapped]
+    public string? PayerName { get; set; }
     public List<PurchasePaymentItem> Items { get; set; } = [];
     public Guid? BranchId { get; set; }
     public Guid TripId { get; set; }

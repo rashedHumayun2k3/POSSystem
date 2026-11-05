@@ -10,17 +10,8 @@ public record PriceSlotDto(
     string CreatedByName,
     DateTime StartDate,
     DateTime? EndDate,
-    DateTime? DeletedAt = null
-);
-
-public record PriceActivationLogDto(
-    Guid Id,
-    Guid SlotId,
-    string LabelSnapshot,
-    decimal PriceSnapshot,
-    DateTime ActivatedAt,
-    DateTime? DeactivatedAt,
-    string ActivatedByName
+    DateTime? DeletedAt = null,
+    Guid? ReusableDiscountId = null
 );
 
 public record CreateSlotRequest(
@@ -30,5 +21,7 @@ public record CreateSlotRequest(
     // Null StartDate means "now" (service defaults it) — matches the existing behavior for every
     // slot created before scheduling existed. Null EndDate means no auto-expiry ("until changed").
     DateTime? StartDate = null,
-    DateTime? EndDate = null
+    DateTime? EndDate = null,
+    Guid? ReusableDiscountId = null,
+    decimal? RegularPriceSnapshot = null
 );

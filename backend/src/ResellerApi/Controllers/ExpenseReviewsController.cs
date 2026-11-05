@@ -33,7 +33,7 @@ public class ExpenseReviewsController(AppDbContext db, IBusinessContext business
         var unseen = Eligible().AsNoTracking().Where(e => !db.ExpenseReviews.Any(r => r.BusinessId == business.CurrentBusinessId && r.DeletedAt == null && r.ExpenseId == e.Id && r.PartnerId == partner.Id && r.ReviewedVersion == e.ReviewVersion));
         return Ok(new { total = await unseen.CountAsync(), items = await unseen.OrderByDescending(e => e.UpdatedAt).ThenBy(e => e.Id).Take(take)
             .Select(e => new { e.Id, e.Title, e.SubType, e.Amount, e.ExpenseDate, e.CreatedBy, CreatorName = e.CreatedByUser.Name,
-                Version = e.ReviewVersion, Cancelled = e.Status == "CANCELLED" || e.DeletedAt != null }).ToListAsync() });
+                e.PhotoUrl, Version = e.ReviewVersion, Cancelled = e.Status == "CANCELLED" || e.DeletedAt != null }).ToListAsync() });
     }
 
     [HttpPost]
