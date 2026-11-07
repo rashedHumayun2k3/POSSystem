@@ -1,3 +1,4 @@
+import DropdownText from "../components/DropdownText";
 import CollectDuePayment from "../components/CollectDuePayment";
 import CourierPaymentPopup from "../components/CourierPaymentPopup";
 import ProcessGuide, { type ProcessStep } from "../components/ProcessGuide";
@@ -386,7 +387,7 @@ export default function OrderDetailScreen() {
 
     <PopupSheet fitContent visible={handoverOpen} onClose={()=>setHandoverOpen(false)} title="Handover to Courier" headerAction={<Pressable onPress={()=>setAddCourierOpen(true)} style={s.addCourier}><Ionicons name="add" size={16} color={colors.primaryDark}/><Text style={s.addCourierText}>Add Courier</Text></Pressable>}><KeyboardAwareScrollView enableOnAndroid extraScrollHeight={24} style={{flexGrow:0,flexShrink:1}} keyboardShouldPersistTaps="handled" contentContainerStyle={[s.sheetContent,{paddingBottom:10}]}><Text style={s.fieldLabel}>Courier *</Text><View ref={courierAnchor} collapsable={false}>
         <Pressable accessibilityRole="button" accessibilityLabel="Courier service" accessibilityState={{ expanded: courierPickerOpen }} onPress={openCourierMenu} style={s.selectButton}>
-          <Text numberOfLines={1} style={[s.selectText,handoverCourierId&&s.selectedCourier]}>{couriers.find(item=>item.id===handoverCourierId)?.name || "Select courier service"}</Text>
+          <DropdownText numberOfLines={1} style={[s.selectText,handoverCourierId&&s.selectedCourier]}>{couriers.find(item=>item.id===handoverCourierId)?.name || "Select courier service"}</DropdownText>
           <Ionicons name={courierPickerOpen ? "chevron-up" : "chevron-down"} size={16} color={colors.muted}/>
         </Pressable>
         <Modal visible={courierPickerOpen && handoverOpen} transparent animationType="none" onRequestClose={()=>setCourierPickerOpen(false)}>
@@ -411,7 +412,7 @@ export default function OrderDetailScreen() {
       </View>
       {couriers.filter(item=>item.isActive).length===0&&<Text style={s.noCourier}>No active couriers are available. Add a courier to continue.</Text>}<Text style={s.fieldLabel}>Tracking Number *</Text><TextInput value={trackingNo} onChangeText={setTrackingNo} style={s.input} placeholder="Enter tracking number"/><View style={s.sectionHeader}><Text style={s.fieldLabel}>Delivery Man <Text style={s.optional}>(optional)</Text></Text><Pressable onPress={()=>setAddDeliveryManOpen(true)}><Text style={s.addDeliveryMan}>Add Delivery Man</Text></Pressable></View><View ref={deliveryManAnchor} collapsable={false}>
         <Pressable accessibilityRole="button" accessibilityLabel="Delivery man" accessibilityState={{ expanded: deliveryManPickerOpen }} onPress={openDeliveryManMenu} style={s.selectButton}>
-          <Text numberOfLines={1} style={[s.selectText, !!deliveryManId && s.selectedCourier]}>{deliveryMen.find(item=>item.id===deliveryManId)?.name || "— none —"}</Text>
+          <DropdownText numberOfLines={1} style={[s.selectText, !!deliveryManId && s.selectedCourier]}>{deliveryMen.find(item=>item.id===deliveryManId)?.name || "— none —"}</DropdownText>
           <Ionicons name={deliveryManPickerOpen ? "chevron-up" : "chevron-down"} size={16} color={colors.muted}/>
         </Pressable>
         <Modal visible={deliveryManPickerOpen && handoverOpen} transparent animationType="none" onRequestClose={()=>setDeliveryManPickerOpen(false)}>

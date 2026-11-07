@@ -1,3 +1,4 @@
+import DropdownText from "./DropdownText";
 import SharedDatePicker from "./SharedDatePicker";
 import {reportToday} from "./reportDate";
 import { useState } from "react";
@@ -29,7 +30,7 @@ export function CapitalPayeeSelect({value,onChange,payees,loading,label,placehol
   return <>
     <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{expanded:open,disabled:loading}} disabled={loading} onPress={()=>setOpen(true)} style={s.field}>
       {selected&&<UserAvatar name={selected.name} photoUrl={selected.photoUrl} size={30}/>}
-      <Text style={[s.value,!value&&s.disabled]}>{loading?"Loading…":value||placeholder}</Text><Ionicons name="chevron-down" size={18} color={colors.primaryDark}/>
+      <DropdownText style={[s.value,!value&&s.disabled]}>{loading?"Loading…":value||placeholder}</DropdownText><Ionicons name="chevron-down" size={18} color={colors.primaryDark}/>
     </Pressable>
     {open&&<Picker title={label} close={()=>setOpen(false)}><ScrollView style={s.options} keyboardShouldPersistTaps="handled">
       {payees.length?payees.map(p=><Pressable key={p.id} accessibilityRole="button" accessibilityState={{selected:p.name===value}} onPress={()=>{onChange(p.name);setOpen(false)}} style={[s.option,p.name===value&&s.selected]}><UserAvatar name={p.name} photoUrl={p.photoUrl} size={34}/><Text style={s.value}>{p.name}</Text>{p.name===value&&<Ionicons name="checkmark" size={20} color={colors.primaryDark}/>}</Pressable>):<Text style={s.empty}>{empty}</Text>}

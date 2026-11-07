@@ -43,7 +43,7 @@ export default function SaleScreen({ backdated = false }: { backdated?: boolean 
   const { setBottomNavHidden } = useModalChrome();
   const [addingMissingSale,setAddingMissingSale]=useState(false);
   const [category, setCategory] = useState<string | null>(null);
-  const [searchMode, setSearchMode] = useState(false); const [search, setSearch] = useState("");
+  const [search, setSearch] = useState("");
   const [cart,setCart]=useState<CartItem[]>([]);const [cartExpanded,setCartExpanded]=useState(false);const [checkoutOpen,setCheckoutOpen]=useState(false);const [confirmSaleOpen,setConfirmSaleOpen]=useState(false);const [note, setNote] = useState("");const [showNote,setShowNote]=useState(false); const [saving, setSaving] = useState(false); const [saleError, setSaleError] = useState(""); const [success, setSuccess] = useState("");
   const [receipt,setReceipt]=useState<SaleReceipt|null>(null);const [receiptPromptOpen,setReceiptPromptOpen]=useState(false);const [emailPromptOpen,setEmailPromptOpen]=useState(false);const [receiptEmail,setReceiptEmail]=useState("");const [sendingReceipt,setSendingReceipt]=useState(false);const [receiptActionError,setReceiptActionError]=useState("");
   const [selectedCustomer,setSelectedCustomer]=useState<Customer|null>(null);const [customerPickerOpen,setCustomerPickerOpen]=useState(false);
@@ -63,7 +63,7 @@ export default function SaleScreen({ backdated = false }: { backdated?: boolean 
   const business = auth.session?.businesses.find(item => item.id === auth.session?.businessId);
   const channel = business?.salesChannels?.includes("HAWKER") ? "HAWKER" : "SHOP";
 
-  const searchTerm = useDebouncedSearch(searchMode ? search.trim() : "", 300);
+  const searchTerm = useDebouncedSearch(search.trim(), 300);
   const path = searchTerm ? `/products/search?q=${encodeURIComponent(searchTerm)}&onlyInStock=true` : `/products/browse?onlyInStock=true${category ? `&categoryId=${category}` : ""}`;
   const productQuery = usePickerQuery<RawProduct[]>("products", path, true);
   const categoryQuery = usePickerQuery<Category[]>("products", "/products/active-categories", true);
@@ -139,12 +139,11 @@ export default function SaleScreen({ backdated = false }: { backdated?: boolean 
         <View style={s.topActions}>
           <Pressable accessibilityRole="button" onPress={()=>router.push("/more/due" as never)} style={s.history}><Text style={s.historyText}>{t("dueMenu")}</Text></Pressable>
           {!backdated && canSeeCosts && <Pressable onPress={() => router.push({ pathname: "/sales-record", params: { from: backdated ? saleDate : "today", to: backdated ? saleDate : "today" } })} style={s.history}><Text style={s.historyText}>{backdated ? "Selected date sales history" : "Today's sales history"}</Text></Pressable>}
-          <Pressable accessibilityRole="button" accessibilityLabel={searchMode ? "Close search" : "Search products"} accessibilityState={{expanded:searchMode}} onPress={() => { setSearchMode(!searchMode); setSearch(""); }} style={s.squareButton}><Ionicons name={searchMode ? "close" : "search-outline"} size={21} color={colors.neutralIcon} /></Pressable>
         </View>
       </View>
-      {searchMode && <View style={s.filterRow}><View style={s.searchBox}><TextInput autoFocus accessibilityLabel="Search products" value={search} onChangeText={setSearch} placeholder="Search product..." placeholderTextColor={colors.muted} style={s.searchInput} /></View></View>}
+      <View style={s.filterRow}><Ionicons name="search-outline" size={21} color={colors.neutralIcon} /><View style={s.searchBox}><TextInput accessibilityLabel="Search products" value={search} onChangeText={setSearch} placeholder="Search product..." placeholderTextColor={colors.muted} style={s.searchInput} /></View>{!!search && <Pressable accessibilityRole="button" accessibilityLabel="Clear search" onPress={() => setSearch("")} style={s.squareButton}><Ionicons name="close" size={21} color={colors.neutralIcon} /></Pressable>}</View>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.categoryChips}>
-        {[{id:null,name:"All"},...categories].map(item => <Pressable key={item.id ?? "all"} accessibilityRole="button" accessibilityState={{selected:category===item.id}} onPress={() => {setCategory(item.id);setSearch("");setSearchMode(false)}} style={[s.categoryChip,category===item.id&&s.categoryChipSelected]}><Text style={[s.categoryChipText,category===item.id&&s.categoryChipTextSelected]}>{item.name}</Text></Pressable>)}
+        {[{id:null,name:"All"},...categories].map(item => <Pressable key={item.id ?? "all"} accessibilityRole="button" accessibilityState={{selected:category===item.id}} onPress={() => {setCategory(item.id);setSearch("")}} style={[s.categoryChip,category===item.id&&s.categoryChipSelected]}><Text style={[s.categoryChipText,category===item.id&&s.categoryChipTextSelected]}>{item.name}</Text></Pressable>)}
       </ScrollView>
       {!!error && <View style={s.state}><Text style={s.error}>{error}</Text><Pressable onPress={refreshProducts} style={s.sellButton}><Text style={s.sellText}>Try again</Text></Pressable></View>}
       {loading && !products.length && <View style={s.state}><ActivityIndicator color={colors.primary} /><Text style={s.helper}>Loading products…</Text></View>}

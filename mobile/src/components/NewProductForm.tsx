@@ -23,6 +23,7 @@ export type EditableProduct = {
   wholesaleMinQty: number | null; wholesaleUnitPrice: number | null; wholesaleNote: string | null;
 };
 type Props = {
+  quickCreate?: boolean;
   initialProduct?: EditableProduct;
   onUpdate?: (payload: object) => Promise<void>;
   onSavingChange?: (busy: boolean) => void;
@@ -31,7 +32,7 @@ type Props = {
   contentStyle?: object;
 };
 
-export default function NewProductForm({ onCreated, onOpenExisting, contentStyle, initialProduct, onUpdate, onSavingChange }: Props) {
+export default function NewProductForm({ quickCreate = false, onCreated, onOpenExisting, contentStyle, initialProduct, onUpdate, onSavingChange }: Props) {
   const auth = useAuth();
   const { lang } = useLanguage();
   const [categories, setCategories] = useState<Category[]>([]);
@@ -157,7 +158,9 @@ export default function NewProductForm({ onCreated, onOpenExisting, contentStyle
   };
 
   return <KeyboardAwareScrollView enableOnAndroid extraScrollHeight={24} keyboardShouldPersistTaps="handled" contentContainerStyle={[s.content, contentStyle]}>
-    {!!error && <Text style={s.error}>{error}</Text>}
+    {quickCreate && <Text style={s.hint}>{lang === "bn" ? "ক্যাটাগরি ও নাম দিয়ে পণ্য তৈরি করুন। দাম, স্টক ও ছবি পরের পাতায় যোগ করতে পারবেন।" : "Choose a category and enter a name. Add price, stock and photos on the next page."}</Text>}
+    {!!error && <Text accessibilityRole="alert" style={s.error}>{error}</Text>}
+    {initialProduct && <Text style={s.sectionTitle}>{lang === "bn" ? "পণ্যের পরিচিতি" : "Product information"}</Text>}
     <View style={s.field}>
       <Text style={s.label}>{lang === "bn" ? "ক্যাটাগরি *" : "CATEGORY *"}</Text>
       {loading ? <ActivityIndicator color={colors.primary} /> : !categories.length ? <Text style={s.hint}>{loaded ? "Add a category before creating a product." : "Loading categories…"}</Text> : <>
@@ -172,7 +175,9 @@ export default function NewProductForm({ onCreated, onOpenExisting, contentStyle
         {suggestionsOpen && name.trim().length >= 2 && (suggestionsLoading || productSuggestions.length > 0) && <View style={s.suggestions}>{suggestionsLoading ? <ActivityIndicator color={colors.primary} style={s.suggestionLoader} /> : productSuggestions.map(item => <Pressable key={item.id} onPress={() => { setName(item.name); setSuggestionsOpen(false); Keyboard.dismiss(); }} style={s.suggestionRow}><View style={s.suggestionCopy}><Text numberOfLines={1} style={s.suggestionName}>{item.name}</Text><Text style={s.suggestionMeta}>{item.categoryName} · SKU {item.sku}</Text></View><Ionicons name="chevron-forward" size={18} color={colors.muted} /></Pressable>)}</View>}
         {duplicateProduct && <View style={s.duplicateNotice}><Text style={s.duplicateText}>{lang === "bn" ? "এই কোম্পানিতে একই নামে একটি পণ্য আগে থেকেই আছে।" : "A product with this exact name already exists in this company."}</Text>{onOpenExisting && <Pressable onPress={() => onOpenExisting(duplicateProduct)} style={s.openExisting}><Text style={s.openExistingText}>Open existing product</Text><Ionicons name="arrow-forward" size={15} color={colors.primaryDark} /></Pressable>}</View>}
       </View>
+      {!quickCreate && <>
       <Field action={<Pressable accessibilityRole="button" disabled={saving || generating || !name.trim() || !categoryId} onPress={()=>void generateSku()} style={[s.openExisting, {marginLeft:"auto"}, (saving || generating || !name.trim()) && s.disabled]}>{generating ? <ActivityIndicator size="small" color={colors.primary}/> : <Text style={s.openExistingText}>{lang === "bn" ? "SKU কোড তৈরি করুন" : "Generate SKU Code"}</Text>}</Pressable>} label={lang === "bn" ? "SKU কোড (ঐচ্ছিক)" : "SKU CODE (OPTIONAL)"} note={lang === "bn" ? "খালি রাখলে ক্যাটাগরির ২টি অক্ষর, পণ্যের নামের ৩টি অক্ষর ও সিরিয়াল দিয়ে তৈরি হবে (যেমন SH-NIK-1)। একই ব্যবসায় একই SKU ব্যবহার করা যাবে না।" : "Leave blank for 2 category characters + 3 product-name characters + serial (e.g. SH-NIK-1). SKU must be unique within your business."} value={sku} onChangeText={value => { ++skuRun.current; setGenerating(false); setSku(value); setError(""); }} placeholder={lang === "bn" ? "খালি রাখলে স্বয়ংক্রিয়ভাবে তৈরি হবে" : "Leave blank to generate automatically"} autoCapitalize="characters" />
+      {initialProduct && <Text style={s.sectionTitle}>{lang === "bn" ? "মূল্য ও স্টক" : "Pricing & inventory"}</Text>}
       <Field label={lang === "bn" ? "বিক্রয়মূল্য (ঐচ্ছিক)" : "SELLING PRICE (OPTIONAL)"} note={lang === "bn" ? "খালি রাখলে ০ হিসেবে সেভ হবে। পরে মূল্য নির্ধারণ করতে পারবেন।" : "Leave blank to save the price as zero. You can set it later."} value={sellingPrice} onChangeText={setSellingPrice} placeholder={lang === "bn" ? "০.০০" : "0.00"} keyboardType="decimal-pad" />
       {!initialProduct && <>
       <Field label={lang === "bn" ? "শুরুর স্টক পরিমাণ (ঐচ্ছিক)" : "OPENING QUANTITY (OPTIONAL)"} value={quantity} onChangeText={setQuantity} placeholder={lang === "bn" ? "০" : "0"} keyboardType="decimal-pad" />
@@ -181,28 +186,58 @@ export default function NewProductForm({ onCreated, onOpenExisting, contentStyle
       </>}
       {initialProduct && <Text style={s.hint}>{lang === "bn" ? "স্টক ও ক্রয়মূল্য পরিবর্তন করতে Stock এবং Product Cost ট্যাব ব্যবহার করুন।" : "Use the Stock and Product Cost tabs to adjust quantity and purchase cost."}</Text>}
       {([
-        ["marketPrice", "Market price", "বাজারমূল্য", true],
-        ["lowStockThreshold", "Low stock threshold", "কম স্টকের সীমা", true],
-        ["unitCode", "Unit", "ইউনিট", false],
-        ["packagingCostPerUnit", "Packaging cost per unit", "প্রতি ইউনিট প্যাকেজিং খরচ", true],
-        ["description", "Description", "বিবরণ", false],
-        ["defectNotes", "Defect notes", "ত্রুটির বিবরণ", false],
-        ["note", "Note", "নোট", false],
-        ["warrantyDurationValue", "Warranty duration (optional)", "ওয়ারেন্টির মেয়াদ (ঐচ্ছিক)", true],
-        ["wholesaleMinQty", "Wholesale minimum quantity (optional)", "পাইকারি সর্বনিম্ন পরিমাণ (ঐচ্ছিক)", true],
-        ["wholesaleUnitPrice", "Wholesale unit price (optional)", "পাইকারি ইউনিট মূল্য (ঐচ্ছিক)", true],
-        ["wholesaleNote", "Wholesale note", "পাইকারি নোট", false],
-      ] as const).map(([key,en,bn,numeric])=><Field key={key} label={lang==="bn"?bn:en} value={details[key]} onChangeText={value=>setDetails(current=>({...current,[key]:value}))} placeholder={key==="unitCode" ? selectedCategory?.defaultUnit || "pcs" : ""} keyboardType={numeric ? "decimal-pad" : undefined} multiline={["description","note","defectNotes","wholesaleNote"].includes(key)}/>)}
-      {!!details.warrantyDurationValue && <View style={s.field}><Text style={s.label}>{lang==="bn"?"ওয়ারেন্টির একক":"Warranty unit"}</Text><View style={s.fieldLabelRow}>{["DAYS","MONTHS","YEARS"].map(unit=><Pressable key={unit} accessibilityRole="radio" accessibilityState={{checked:details.warrantyDurationUnit===unit}} onPress={()=>setDetails(current=>({...current,warrantyDurationUnit:unit}))} style={{padding:10,backgroundColor:details.warrantyDurationUnit===unit?colors.primaryLight:colors.white}}><Text>{unit}</Text></Pressable>)}</View></View>}
-      <Pressable disabled={saving || generating || loading || suggestionsLoading || !!duplicateProduct} onPress={() => void save()} style={[s.submit, (saving || loading || suggestionsLoading || !!duplicateProduct) && s.disabled]}>{saving ? <ActivityIndicator color={colors.white} /> : <Text style={s.submitText}>{initialProduct ? (lang === "bn" ? "পরিবর্তন সেভ করুন" : "Save changes") : "Save Product"}</Text>}</Pressable>
+        { title: "", bn: "", fields: [
+          ["marketPrice", "Market price", "বাজারমূল্য", true],
+          ["lowStockThreshold", "Low stock threshold", "কম স্টকের সীমা", true],
+          ["unitCode", "Unit", "ইউনিট", false],
+          ["packagingCostPerUnit", "Packaging cost per unit", "প্রতি ইউনিট প্যাকেজিং খরচ", true],
+        ] },
+        { title: "Description & notes", bn: "বিবরণ ও নোট", fields: [
+          ["description", "Description", "বিবরণ", false],
+          ["defectNotes", "Defect notes", "ত্রুটির বিবরণ", false],
+          ["note", "Note", "নোট", false],
+        ] },
+        { title: "Wholesale (optional)", bn: "পাইকারি (ঐচ্ছিক)", fields: [
+          ["wholesaleMinQty", "Minimum quantity", "সর্বনিম্ন পরিমাণ", true],
+          ["wholesaleUnitPrice", "Unit price", "ইউনিট মূল্য", true],
+          ["wholesaleNote", "Wholesale note", "পাইকারি নোট", false],
+        ] },
+      ] as const).map(group => <View key={group.title} style={s.fieldGroup}>
+        {!!group.title && <Text style={s.sectionTitle}>{lang === "bn" ? group.bn : group.title}</Text>}
+        <View style={s.fieldGrid}>{group.fields.map(([key,en,bn,numeric]) => <View key={key} style={numeric || key === "unitCode" ? s.halfField : s.fullField}><Field label={lang === "bn" ? bn : en} value={details[key]} onChangeText={value => setDetails(current => ({...current,[key]:value}))} placeholder={key === "unitCode" ? selectedCategory?.defaultUnit || "pcs" : numeric ? "0" : ""} keyboardType={numeric ? "decimal-pad" : undefined} multiline={["description","note","defectNotes","wholesaleNote"].includes(key)}/></View>)}</View>
+      </View>)}
+      <View style={s.fieldGroup}>
+        <Text style={s.sectionTitle}>{lang === "bn" ? "ওয়ারেন্টি" : "Warranty"}</Text>
+        <Text style={s.label}>{lang === "bn" ? "ওয়ারেন্টির মেয়াদ (ঐচ্ছিক)" : "Warranty duration (optional)"}</Text>
+        <View style={s.warrantyRow}>
+          <TextInput accessibilityLabel={lang === "bn" ? "ওয়ারেন্টির মেয়াদ" : "Warranty duration"} value={details.warrantyDurationValue} onChangeText={value => setDetails(current => ({...current,warrantyDurationValue:value}))} placeholder="0" placeholderTextColor={colors.muted} keyboardType="number-pad" style={[s.input,s.warrantyAmount]} />
+          <View style={s.warrantyUnits}>{([ ["DAYS","Days","দিন"], ["MONTHS","Months","মাস"], ["YEARS","Years","বছর"] ] as const).map(([unit,en,bn]) => <Pressable key={unit} accessibilityRole="radio" accessibilityState={{checked:details.warrantyDurationUnit === unit}} onPress={() => setDetails(current => ({...current,warrantyDurationUnit:unit}))} style={[s.warrantyUnit,details.warrantyDurationUnit === unit && s.warrantyUnitSelected]}><Text style={[s.unitText,details.warrantyDurationUnit === unit && s.unitTextSelected]}>{lang === "bn" ? bn : en}</Text></Pressable>)}</View>
+        </View>
+        <Text style={s.fieldNote}>{lang === "bn" ? "ওয়ারেন্টি না থাকলে মেয়াদ খালি রাখুন।" : "Leave the duration blank if there is no warranty."}</Text>
+      </View>
+      </>}
+      <Pressable accessibilityRole="button" disabled={!name.trim() || saving || generating || loading || suggestionsLoading || !!duplicateProduct} onPress={() => void save()} style={[s.submit, (!name.trim() || saving || generating || loading || suggestionsLoading || !!duplicateProduct) && s.disabled]}>{saving ? <ActivityIndicator color={colors.white} /> : <Text style={s.submitText}>{initialProduct ? (lang === "bn" ? "পরিবর্তন সেভ করুন" : "Save changes") : quickCreate ? (lang === "bn" ? "পণ্য তৈরি করুন" : "Create product") : "Save Product"}</Text>}</Pressable>
     </> : null}
   </KeyboardAwareScrollView>;
 }
 
 function Field(props: { label: string; action?: React.ReactNode; multiline?: boolean; note?: string; value: string; onChangeText: (value: string) => void; placeholder: string; keyboardType?: "decimal-pad"; autoCapitalize?: "none" | "sentences" | "words" | "characters" }) {
-  return <View style={s.field}><View style={s.fieldLabelRow}><Text style={s.label}>{props.label}</Text>{props.action}</View>{props.note && <Text style={s.fieldNote}>({<Text>{props.note}</Text>})</Text>}<TextInput multiline={props.multiline} value={props.value} onChangeText={props.onChangeText} placeholder={props.placeholder} placeholderTextColor={colors.muted} keyboardType={props.keyboardType} autoCapitalize={props.autoCapitalize} style={s.input} /></View>;
+  return <View style={s.field}><View style={s.fieldLabelRow}><Text style={s.label}>{props.label}</Text>{props.action}</View>{props.note && <Text style={s.fieldNote}>({<Text>{props.note}</Text>})</Text>}<TextInput multiline={props.multiline} value={props.value} onChangeText={props.onChangeText} placeholder={props.placeholder} placeholderTextColor={colors.muted} keyboardType={props.keyboardType} autoCapitalize={props.autoCapitalize} accessibilityLabel={props.label} style={[s.input, props.multiline && s.multilineInput]} /></View>;
 }
 
 const s = StyleSheet.create({
+  sectionTitle: { color: colors.heading, fontSize: 15, fontWeight: "700", paddingTop: 8, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: colors.divider },
+  fieldGroup: { gap: 12 },
+  fieldGrid: { flexDirection: "row", flexWrap: "wrap", gap: 14 },
+  halfField: { flexGrow: 1, flexBasis: "45%", minWidth: 130 },
+  fullField: { width: "100%" },
+  multilineInput: { minHeight: 86, paddingTop: 12, paddingBottom: 12, textAlignVertical: "top" },
+  warrantyRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 10 },
+  warrantyAmount: { flexGrow: 1, flexBasis: 80, minWidth: 70 },
+  warrantyUnits: { flexGrow: 2, flexBasis: 210, flexDirection: "row", gap: 4, padding: 4, borderRadius: 12, backgroundColor: colors.disabled, borderWidth: 1, borderColor: colors.divider },
+  warrantyUnit: { flex: 1, minHeight: 40, alignItems: "center", justifyContent: "center", borderRadius: 8, paddingHorizontal: 6, borderWidth: 1, borderColor: "transparent" },
+  warrantyUnitSelected: { backgroundColor: colors.white, borderColor: colors.primary },
+  unitText: { color: colors.secondary, fontSize: 13, fontWeight: "600" },
+  unitTextSelected: { color: colors.primaryDark },
   content: { padding: 16, gap: 16 }, field: { gap: 7 }, fieldLabelRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "baseline", columnGap: 6, rowGap: 3 }, fieldNote: { flexShrink: 1, color: colors.muted, fontSize: 12, lineHeight: 18 }, label: { color: colors.secondary, fontSize: 11, fontWeight: "700", letterSpacing: 0.5 }, categoryInputWrap: { position: "relative", flexDirection: "row", alignItems: "center" }, categorySearchInput: { flex: 1 }, input: { minHeight: 48, borderWidth: 1, borderColor: colors.border, borderRadius: 11, paddingHorizontal: 13, color: colors.heading, backgroundColor: colors.white, fontSize: 15 }, categoryDropdown: { maxHeight: 280, borderWidth: 1, borderColor: colors.border, borderRadius: 11, backgroundColor: colors.white, overflow: "hidden" }, categoryOption: { minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 13, borderBottomWidth: 1, borderBottomColor: colors.divider }, categoryOptionText: { color: colors.heading, fontSize: 14, fontWeight: "600" }, categoryUnit: { color: colors.muted, fontSize: 12 }, noCategories: { padding: 14, color: colors.muted, fontSize: 13 }, hint: { color: colors.muted, fontSize: 12, lineHeight: 18 }, error: { color: colors.dangerText, fontSize: 13 }, suggestions: { maxHeight: 260, borderWidth: 1, borderColor: colors.border, borderRadius: 11, backgroundColor: colors.white, overflow: "hidden" }, suggestionRow: { minHeight: 52, flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, borderBottomWidth: 1, borderBottomColor: colors.divider }, suggestionCopy: { flex: 1, minWidth: 0 }, suggestionName: { color: colors.heading, fontSize: 13, fontWeight: "600" }, suggestionMeta: { color: colors.muted, fontSize: 11, marginTop: 3 }, suggestionLoader: { padding: 14 }, duplicateNotice: { gap: 7, borderRadius: 10, borderWidth: 1, borderColor: colors.warning, backgroundColor: colors.warningBackground, padding: 11 }, duplicateText: { color: colors.warningText, fontSize: 12, lineHeight: 17 }, openExisting: { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 5 }, openExistingText: { color: colors.primaryDark, fontSize: 12, fontWeight: "700" }, submit: { minHeight: 48, marginTop: 8, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: colors.primary }, submitText: { color: colors.white, fontSize: 14, fontWeight: "700" }, disabled: { opacity: 0.5 },
 });

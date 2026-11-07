@@ -1,3 +1,4 @@
+import DropdownText from "../components/DropdownText";
 import { Text } from "../i18n/LocalizedText";
 import { Ionicons } from "@expo/vector-icons";import { router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
@@ -57,8 +58,8 @@ export default function CategoriesScreen() {
       {showNew && <View style={s.form}>
         <TextInput value={name} onChangeText={setName} placeholder="Category name (e.g. Electronics)" placeholderTextColor={colors.muted} style={s.input} />
         <TextInput value={nameBn} onChangeText={setNameBn} placeholder="বাংলা নাম (ঐচ্ছিক) — e.g. ইলেকট্রনিক্স" placeholderTextColor={colors.muted} style={s.input} />
-        <View style={s.formRow}><Text style={s.formLabel}>Default unit</Text><Pressable onPress={() => setPicker("unit")} style={s.select}><Text style={s.selectText}>{unit}</Text><Ionicons name="chevron-down" size={17} color={colors.secondary} /></Pressable></View>
-        <View style={s.formRow}><Text style={s.formLabel}>Parent category</Text><Pressable onPress={() => setPicker("parent")} style={s.select}><Text numberOfLines={1} style={s.selectText}>{selectedParent}</Text><Ionicons name="chevron-down" size={17} color={colors.secondary} /></Pressable></View>
+        <View style={s.formRow}><Text style={s.formLabel}>Default unit</Text><Pressable onPress={() => setPicker("unit")} style={s.select}><DropdownText style={s.selectText}>{unit}</DropdownText><Ionicons name="chevron-down" size={17} color={colors.secondary} /></Pressable></View>
+        <View style={s.formRow}><Text style={s.formLabel}>Parent category</Text><Pressable onPress={() => setPicker("parent")} style={s.select}><DropdownText numberOfLines={1} style={s.selectText}>{selectedParent}</DropdownText><Ionicons name="chevron-down" size={17} color={colors.secondary} /></Pressable></View>
         <Pressable disabled={saving} onPress={() => void create()} style={[s.primaryButton, saving && s.disabled]}>{saving ? <ActivityIndicator color={colors.white} /> : <Text style={s.primaryText}>Create Category</Text>}</Pressable>
       </View>}
       {!!error && <View style={s.errorBox}><Text style={s.error}>{error}</Text></View>}

@@ -1,3 +1,4 @@
+import { DateFieldColumn } from "../components/DateRangeLayout";
 import SharedDatePicker from "../components/SharedDatePicker";
 import {reportToday} from "../components/reportDate";
 import { Text } from "../i18n/LocalizedText";
@@ -535,10 +536,10 @@ export default function OrdersScreen() {
             ))}
           </View>
           {(["from", "to"] as const).map((key) => (
-            <View key={key} style={s.field}>
+            <DateFieldColumn key={key} style={s.field}>
               <Text style={s.name}>{key === "from" ? "From" : "To"}</Text>
               <SharedDatePicker label={key === "from" ? "From date" : "To date"} value={draft[key]} onChange={value=>setDraft({...draft,[key]:value})} maximumDate={reportToday()} clearable/>
-            </View>
+            </DateFieldColumn>
           ))}
           {!!dateError && (
             <Text accessibilityRole="alert" style={s.errorText}>

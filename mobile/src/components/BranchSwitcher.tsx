@@ -1,3 +1,4 @@
+import { dropdownLabel } from "./DropdownText";
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from "react-native";
@@ -49,7 +50,7 @@ export default function BranchSwitcher({ onSelected }: { onSelected?: () => void
       <Ionicons name="business-outline" size={17} color={colors.primaryDark} />
       <View style={styles.copy}>
         <Text style={styles.caption}>BRANCH</Text>
-        <Text numberOfLines={1} style={styles.name}>{current?.name ?? "Select branch"}</Text>
+        <Text numberOfLines={1} style={styles.name}>{dropdownLabel(current?.name, "Select branch")}</Text>
       </View>
       {loading ? <ActivityIndicator size="small" color={colors.primaryDark} /> : <Ionicons name={open ? "chevron-up" : "chevron-down"} size={17} color={colors.primaryDark} />}
     </Pressable>

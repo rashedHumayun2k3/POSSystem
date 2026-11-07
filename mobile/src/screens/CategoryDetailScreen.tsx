@@ -1,3 +1,4 @@
+import DropdownText from "../components/DropdownText";
 import { Text } from "../i18n/LocalizedText";
 import { Ionicons } from "@expo/vector-icons";import { router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
@@ -67,7 +68,7 @@ export default function CategoryDetailScreen() {
 }
 
 function safeOptions(value: string) { try { const options = JSON.parse(value); return Array.isArray(options) ? options.join(", ") : value; } catch { return value; } }
-function Select({ label, press }: { label: string; press: () => void }) { return <Pressable onPress={press} style={s.select}><Text numberOfLines={1} style={s.grow}>{label}</Text><Ionicons name="chevron-down" size={17} color={colors.secondary} /></Pressable>; }
+function Select({ label, press }: { label: string; press: () => void }) { return <Pressable onPress={press} style={s.select}><DropdownText numberOfLines={1} style={s.grow}>{label}</DropdownText><Ionicons name="chevron-down" size={17} color={colors.secondary} /></Pressable>; }
 function Toggle({ label, value, change }: { label: string; value: boolean; change: (value: boolean) => void }) { return <View style={s.toggle}><Text style={s.toggleLabel}>{label}</Text><Switch value={value} onValueChange={change} trackColor={{ false: colors.divider, true: colors.highlight }} thumbColor={colors.white} /></View>; }
 function Badge({ text, danger }: { text: string; danger?: boolean }) { return <Text style={[s.badge, danger && s.dangerBadge]}>{text}</Text>; }
 

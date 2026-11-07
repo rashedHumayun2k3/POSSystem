@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { Platform, StyleSheet, View } from "react-native";
 import { Picker } from "@react-native-picker/picker";
 import { useLanguage } from "../i18n/LanguageContext";
 import { Text } from "../i18n/LocalizedText";
@@ -54,8 +54,8 @@ export function DateTimeField({ value, onChange, includeTime = true, minimumDate
 
 function SelectPart({ label, value, choices, wide, natural, onChange }: { label: string; value: string; choices: Choice[]; wide?: boolean; natural?: boolean; onChange: (value: string) => void }) {
   const { t } = useLanguage();
-  return <View style={[styles.select, wide && styles.selectWide, natural && styles.naturalSelect, natural && wide && styles.naturalSelectWide]}>
-    <Picker accessibilityLabel={t(label)} selectedValue={value} onValueChange={selected => onChange(String(selected))} mode="dropdown" style={{width:"100%",height:38,color:colors.heading,fontSize:14,backgroundColor:colors.white,borderWidth:0} as any}>
+  return <View style={[styles.select, Platform.OS !== "web" && {height:Platform.OS === "ios" ? 152 : 54}, wide && styles.selectWide, natural && styles.naturalSelect, natural && wide && styles.naturalSelectWide]}>
+    <Picker accessibilityLabel={t(label)} selectedValue={value} onValueChange={selected => onChange(String(selected))} mode="dropdown" dropdownIconColor={colors.heading} itemStyle={{color:colors.heading,fontSize:14}} style={{width:"100%",height:Platform.OS === "ios" ? 150 : Platform.OS === "android" ? 52 : 38,color:colors.heading,fontSize:14,backgroundColor:colors.white,borderWidth:0} as any}>
       {!value&&<Picker.Item label={t(label)} value="" enabled={false}/>}
       {choices.map(choice=><Picker.Item key={choice.value} label={choice.label} value={choice.value}/>)}
     </Picker>

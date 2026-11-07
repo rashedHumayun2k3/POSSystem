@@ -12,7 +12,7 @@ export default function NewProductScreen() {
       <Pressable accessibilityRole="button" accessibilityLabel="Go back" onPress={() => router.back()} style={s.back}><Ionicons name="arrow-back" size={22} color={colors.heading} /></Pressable>
       <Text style={s.title}>Add Product</Text>
     </View>
-    <NewProductForm onCreated={product => router.replace({ pathname: "/products/[id]", params: { id: product.id } })} onOpenExisting={product => router.replace({ pathname: "/products/[id]", params: { id: product.id } })} />
+    <NewProductForm quickCreate onCreated={product => router.replace({ pathname: "/products/setup" as never, params: { id: product.id } })} onOpenExisting={product => router.replace({ pathname: "/products/[id]", params: { id: product.id } })} />
   </SafeAreaView>;
 }
 

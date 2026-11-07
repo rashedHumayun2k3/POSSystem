@@ -91,6 +91,9 @@
   "backdatedPosMenu": "Backdated POS Sale",
   "discountsMenuDescription": "Create reusable offers for products and categories",
   "backdatedPosMenuDescription": "Record a missed cash sale for an earlier date",
+  "productSalesHistory": {
+    "title": "Sales History"
+  },
   "productCostHistory": {
   "title": "Product Cost",
   "current": "Current Purchase Cost",

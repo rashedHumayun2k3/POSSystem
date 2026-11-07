@@ -54,7 +54,11 @@ export default function PopupSheet({ visible, onClose, title, headerAction, onSh
       setViewport(null);
     };
   }, [visible, keyboardAware]);
-  const desktop = useWindowDimensions().width >= 768;
+  const { width: windowWidth } = useWindowDimensions();
+  const desktop = windowWidth >= 768;
+  // Resolve the sheet width before the opening animation, rather than relying
+  // on percentage sizing through the modal's initially unmeasured wrappers.
+  const panelWidth = desktop ? Math.min(620, Math.max(0, windowWidth - 40)) : windowWidth;
   const insets = useSafeAreaInsets();
   const { setBottomNavHidden } = useModalChrome();
   useEffect(() => {
@@ -71,10 +75,10 @@ export default function PopupSheet({ visible, onClose, title, headerAction, onSh
     };
   }, [visible, desktop, setBottomNavHidden]);
 
-  return <Modal visible={visible} transparent animationType={desktop ? "fade" : "slide"} onRequestClose={onClose} onShow={onShow}>
+  return <Modal visible={visible} transparent animationType={desktop || fitContent ? "fade" : "slide"} onRequestClose={onClose} onShow={onShow}>
     <KeyboardAvoidingView style={[s.fill, keyboardAware && viewport ? { position: "absolute", top: viewport.top, left: 0, right: 0, height: viewport.height } : undefined]} behavior={Platform.OS === "ios" ? "padding" : "height"} enabled={Platform.OS === "ios" ? !desktop : keyboardAware && Platform.OS === "android"}>
       <View style={[s.overlay, !desktop && s.mobileOverlay]}>
-        <View ref={panelRef} style={[s.panel, desktop ? s.desktopPanel : s.mobilePanel, fitContent && s.fitContent, keyboardAware && { minHeight: 0 }, !desktop && { paddingBottom: insets.bottom }]}>
+        <View ref={panelRef} style={[s.panel, desktop ? s.desktopPanel : s.mobilePanel, fitContent && s.fitContent, { width: panelWidth }, keyboardAware && { minHeight: 0 }, !desktop && { paddingBottom: insets.bottom }]}>
           {!desktop && <View style={s.handle} />}
           <View style={s.header}>
             <Text style={s.title}>{title}</Text>
@@ -91,8 +95,8 @@ export default function PopupSheet({ visible, onClose, title, headerAction, onSh
 }
 
 const s = StyleSheet.create({
-  fill: { flex: 1 },
-  overlay: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.overlay, padding: 20 },
+  fill: { flex: 1, width: "100%", alignSelf: "stretch" },
+  overlay: { flex: 1, width: "100%", alignItems: "center", justifyContent: "center", backgroundColor: colors.overlay, padding: 20 },
   mobileOverlay: { alignItems: "stretch", justifyContent: "flex-end", padding: 0 },
   panel: { width: "100%", backgroundColor: colors.white, overflow: "hidden" },
   desktopPanel: { maxWidth: 620, height: "84%", borderRadius: 18 },

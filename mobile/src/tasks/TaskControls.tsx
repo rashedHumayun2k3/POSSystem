@@ -1,3 +1,4 @@
+import DropdownText from "../components/DropdownText";
 import { useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { Pressable, StyleSheet, View } from "react-native";
@@ -8,7 +9,7 @@ export function TaskSelect({ label, value, options, onChange }: { label: string;
   const [open, setOpen] = useState(false);
   return <View style={{ gap: 8 }}><Text style={t.label}>{label}</Text>
     <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ expanded: open }} onPress={() => setOpen(!open)} style={t.select}>
-      <Text style={t.body}>{options.find(o => o.value === value)?.label || "Select a person"}</Text><Ionicons name={open ? "chevron-up" : "chevron-down"} size={18} color={colors.secondary} />
+      <DropdownText style={t.body}>{options.find(o => o.value === value)?.label || "Select a person"}</DropdownText><Ionicons name={open ? "chevron-up" : "chevron-down"} size={18} color={colors.secondary} />
     </Pressable>
     {open && <View style={t.options}>{options.map(o => <Pressable key={o.value} accessibilityRole="radio" accessibilityState={{ checked: value === o.value, disabled: o.disabled }} disabled={o.disabled} onPress={() => { onChange(o.value); setOpen(false); }} style={[t.option, value === o.value && t.chosen, o.disabled && { opacity: .45 }]}><Text style={t.body}>{o.label}</Text>{value === o.value && <Ionicons name="checkmark" size={18} color={colors.primary} />}</Pressable>)}</View>}
   </View>;

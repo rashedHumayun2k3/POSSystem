@@ -91,6 +91,9 @@
   "backdatedPosMenu": "আগের তারিখে বিক্রি",
   "discountsMenuDescription": "পণ্য ও ক্যাটাগরির জন্য পুনরায় ব্যবহারযোগ্য অফার তৈরি করুন",
   "backdatedPosMenuDescription": "আগের তারিখের বাদ পড়া নগদ বিক্রি রেকর্ড করুন",
+  "productSalesHistory": {
+    "title": "বিক্রয়ের ইতিহাস"
+  },
   "productCostHistory": {
   "title": "পণ্যের খরচ",
   "current": "বর্তমান ক্রয়মূল্য",

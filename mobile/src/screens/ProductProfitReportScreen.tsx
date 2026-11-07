@@ -1,7 +1,8 @@
-import RevealSection from "../components/RevealSection";
+import { DateRangeRow, DateFieldColumn } from "../components/DateRangeLayout";
+import DropdownText from "../components/DropdownText";
 import ReportPeriodTabs from "../components/ReportPeriodTabs";
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, FlatList, Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
+import { ActivityIndicator, FlatList, Platform, Pressable, ScrollView, StyleSheet, TextInput, View, useWindowDimensions } from "react-native";
 import { router, type Href } from "expo-router";
 import { productSalesLink } from "../utils/productSalesLink";
 import { Ionicons } from "@expo/vector-icons";
@@ -27,7 +28,6 @@ export default function ProductProfitReportScreen() {
   const api = useRef(auth.api); api.current = auth.api;
   const [selectedPeriod,setSelectedPeriod]=useState<"today"|"7d"|"month"|"lastMonth"|"custom">("month");
   const customDate=selectedPeriod==="custom";
-  const [revealed,setRevealed]=useState({daily:false,summary:false,products:false});
   const [draft, setDraft] = useState<Filters>(initialFilters);
   const [filters, setFilters] = useState<Filters>(initialFilters);
   const [options, setOptions] = useState<ProductOption[]>([]);
@@ -54,7 +54,7 @@ export default function ProductProfitReportScreen() {
     const timer=setTimeout(()=>setFilters({...draft,ids:[...draft.ids]}),250);
     return()=>clearTimeout(timer);
   },[draft,valid,changed]);
-  useEffect(() => { setRevealed({daily:false,summary:false,products:false}); setSelectedPeriod("month"); setDraft(initialFilters()); setFilters(initialFilters()); setSelection([]); setPicker(false); }, [auth.session?.businessId]);
+  useEffect(() => { setSelectedPeriod("month"); setDraft(initialFilters()); setFilters(initialFilters()); setSelection([]); setPicker(false); }, [auth.session?.businessId]);
   useEffect(() => {
     if (!allowed) return;
     let active = true; setOptionsLoading(true); setOptionsError(""); setOptions([]);
@@ -110,9 +110,9 @@ export default function ProductProfitReportScreen() {
     </View>
     <View style={s.panel}>
       <Text style={s.sectionTitle}>{t("profitReportText.filter")}</Text>
-      <ReportPeriodTabs items={periodOptions} selected={selectedPeriod} onChange={value=>value==="custom"?setSelectedPeriod("custom"):preset(value)}/>
-      {customDate&&<View style={s.wrap}><View style={s.dateField}><Text style={s.fieldLabel}>{t("profitReportText.from")}</Text><ReportDateField value={draft.from} onChange={from => setDraft(v => ({ ...v, from }))}/></View><View style={s.dateField}><Text style={s.fieldLabel}>{t("profitReportText.to")}</Text><ReportDateField value={draft.to} onChange={to => setDraft(v => ({ ...v, to }))}/></View></View>}
-      <Text style={s.fieldLabel}>{t("profitReportText.products")}</Text><Pressable accessibilityRole="button" onPress={() => { setSelection([...draft.ids]); setSearch(""); setPicker(true); }} style={s.select}><Text numberOfLines={2} style={s.grow}>{selectionLabel(draft.ids)}</Text><Ionicons name="chevron-down" size={18} color={colors.primaryDark}/></Pressable>
+      <ReportPeriodTabs wrapOnMobile items={periodOptions} selected={selectedPeriod} onChange={value=>value==="custom"?setSelectedPeriod("custom"):preset(value)}/>
+      {customDate&&<DateRangeRow style={s.wrap}><DateFieldColumn style={s.dateField}><Text style={s.fieldLabel}>{t("profitReportText.from")}</Text><ReportDateField value={draft.from} onChange={from => setDraft(v => ({ ...v, from }))}/></DateFieldColumn><DateFieldColumn style={s.dateField}><Text style={s.fieldLabel}>{t("profitReportText.to")}</Text><ReportDateField value={draft.to} onChange={to => setDraft(v => ({ ...v, to }))}/></DateFieldColumn></DateRangeRow>}
+      <Text style={s.fieldLabel}>{t("profitReportText.products")}</Text><Pressable accessibilityRole="button" onPress={() => { setSelection([...draft.ids]); setSearch(""); setPicker(true); }} style={s.select}><DropdownText numberOfLines={2} style={s.grow}>{selectionLabel(draft.ids)}</DropdownText><Ionicons name="chevron-down" size={18} color={colors.primaryDark}/></Pressable>
       {!valid && <Text accessibilityRole="alert" style={s.error}>{t("profitReportText.rangeError")}</Text>}
     </View>
     {loading ? <View style={s.state}><ActivityIndicator color={colors.primary}/><Text style={s.muted}>{t("profitReportText.loadingReport")}</Text></View> : error ? <View style={s.panel}><Text accessibilityRole="alert" style={s.error}>{error}</Text><Pressable accessibilityRole="button" onPress={() => setReload(v => v + 1)}><Text style={s.link}>{t("profitReportText.retry")}</Text></Pressable></View> : data && <>
@@ -121,25 +121,19 @@ export default function ProductProfitReportScreen() {
       <View style={s.wrap}><Metric label={t("profitReportText.sales")} value={money(data.totals.sales)} style={s.salesMetric}/><Metric label={t("profitReportText.cost")} value={money(data.totals.cost)} style={s.costMetric}/><Metric label={t("profitReportText.profit")} value={money(data.totals.profit)} style={s.profitMetric}/></View>
       <View style={s.wrap}><Text style={s.muted}>{t("profitReportText.units",{count:number(data.totals.units)})}</Text><Text style={s.muted}>{t("profitReportText.margin",{value:data.totals.marginPercent == null ? t("profitReportText.unavailable") : `${number(data.totals.marginPercent)}%`})}</Text></View>
       {!data.daily.length && <View style={s.panel}><Text style={s.sectionTitle}>{t("profitReportText.empty")}</Text><Text style={s.muted}>{t("profitReportText.emptyHint")}</Text></View>}
-      <RevealSection label={t("profitReportText.showDaily")} shown={revealed.daily} onShow={()=>setRevealed(current=>({...current,daily:true}))}>
       <View style={s.panel}><Text style={s.sectionTitle}>{t("profitReportText.daily")}</Text><View style={s.tableHeader}><Text style={[s.cell, s.bold]}>{t("profitReportText.date")}</Text><Text style={[s.cell, s.right, s.bold]}>{t("profitReportText.sales")}</Text><Text style={[s.cell, s.right, s.bold]}>{t("profitReportText.profitShort")}</Text></View>
         {data.daily.map(day => <View key={day.date} style={s.tableRow}><Text style={s.cell}>{day.date}</Text><Text style={[s.cell, s.right]}>{money(day.totals.sales)}</Text><Text style={[s.cell, s.right, day.totals.profit != null && day.totals.profit < 0 && s.error]}>{money(day.totals.profit)}</Text></View>)}
         <View style={s.tableTotal}><Text style={[s.cell, s.bold]}>{t("profitReportText.total")}</Text><Text style={[s.cell, s.right, s.bold]}>{money(data.totals.sales)}</Text><Text style={[s.cell, s.right, s.bold]}>{money(data.totals.profit)}</Text></View>
       </View>
-      </RevealSection>
-      <RevealSection label={t("profitReportText.showSummary")} shown={revealed.summary} onShow={()=>setRevealed(current=>({...current,summary:true}))}>
       <Text style={s.sectionTitle}>{t("profitReportText.summary")}</Text><View style={s.wrap}>
         <Summary title={t("profitReportText.topDay")} name={data.topDay?.date} amount={data.topDay?.totals.profit} kind="profit"/>
         <Summary onPress={data.topProduct ? () => openHistory(data.topProduct!.id) : undefined} title={t("profitReportText.topProduct")} name={data.topProduct?.name} amount={data.topProduct?.totals.profit} kind="profit"/>
         <Summary title={t("profitReportText.topBuyer")} name={data.topBuyingCustomer?.name} amount={data.topBuyingCustomer?.totals.sales} kind="sales"/>
         <Summary title={t("profitReportText.topCustomer")} name={data.topProfitCustomer?.name} amount={data.topProfitCustomer?.totals.profit} kind="profit"/>
       </View><Text style={s.muted}>{t("profitReportText.customerHint")}</Text>
-      </RevealSection>
-      <RevealSection label={t("profitReportText.showProducts")} shown={revealed.products} onShow={()=>setRevealed(current=>({...current,products:true}))}>
       <View style={s.panel}><Text style={s.sectionTitle}>{t("profitReportText.byProduct")}</Text><Text style={s.muted}>{t("profitReportText.sortHint")}</Text>
         {data.products.map(p => <View key={p.id} style={s.product}><View style={s.grow}><Pressable accessibilityRole="link" accessibilityLabel={t("profitReportText.viewProduct",{name:p.name})} onPress={() => router.push(`/products/${p.id}` as Href)}><Text style={s.link}>{p.name}</Text></Pressable><Text style={s.muted}>{t("profitReportText.productSales",{count:number(p.totals.units),amount:money(p.totals.sales)})}</Text><Text style={s.muted}>{t("profitReportText.productCost",{amount:money(p.totals.cost)})}</Text></View><Text style={[s.bold, p.totals.profit != null && p.totals.profit < 0 ? s.error : s.good]}>{money(p.totals.profit)}</Text></View>)}
       </View>
-      </RevealSection>
       
     </>}
     {!!printError && <Text accessibilityRole="alert" style={s.error}>{printError}</Text>}
@@ -155,7 +149,7 @@ export default function ProductProfitReportScreen() {
 }
 
 function Metric({ label, value, style }: { label: string; value: string; style: object }) { return <View style={[s.metric, style]}><Text style={s.fieldLabel}>{label}</Text><Text adjustsFontSizeToFit numberOfLines={1} style={s.metricValue}>{value}</Text></View>; }
-function Summary({ title, name, amount, kind, onPress }: { title: string; name?: string; amount?: number | null; kind: string; onPress?: () => void }) { const {t}=useLanguage(); const money=(value:number|null|undefined)=>value==null?t("profitReportText.unavailable"):baseMoney(value); return <View style={s.summary}><Text style={s.fieldLabel}>{title}</Text>{onPress && name ? <Pressable accessibilityRole="link" onPress={onPress}><Text style={s.link}>{name} ↗</Text></Pressable> : <Text style={s.bold}>{name ?? t("profitReportText.noEligible")}</Text>}{name && <Text style={[s.summaryAmount, amount != null && amount < 0 ? s.error : s.good]}>{t(kind==="profit"?"profitReportText.summaryProfit":"profitReportText.summarySales",{amount:money(amount)})}</Text>}</View>; }
+function Summary({ title, name, amount, kind, onPress }: { title: string; name?: string; amount?: number | null; kind: string; onPress?: () => void }) { const {t}=useLanguage(); const mobile=useWindowDimensions().width<768; const money=(value:number|null|undefined)=>value==null?t("profitReportText.unavailable"):baseMoney(value); return <View style={[s.summary,mobile && s.summaryMobile]}><Text style={s.fieldLabel}>{title}</Text>{onPress && name ? <Pressable accessibilityRole="link" onPress={onPress}><Text style={s.link}>{name} ↗</Text></Pressable> : <Text style={s.bold}>{name ?? t("profitReportText.noEligible")}</Text>}{name && <Text style={[s.summaryAmount, amount != null && amount < 0 ? s.error : s.good]}>{t(kind==="profit"?"profitReportText.summaryProfit":"profitReportText.summarySales",{amount:money(amount)})}</Text>}</View>; }
 function CheckRow({ checked, title, subtitle, onPress }: { checked: boolean; title: string; subtitle?: string; onPress: () => void }) { return <Pressable accessibilityRole="checkbox" accessibilityState={{ checked }} accessibilityLabel={title} onPress={onPress} style={s.checkRow}><Ionicons name={checked ? "checkbox" : "square-outline"} size={24} color={checked ? colors.primaryDark : colors.muted}/><View style={s.grow}><Text style={s.bold}>{title}</Text>{!!subtitle && <Text style={s.muted}>{subtitle}</Text>}</View></Pressable>; }
 
 const s = StyleSheet.create({
@@ -166,6 +160,7 @@ const s = StyleSheet.create({
   select: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: 8, padding: 12, borderWidth: 1, borderColor: colors.border, borderRadius: 10 }, primary: { minHeight: 44, paddingHorizontal: 20, alignItems: "center", justifyContent: "center", borderRadius: 10, backgroundColor: colors.primary }, primaryText: { fontSize: 13, fontWeight: "700", color: colors.white }, disabled: { opacity: 0.45 },
   metric: { flex: 1, minWidth: 0, padding: 8, gap: 4, borderWidth: 1, borderRadius: 10 }, salesMetric: { backgroundColor: "#EFF6FF", borderColor: "#BFDBFE" }, costMetric: { backgroundColor: "#FFF7ED", borderColor: "#FED7AA" }, profitMetric: { backgroundColor: colors.successBackground, borderColor: "#BBF7D0" }, metricValue: { fontSize: 15, fontWeight: "700", color: colors.heading }, good: { color: colors.successText }, error: { color: colors.dangerText, fontSize: 11 }, warning: { padding: 10, borderRadius: 10, backgroundColor: colors.warningBackground }, warningText: { fontSize: 12, lineHeight: 19, color: colors.warningText },
   tableHeader: { flexDirection: "row", gap: 8, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.divider }, tableRow: { flexDirection: "row", gap: 8, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.divider }, tableTotal: { flexDirection: "row", gap: 8, paddingVertical: 8, backgroundColor: colors.cardSecondary }, cell: { flex: 1, fontSize: 12, color: colors.heading }, right: { textAlign: "right" }, bold: { fontWeight: "700", fontSize: 13, color: colors.heading },
+  summaryMobile: { flexBasis: "45%", flexGrow: 1, minWidth: 0, maxWidth: "50%" },
   summary: { flexGrow: 1, flexBasis: 240, alignItems: "center", padding: 12, gap: 6, borderRadius: 12, backgroundColor: "#F3F6FA", borderWidth: 1, borderColor: colors.divider }, summaryAmount: { fontSize: 15, fontWeight: "700", textAlign: "center" }, product: { flexDirection: "row", flexWrap: "wrap", gap: 8, alignItems: "center", paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.divider }, state: { padding: 24, gap: 10, alignItems: "center", justifyContent: "center" },
   pickerSearch: { padding: 14 }, input: { borderWidth: 1, borderColor: colors.border, borderRadius: 10, paddingHorizontal: 12, minHeight: 44, color: colors.heading }, list: { flex: 1, minHeight: 0 }, checkRow: { minHeight: 58, flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.divider }, empty: { padding: 20, color: colors.secondary }, pickerFooter: { flexShrink: 0, padding: 16, gap: 10, borderTopWidth: 1, borderTopColor: colors.divider },
 });
