@@ -3,6 +3,8 @@ import { StyleSheet, View } from "react-native";
 import { Picker } from "@react-native-picker/picker";
 import { useLanguage } from "../i18n/LanguageContext";
 import { Text } from "../i18n/LocalizedText";
+import SharedDatePicker from "./SharedDatePicker";
+import {localDateValue} from "./sharedDate";
 import { colors } from "../theme";
 
 type Parts = { day: string; month: string; year: string; hour: string; minute: string; period: "AM" | "PM" };
@@ -34,23 +36,20 @@ function buildValue(parts: Parts, includeTime: boolean) {
 
 export function DateTimeField({ value, onChange, includeTime = true, minimumDate, maximumDate, earliestYear }: Props) {
   const [parts, setParts] = useState(() => readValue(value));
-  const currentYear = new Date().getFullYear();
-  useEffect(() => { if (value) setParts(readValue(value)); }, [value]);
-  const update = (change: Partial<Parts>) => setParts(current => { const next = { ...current, ...change }; const output = buildValue(next, includeTime); if (output) onChange(output); return next; });
+  useEffect(() => { setParts(readValue(value)); }, [value]);
+  const update = (change: Partial<Parts>) => { const next = { ...parts, ...change }; setParts(next); const output = buildValue(next, includeTime); if (output) onChange(output); };
   const selectedDate = includeTime ? new Date(value) : new Date(`${value.slice(0, 10)}T00:01:00`);
   const beforeMinimum = !!minimumDate && !!value && (includeTime
     ? selectedDate.getTime() <= minimumDate.getTime()
     : new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate()).getTime()
       < new Date(minimumDate.getFullYear(), minimumDate.getMonth(), minimumDate.getDate()).getTime());
-  const afterMaximum = !!maximumDate && !!value && selectedDate.getTime() > maximumDate.getTime();
+  const afterMaximum = !!maximumDate && !!value && (includeTime ? selectedDate.getTime() > maximumDate.getTime() : value.slice(0,10) > localDateValue(maximumDate));
   const invalid = beforeMinimum || afterMaximum;
 
   return <View><View style={[styles.row, !includeTime && styles.dateOnlyRow, invalid && styles.rowInvalid]}>
-    <SelectPart label="Day" value={parts.day} choices={range(1, 31, true)} natural={!includeTime} onChange={day => update({ day })} />
-    <SelectPart label="Month" value={parts.month} choices={range(1, 12, true)} natural={!includeTime} onChange={month => update({ month })} />
-    <SelectPart label="Year" value={parts.year} wide natural={!includeTime} choices={range(earliestYear ?? currentYear, currentYear + 10)} onChange={year => update({ year })} />
-    {includeTime && <><View style={styles.divider} /><SelectPart label="Hour" value={parts.hour} choices={range(1, 12, true)} onChange={hour => update({ hour })} /><Text style={styles.colon}>:</Text><SelectPart label="Min" value={parts.minute} choices={range(0, 59, true)} onChange={minute => update({ minute })} /><SelectPart label="AM/PM" value={parts.period} choices={[{ label: "AM", value: "AM" }, { label: "PM", value: "PM" }]} onChange={period => update({ period: period as "AM" | "PM" })} /></>}
-  </View>{invalid && <Text style={styles.error}>{afterMaximum ? "Choose today or an earlier date." : includeTime ? "Choose a future date and time." : "Choose today or a future date."}</Text>}</View>;
+    <View style={{flex:1,minWidth:0}}><SharedDatePicker value={value.slice(0,10)} onChange={date=>{const next={...parts,...readValue(date),hour:parts.hour||"12",minute:parts.minute||"00",period:parts.period};setParts(next);const output=buildValue(next,includeTime);if(output)onChange(output)}} earliestYear={earliestYear??1900} minimumDate={minimumDate?localDateValue(minimumDate):undefined} maximumDate={maximumDate?localDateValue(maximumDate):undefined}/></View>
+    </View>{includeTime && <View style={[styles.row,{marginTop:8}]}><SelectPart label="Hour" value={parts.hour} choices={range(1, 12, true)} onChange={hour => update({ hour })} /><Text style={styles.colon}>:</Text><SelectPart label="Min" value={parts.minute} choices={range(0, 59, true)} onChange={minute => update({ minute })} /><SelectPart label="AM/PM" value={parts.period} choices={[{ label: "AM", value: "AM" }, { label: "PM", value: "PM" }]} onChange={period => update({ period: period as "AM" | "PM" })} /></View>}
+  {invalid && <Text style={styles.error}>{afterMaximum ? "Choose today or an earlier date." : includeTime ? "Choose a future date and time." : "Choose today or a future date."}</Text>}</View>;
 }
 
 function SelectPart({ label, value, choices, wide, natural, onChange }: { label: string; value: string; choices: Choice[]; wide?: boolean; natural?: boolean; onChange: (value: string) => void }) {

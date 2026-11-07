@@ -109,15 +109,12 @@ public class CustomerService : ICustomerService
 
     private async Task<Dictionary<Guid, decimal>> UnpaidBalancesAsync(List<Guid> customerIds)
     {
-        var rows = await _db.Orders
-            .AsNoTracking()
-            .Where(o => o.CustomerId != null && customerIds.Contains(o.CustomerId.Value) &&
-                        o.PaymentStatus != "PAID" && o.PaymentStatus != "REFUNDED" && o.OrderStatus != "CANCELLED")
-            .GroupBy(o => o.CustomerId!.Value)
-            .Select(g => new { CustomerId = g.Key, Balance = g.Sum(o => o.DeliveryChargeCustomer + o.Items.Sum(i => i.Qty * i.UnitPrice) - (o.DiscountValue ?? 0) - o.AdvancePaid) })
+        var orders = await _db.Orders.AsNoTracking().Include(o => o.Items).Include(o => o.Payments)
+            .Where(o => o.CustomerId != null && customerIds.Contains(o.CustomerId.Value) && !o.IsDraft
+                && o.OrderStatus != "CANCELLED" && o.FulfillmentStatus != "RETURNED" && o.PaymentStatus != "REFUNDED")
             .ToListAsync();
-
-        return rows.ToDictionary(r => r.CustomerId, r => Math.Max(0, r.Balance));
+        return orders.GroupBy(o => o.CustomerId!.Value).ToDictionary(g => g.Key,
+            g => g.Sum(o => Math.Max(0, OrderFinancials.ComputeOrderRevenue(o) - o.Payments.Sum(p => p.Amount))));
     }
 
     private record OrderSummary(int OrderCount, int ReturnCount, DateTime? LastOrderAt, int RecentReturnCount, int RecentOrderCount);

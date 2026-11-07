@@ -60,6 +60,23 @@ public class PurchaseShipmentLotTests
     }
 
     [Fact]
+    public async Task DraftLotAllowsMissingCourierDetailsAndRequiresWeightToBecomeReady()
+    {
+        await using var f = new Fixture(); await f.Seed();
+        var request = new SavePurchaseLotRequest("DRAFT-1", 0, [new(f.Item.Id, 10)], IsDraft: true);
+        var draft = await f.Service.SaveLotAsync(f.Trip.Id, null, request, f.UserId);
+        Assert.Equal("DRAFT", draft.Status);
+        Assert.Null(draft.TrackingNumber);
+        Assert.Empty(f.Db.StockMovements);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => f.Service.SendLotAsync(f.Trip.Id, draft.Id, new(), f.UserId));
+        await Assert.ThrowsAsync<ArgumentException>(() => f.Service.SaveLotAsync(f.Trip.Id, draft.Id, request with { IsDraft = false }, f.UserId));
+        var ready = await f.Service.SaveLotAsync(f.Trip.Id, draft.Id, request with { IsDraft = false, DeclaredWeightGrams = 1200, TrackingNumber = "TRACK-1" }, f.UserId);
+        Assert.Equal("READY", ready.Status);
+        Assert.Equal(1200, ready.DeclaredWeightGrams);
+        Assert.Equal("TRACK-1", ready.TrackingNumber);
+    }
+
+    [Fact]
     public async Task DeleteReadyLotReleasesQuantitiesWithoutChangingStock()
     {
         await using var f = new Fixture(); await f.Seed();

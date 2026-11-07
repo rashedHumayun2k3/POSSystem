@@ -138,7 +138,8 @@ public record CreateOrderRequest(
     string? ExternalSource = null,
     string? ExternalOrderId = null,
     string? PaymentTerms = null,
-    string? AdvancePaymentReference = null
+    string? AdvancePaymentReference = null,
+    Guid? CustomerId = null
 );
 
 public record UpdateOrderRequest(
@@ -205,7 +206,8 @@ public record AddOrderPaymentRequest(
     string Method,
     decimal Amount,
     DateTime? ReceivedAt,
-    string? PaymentReference = null
+    string? PaymentReference = null,
+    Guid? PaymentId = null
 );
 
 // ── Order response DTOs ───────────────────────────────────────────────────────

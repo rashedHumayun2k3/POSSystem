@@ -1,3 +1,5 @@
+import SharedDatePicker from "../components/SharedDatePicker";
+import {reportToday} from "../components/reportDate";
 import BottomSheet from "../components/BottomSheet";
 import {useFocusEffect} from "expo-router";
 import CustomerPicker from "../components/CustomerPicker";
@@ -33,7 +35,7 @@ export default function PreOrdersScreen(){
    <Field label="Quantity (optional)" value={quantity} onChange={setQuantity} placeholder="Leave blank if unknown" keyboard="decimal-pad"/>
    {<>
    {customerStepDone?<Pressable onPress={()=>setCustomerPicker(true)} style={[s.selector,s.chosen]}><View style={s.flex}><Text style={s.value}>{name||phone||"Anonymous customer"}</Text>{!!phone&&<Text style={s.subtitle}>{phone}</Text>}</View><Text style={s.selectText}>Change</Text></Pressable>:<><Pressable onPress={()=>setCustomerPicker(true)} style={s.selector}><Text style={s.selectText}>+ Add Customer</Text></Pressable><Pressable onPress={()=>setCustomerStepDone(true)}><Text style={s.help}>Continue without a customer</Text></Pressable></>}
-   {customerStepDone&&<><Text style={s.section}>ADDITIONAL DETAILS Â· OPTIONAL</Text><Field label="Reference" value={reference} onChange={setReference} placeholder="Optional note to identify the customer"/><Field label="Expected date" value={expected} onChange={setExpected} placeholder="YYYY-MM-DD"/><Field label="Staff note" value={note} onChange={setNote} placeholder="Optional internal note" multiline/></>}</>}{!!error&&<Text style={s.error}>{error}</Text>}
+   {customerStepDone&&<><Text style={s.section}>ADDITIONAL DETAILS Â· OPTIONAL</Text><Field label="Reference" value={reference} onChange={setReference} placeholder="Optional note to identify the customer"/><View style={{gap:6}}><Text>Expected date</Text><SharedDatePicker label="Expected date" value={expected} onChange={setExpected} minimumDate={reportToday()} clearable/></View><Field label="Staff note" value={note} onChange={setNote} placeholder="Optional internal note" multiline/></>}</>}{!!error&&<Text style={s.error}>{error}</Text>}
    </ScrollView>{customerStepDone&&<Pressable disabled={saving} onPress={()=>void create()} style={[s.submit,saving&&s.disabled]}>{saving?<ActivityIndicator color={colors.white}/>:<Text style={s.submitText}>Create Pre-order</Text>}</Pressable>}</SafeAreaView></View></Modal>
   {customerPicker&&<CustomerPicker onClose={()=>setCustomerPicker(false)} onSelect={customer=>{setName(customer.name);setPhone(customer.phone||"");setCustomerStepDone(true);setCustomerPicker(false)}}/>}
  </View>;

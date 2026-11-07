@@ -87,8 +87,12 @@ public class OrderService : IOrderService
 
     public async Task<OrderDetailDto> CreateAsync(CreateOrderRequest request, Guid userId)
     {
+        if (request.Source == "POS" && request.Items.Any(item => item.UnitPrice <= 0))
+            throw new InvalidOperationException("Product selling price must be greater than zero.");
+
         var paymentTerms = (request.PaymentTerms ?? "COD").Trim().ToUpperInvariant();
-        var paymentReference = OrderPaymentReference.Normalize(request.AdvancePaymentMethod ?? "CASH", request.AdvancePaymentReference);
+        var advanceMethod = request.AdvancePaid > 0 ? OrderCreditRules.ReceivedMethod(request.AdvancePaymentMethod ?? "CASH") : "CASH";
+        var paymentReference = OrderPaymentReference.Normalize(advanceMethod, request.AdvancePaymentReference);
         if (paymentTerms is not ("COD" or "PREPAID" or "CREDIT"))
             throw new InvalidOperationException("Payment terms must be COD, PREPAID, or CREDIT.");
         if (request.AdvancePaid < 0)
@@ -118,7 +122,22 @@ public class OrderService : IOrderService
         }
 
         // Auto-create customer
-        var customer = await FindOrCreateCustomerAsync(request.CustomerPhone, request.CustomerName, request.CustomerAddress);
+        if (paymentTerms == "CREDIT" && request.AdvancePaid != 0)
+            throw new InvalidOperationException("A credit order cannot include an advance payment.");
+        Customer customer;
+        if (request.CustomerId.HasValue)
+        {
+            customer = await _db.Customers.FirstOrDefaultAsync(c => c.Id == request.CustomerId.Value)
+                ?? throw new InvalidOperationException("Select a valid customer from this business.");
+        }
+        else
+        {
+            if (paymentTerms == "CREDIT" && !OrderCreditRules.IsIdentifiedCustomer(request.CustomerName, request.CustomerPhone))
+                throw new InvalidOperationException("Select a customer with a valid name and phone number for a due sale.");
+            customer = await FindOrCreateCustomerAsync(request.CustomerPhone, request.CustomerName, request.CustomerAddress);
+        }
+        if (paymentTerms == "CREDIT" && !OrderCreditRules.IsIdentifiedCustomer(customer.Name, customer.Phone))
+            throw new InvalidOperationException("An unidentified walk-in customer cannot have a due sale.");
 
         // POS sales and customer orders use separate, clearly labeled reference sequences.
         var isPosSale = request.Source == "POS" || request.Channel is "SHOP" or "HAWKER";
@@ -137,9 +156,9 @@ public class OrderService : IOrderService
             ExternalOrderId = request.ExternalOrderId,
             BusinessDate = request.BusinessDate ?? DateOnly.FromDateTime(DateTime.UtcNow),
             CustomerId = customer.Id,
-            CustomerName = request.CustomerName,
-            CustomerPhone = request.CustomerPhone,
-            CustomerAddress = request.CustomerAddress,
+            CustomerName = request.CustomerId.HasValue ? customer.Name : request.CustomerName,
+            CustomerPhone = request.CustomerId.HasValue ? customer.Phone : request.CustomerPhone,
+            CustomerAddress = request.CustomerId.HasValue ? customer.Address : request.CustomerAddress,
             IsDraft = request.IsDraft,
             DiscountType = request.DiscountType,
             DiscountValue = request.DiscountValue,
@@ -167,6 +186,8 @@ public class OrderService : IOrderService
         var orderTotal = ComputeTotal(order);
         if (request.AdvancePaid > orderTotal)
             throw new InvalidOperationException("Payment amount cannot exceed the order total.");
+        if (paymentTerms == "CREDIT" && orderTotal <= 0)
+            throw new InvalidOperationException("A due sale must have an amount greater than zero.");
         if (paymentTerms == "PREPAID" && request.AdvancePaid != orderTotal)
             throw new InvalidOperationException("A prepaid order must be paid in full.");
         if (paymentTerms == "CREDIT" && request.AdvancePaid != 0)
@@ -184,7 +205,7 @@ public class OrderService : IOrderService
             _db.OrderPayments.Add(new OrderPayment
             {
                 OrderId = order.Id,
-                Method = request.AdvancePaymentMethod ?? "CASH",
+                Method = advanceMethod,
                 PaymentReference = paymentReference,
                 Amount = request.AdvancePaid,
                 ReceivedAt = DateTime.UtcNow,
@@ -247,13 +268,22 @@ public class OrderService : IOrderService
 
     // ── List ──────────────────────────────────────────────────────────────────
 
-    public async Task<List<OrderListDto>> ListAsync(string? orderStatus, string? fulfillmentStatus, string? paymentStatus, string? channel, string? q, string? customerQuery, string? productQuery, DateTime? from, DateTime? to, bool canSeeCosts)
+    public async Task<List<OrderListDto>> ListAsync(string? orderStatus, string? fulfillmentStatus, string? paymentStatus, string? channel, string? q, string? customerQuery, string? productQuery, DateTime? from, DateTime? to, bool canSeeCosts, bool includeCreditSales = false, bool dueOnly = false)
     {
-        var orders = await OrderListQuery(orderStatus, fulfillmentStatus, paymentStatus, channel, q, customerQuery, productQuery, from, to)
-            .OrderByDescending(o => o.BusinessDate).ThenByDescending(o => o.CreatedAt)
-            .Take(200).ToListAsync();
+        var query = OrderListQuery(orderStatus, fulfillmentStatus, includeCreditSales ? null : paymentStatus, channel, q, customerQuery, productQuery, from, to);
+        if (includeCreditSales)
+            query = query.Where(o => !o.IsDraft && o.OrderStatus != "CANCELLED" && o.FulfillmentStatus != "RETURNED"
+                && (o.PaymentStatus == "PAID" || (o.PaymentTerms == "CREDIT" && o.OrderStatus == "COMPLETED"
+                    && (o.Source == "POS" || o.Channel == "SHOP" || o.Channel == "HAWKER"))));
+        if (dueOnly)
+            query = query.Where(o => o.PaymentTerms == "CREDIT" && !o.IsDraft
+                && o.OrderStatus == "COMPLETED" && o.FulfillmentStatus != "RETURNED"
+                && (o.Source == "POS" || o.Channel == "SHOP" || o.Channel == "HAWKER"));
+        var ordered = query.OrderByDescending(o => o.BusinessDate).ThenByDescending(o => o.CreatedAt);
+        var orders = await (dueOnly ? ordered : ordered.Take(200)).ToListAsync();
         var stock = await BuildStockLookupAsync(orders);
-        return orders.Select(o => ToListDto(o, canSeeCosts, stock)).ToList();
+        return orders.Select(o => ToListDto(o, canSeeCosts, stock))
+            .Where(o => !dueOnly || o.DueAmount > 0).ToList();
     }
 
     private IQueryable<Order> OrderListQuery(string? orderStatus, string? fulfillmentStatus, string? paymentStatus, string? channel, string? q, string? customerQuery, string? productQuery, DateTime? from, DateTime? to)
@@ -1067,33 +1097,41 @@ public class OrderService : IOrderService
 
     public async Task<OrderDetailDto> AddPaymentAsync(Guid id, AddOrderPaymentRequest request, Guid userId)
     {
-        var paymentReference = OrderPaymentReference.Normalize(request.Method, request.PaymentReference);
-        var order = await _db.Orders
-            .Include(o => o.Items)
-            .Include(o => o.Payments)
-            .FirstOrDefaultAsync(o => o.Id == id)
-            ?? throw new KeyNotFoundException("Order not found.");
-
-        _db.OrderPayments.Add(new OrderPayment
+        var method = OrderCreditRules.ReceivedMethod(request.Method);
+        if (request.Amount <= 0 || decimal.Round(request.Amount, 2) != request.Amount)
+            throw new InvalidOperationException("Enter a payment amount greater than zero with up to two decimal places.");
+        var paymentReference = OrderPaymentReference.Normalize(method, request.PaymentReference);
+        if ((method is "BKASH" or "NAGAD") && (string.IsNullOrWhiteSpace(paymentReference) || !paymentReference.All(char.IsAsciiLetterOrDigit)))
+            throw new InvalidOperationException("Enter the transaction ID using letters and digits.");
+        var order = await _db.Orders.Include(o => o.Items).Include(o => o.Payments)
+            .FirstOrDefaultAsync(o => o.Id == id) ?? throw new KeyNotFoundException("Order not found.");
+        // Retrying a collection after a lost response must not collect twice.
+        if (request.PaymentId.HasValue && order.Payments.FirstOrDefault(p => p.Id == request.PaymentId.Value) is { } existing)
         {
-            OrderId = order.Id,
-            Method = request.Method,
-            PaymentReference = paymentReference,
-            Amount = request.Amount,
-            ReceivedAt = request.ReceivedAt ?? DateTime.UtcNow,
-            UserId = userId
-        });
-
-        // Recompute payment status
-        var totalPaid = order.Payments.Sum(p => p.Amount) + request.Amount;
+            if (existing.Amount != request.Amount || existing.Method != method || existing.PaymentReference != paymentReference)
+                throw new InvalidOperationException("This payment request was already used with different details.");
+            return await GetAsync(id, true);
+        }
+        if (order.IsDraft || order.OrderStatus == "CANCELLED" || order.FulfillmentStatus == "RETURNED" || order.PaymentStatus == "REFUNDED")
+            throw new InvalidOperationException("Payments cannot be collected for this order.");
+        var paidBefore = order.Payments.Sum(p => p.Amount);
         var total = ComputeTotal(order);
-
-        var prevPayment = order.PaymentStatus;
-        order.PaymentStatus = totalPaid >= total ? "PAID" : totalPaid > 0 ? "PARTIALLY_PAID" : "UNPAID";
-
-        if (prevPayment != order.PaymentStatus)
-            _db.OrderStatusHistories.Add(new OrderStatusHistory { OrderId = order.Id, Track = "PAYMENT", FromStatus = prevPayment, ToStatus = order.PaymentStatus, UserId = userId });
-
+        if (request.Amount > Math.Max(0, total - paidBefore))
+            throw new InvalidOperationException("Payment amount cannot exceed the remaining amount due.");
+        var payment = new OrderPayment {
+            Id = request.PaymentId ?? Guid.NewGuid(), OrderId = order.Id, Method = method,
+            PaymentReference = paymentReference, Amount = request.Amount,
+            ReceivedAt = request.ReceivedAt ?? DateTime.UtcNow, UserId = userId
+        };
+        _db.OrderPayments.Add(payment);
+        var previous = order.PaymentStatus;
+        order.PaymentStatus = OrderMath.ComputePaymentStatus(paidBefore + request.Amount, total);
+        // Always update the order row so its rowversion protects concurrent collections,
+        // even when both payments would leave the status PARTIALLY_PAID.
+        order.UpdatedAt = DateTime.UtcNow;
+        _db.Entry(order).Property(o => o.UpdatedAt).IsModified = true;
+        if (previous != order.PaymentStatus)
+            _db.OrderStatusHistories.Add(new OrderStatusHistory { OrderId = order.Id, Track = "PAYMENT", FromStatus = previous, ToStatus = order.PaymentStatus, UserId = userId });
         await _db.SaveChangesAsync();
         await _log.LogAsync(_db.CurrentBusinessId, userId, "CREATE", "OrderPayment", order.Id);
         return await GetAsync(id, true);

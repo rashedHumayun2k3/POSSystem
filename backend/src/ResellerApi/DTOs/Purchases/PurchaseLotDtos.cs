@@ -3,7 +3,7 @@ namespace ResellerApi.DTOs.Purchases;
 public record ShipmentItemInput(Guid PurchaseItemId, decimal Qty);
 public record SavePurchaseLotRequest(string LotNo, decimal DeclaredWeightGrams,
     List<ShipmentItemInput> Items, string? TrackingNumber = null, string? Note = null, Guid? CourierId = null,
-    Guid? ShippingCompanyId = null, string? ShippingMethod = null);
+    Guid? ShippingCompanyId = null, string? ShippingMethod = null, bool IsDraft = false);
 public record SendPurchaseLotRequest(DateTime? ShippedDate = null);
 public record PurchaseLotItemDto(Guid PurchaseItemId, decimal Qty);
 public record PurchaseLotDto(Guid Id, string LotNo, string Status, DateTime? ShippedDate,

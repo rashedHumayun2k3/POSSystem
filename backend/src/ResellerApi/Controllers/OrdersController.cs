@@ -36,8 +36,10 @@ public class OrdersController : ControllerBase
         [FromQuery] string? customerQuery,
         [FromQuery] string? productQuery,
         [FromQuery] DateTime? from,
-        [FromQuery] DateTime? to)
-        => Ok(await _svc.ListAsync(orderStatus, fulfillmentStatus, paymentStatus, channel, q, customerQuery, productQuery, from, to, _user.CanSeeCosts));
+        [FromQuery] DateTime? to,
+        [FromQuery] bool includeCreditSales = false,
+        [FromQuery] bool dueOnly = false)
+        => Ok(await _svc.ListAsync(orderStatus, fulfillmentStatus, paymentStatus, channel, q, customerQuery, productQuery, from, to, _user.CanSeeCosts, includeCreditSales, dueOnly));
 
     [HttpGet("invoices")]
     public async Task<IActionResult> Invoices([FromQuery] string? q, [FromQuery] int page = 1, [FromQuery] int pageSize = 20,
@@ -163,6 +165,10 @@ public class OrdersController : ControllerBase
         try
         {
             return Ok(await _svc.AddPaymentAsync(id, request, _user.UserId));
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return Conflict(new { message = "This sale was updated by another payment. Reload it before collecting again." });
         }
         catch (InvalidOperationException ex)
         {

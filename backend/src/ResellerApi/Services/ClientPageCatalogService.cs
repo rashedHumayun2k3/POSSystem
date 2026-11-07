@@ -82,12 +82,10 @@ public class ClientPageCatalogService : IClientPageCatalogService
         var query = _db.Products.AsQueryable();
         if (ignoreFilters) query = query.IgnoreQueryFilters();
 
-        // ShowOnMarketplace only matters in marketplace mode (ignoreFilters=true) — a shop's own
-        // subdomain page (shop mode) shows all its own active products regardless, same as
-        // Business.ShowOnMarketplace not affecting that page either.
+        // Hidden products must not supply images to either public storefront mode.
         var rows = await query
             .Where(p => p.DeletedAt == null && p.Status == "ACTIVE" && idsList.Contains(p.CategoryId) &&
-                        (!ignoreFilters || p.ShowOnMarketplace))
+                        p.ShowOnMarketplace)
             .OrderByDescending(p => p.CreatedAt)
             .Select(p => new
             {
@@ -118,7 +116,12 @@ public class ClientPageCatalogService : IClientPageCatalogService
             // Imageless products look broken on the public storefront — never surface them here.
             // IProductService itself stays untouched since the internal staff product list still
             // needs to show every product regardless of photo status.
-            results = results.Where(r => !string.IsNullOrWhiteSpace(r.ImageUrl)).ToList();
+            var visibleProductIds = await _db.Products
+                .Where(p => p.DeletedAt == null && p.Status == "ACTIVE" && p.ShowOnMarketplace)
+                .Select(p => p.Id)
+                .ToListAsync();
+            var visibleProducts = visibleProductIds.ToHashSet();
+            results = results.Where(r => visibleProducts.Contains(r.Id) && !string.IsNullOrWhiteSpace(r.ImageUrl)).ToList();
 
             var ratings = await GetRatingsAsync(results.Select(r => r.Id).Distinct());
 
@@ -194,6 +197,12 @@ public class ClientPageCatalogService : IClientPageCatalogService
     {
         if (shopContext.IsShopMode)
         {
+            // Public shop pages must honor the same product visibility switch as the marketplace.
+            // Keep tenant filters enabled so another shop's product cannot be exposed.
+            if (!await _db.Products.AnyAsync(p => p.Id == productId &&
+                p.DeletedAt == null && p.Status == "ACTIVE" && p.ShowOnMarketplace))
+                return null;
+
             ProductDetailStaffDto dto;
             try
             {

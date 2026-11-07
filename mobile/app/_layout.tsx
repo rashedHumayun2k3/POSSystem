@@ -44,6 +44,7 @@ const quickActions: QuickAction[] = [
   { key: "task", label: "Add Task", hint: "Create and assign a task", icon: "checkbox-outline", roles: ["OWNER", "MANAGER", "PARTNER"] },
 ];
 const moreItems: MoreNavItem[] = [
+  { key: "due", label: "dueMenu", icon: "cash-outline", roles: ["OWNER", "MANAGER", "STAFF", "PARTNER"] },
   { key: "tasks", label: "Tasks", icon: "checkbox-outline", roles: ["OWNER", "MANAGER", "PARTNER"] },
   { key: "pre-orders", label: "Pre-orders", icon: "time-outline", roles: ["OWNER", "MANAGER", "STAFF"] },
   { key: "categories", label: "Categories", icon: "pricetag-outline", roles: ["OWNER"], route: "/more/categories" },
@@ -70,7 +71,7 @@ const reportItems: MoreNavItem[] = [
   { key: "report-sales", label: "Sales Reports", icon: "trending-up-outline" },
   { key: "report-inventory", label: "Inventory Reports", icon: "cube-outline", route: "/products" },
   { key: "report-financial", label: "Financial Reports", icon: "cash-outline" },
-  { key: "report-product-profit", label: "Product Profit Report", icon: "trending-up-outline", route: "/more/reports/product-profit" },
+  { key: "report-product-profit", label: "profitReportMenu", icon: "trending-up-outline", route: "/more/reports/product-profit" },
   { key: "report-orders", label: "Order Reports", icon: "receipt-outline", route: "/orders" },
   { key: "report-stock-valuation", label: "Stock Valuation", icon: "scale-outline" },
 ];
@@ -101,6 +102,7 @@ const openEnvironmentPath = (path: string) => {
 };
 const frontendPaths: Record<string, string> = {
   "expense-history": "/more/expenses", "add-purchase": "/more/purchases/new", "purchase-history": "/more/purchases",
+  due: "/more/due",
   tasks: "/more/tasks",
   "pre-orders": "/more/pre-orders",
   "quick-add": "/more/catalog-templates", purchases: "/more/purchases", "supplier-returns": "/more/supplier-returns", storeroom: "/more/storeroom", deliveries: "/more/deliveries", expenses: "/more/expenses", "add-expense": "/more/expenses/new", baki: "/more/baki", customers: "/more/customers", faq: "/more/faq", feedback: "/more/feedback",
@@ -163,6 +165,7 @@ function AppShell() {
     if (item.key === "tasks") return router.push("/more/tasks");
     if (item.key === "categories") return router.push("/more/categories");
     if (item.key === "discounts") return router.push("/more/discounts");
+    if (item.key === "due") return router.push("/more/due" as never);
     if (item.key === "backdated-pos") return router.push("/more/backdated-pos" as never);
     if (item.key === "quick-add") return router.push("/more/catalog-templates");
     if (item.key === "bulk-products") return router.push("/more/bulk-products");

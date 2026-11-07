@@ -1,3 +1,5 @@
+import SharedDatePicker from "./SharedDatePicker";
+import {reportToday} from "./reportDate";
 import { useState } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -19,22 +21,7 @@ function Picker({title,close,children}:{title:string;close:()=>void;children:Rea
   </Modal>;
 }
 export function CapitalPaymentDate({value,onChange,label}:{value:string;onChange:(value:string)=>void;label:string}) {
-  const [open,setOpen]=useState(false);
-  const [month,setMonth]=useState(new Date());
-  const today=localDate(new Date());
-  const first=new Date(month.getFullYear(),month.getMonth(),1);
-  const days=new Date(month.getFullYear(),month.getMonth()+1,0).getDate();
-  return <>
-    <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{expanded:open}} onPress={()=>{const parsed=new Date(`${value}T12:00:00`);setMonth(Number.isNaN(parsed.getTime())?new Date():parsed);setOpen(true)}} style={s.field}>
-      <Ionicons name="calendar-outline" size={21} color={colors.primaryDark}/><Text style={s.value}>{value}</Text><Ionicons name="chevron-down" size={18} color={colors.primaryDark}/>
-    </Pressable>
-    {open&&<Picker title={label} close={()=>setOpen(false)}>
-      <View style={s.row}><Pressable accessibilityRole="button" accessibilityLabel="Previous month" onPress={()=>setMonth(new Date(month.getFullYear(),month.getMonth()-1,1))} style={s.icon}><Ionicons name="chevron-back" size={20} color={colors.primaryDark}/></Pressable><Text style={s.month}>{month.toLocaleDateString(undefined,{month:"long",year:"numeric"})}</Text><Pressable accessibilityRole="button" accessibilityLabel="Next month" disabled={localDate(first).slice(0,7)>=today.slice(0,7)} onPress={()=>setMonth(new Date(month.getFullYear(),month.getMonth()+1,1))} style={s.icon}><Ionicons name="chevron-forward" size={20} color={localDate(first).slice(0,7)>=today.slice(0,7)?colors.muted:colors.primaryDark}/></Pressable></View>
-      <View style={s.grid}>{["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(day=><Text key={day} style={s.weekday}>{day}</Text>)}
-        {Array.from({length:first.getDay()+days},(_,index)=>{const day=index-first.getDay()+1;if(day<1)return <View key={index} style={s.day}/>;const date=localDate(new Date(month.getFullYear(),month.getMonth(),day));return <Pressable key={index} accessibilityRole="button" accessibilityLabel={date} accessibilityState={{selected:date===value,disabled:date>today}} disabled={date>today} onPress={()=>{onChange(date);setOpen(false)}} style={[s.day,date===value&&s.selected]}><Text style={[s.dayText,date>today&&s.disabled]}>{day}</Text></Pressable>})}
-      </View>
-    </Picker>}
-  </>;
+  return <SharedDatePicker value={value} onChange={onChange} label={label} maximumDate={reportToday()}/>;
 }
 export function CapitalPayeeSelect({value,onChange,payees,loading,label,placeholder,empty}:{value:string;onChange:(value:string)=>void;payees:Partner[];loading:boolean;label:string;placeholder:string;empty:string}) {
   const [open,setOpen]=useState(false);

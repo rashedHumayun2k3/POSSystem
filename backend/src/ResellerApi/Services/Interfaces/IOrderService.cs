@@ -7,7 +7,7 @@ public interface IOrderService
     Task<OrderManagementPageDto> ListManagementAsync(string? tab, string? q, string? channel, string? customerQuery, string? productQuery, DateTime? from, DateTime? to, int page, bool canSeeCosts);
     Task<InvoiceListPageDto> ListInvoicesAsync(string? q, int page, int pageSize, DateOnly? from = null, DateOnly? to = null, string? payment = null, DateOnly? today = null);
     Task<OrderDetailDto> CreateAsync(CreateOrderRequest request, Guid userId);
-    Task<List<OrderListDto>> ListAsync(string? orderStatus, string? fulfillmentStatus, string? paymentStatus, string? channel, string? q, string? customerQuery, string? productQuery, DateTime? from, DateTime? to, bool canSeeCosts);
+    Task<List<OrderListDto>> ListAsync(string? orderStatus, string? fulfillmentStatus, string? paymentStatus, string? channel, string? q, string? customerQuery, string? productQuery, DateTime? from, DateTime? to, bool canSeeCosts, bool includeCreditSales = false, bool dueOnly = false);
     Task<List<OrderListDto>> ListByProductAsync(Guid productId, bool canSeeCosts);
     Task<OrderDetailDto> GetAsync(Guid id, bool isOwner);
     Task<OrderDetailDto> UpdateAsync(Guid id, UpdateOrderRequest request, Guid userId);

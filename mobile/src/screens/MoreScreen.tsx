@@ -27,6 +27,7 @@ const openEnvironmentPath = (path: string) => {
 };
 
 const items: MenuItem[] = [
+  { key: "due", title: "dueMenu", description: "dueMenuDescription", icon: "cash-outline", roles: ["OWNER", "MANAGER", "STAFF", "PARTNER"], webPath: "/more/due" },
   { key: "tasks", title: "Tasks", description: "Assignments, progress notes and activity", icon: "checkbox-outline", roles: ["OWNER", "MANAGER", "PARTNER"], webPath: "/more/tasks" },
   { key: "pre-orders", title: "Pre-orders", description: "Reserve available stock or record waiting demand", icon: "time-outline", roles: ["OWNER", "MANAGER", "STAFF"], webPath: "/more/pre-orders" },
   { key: "partner-approvals", title: "Business Partner", description: "Review partnership and investment requests", icon: "people-outline", roles: ["PARTNER"], webPath: "/more/settings/partners" },
@@ -54,7 +55,7 @@ const reports: ChildItem[] = [
   { key: "sales", title: "Sales Reports", description: "Revenue, orders, by product & category", icon: "trending-up-outline", webPath: "/more/reports/sales" },
   { key: "inventory", title: "Inventory Reports", description: "Stock levels, low stock, movements", icon: "cube-outline", webPath: "/more/reports/inventory" },
   { key: "financial", title: "Financial Reports", description: "P&L, gross profit, expenses", icon: "cash-outline", webPath: "/more/reports/financial" },
-  { key: "product-profit", title: "Product Profit Report", description: "Daily profit, product costs and top performers", icon: "trending-up-outline", webPath: "/more/reports/product-profit" },
+  { key: "product-profit", title: "Profit Report", description: "Daily profit, product costs and top performers", icon: "trending-up-outline", webPath: "/more/reports/product-profit" },
   { key: "orders", title: "Order Reports", description: "Status breakdown, returns, channels", icon: "receipt-outline", webPath: "/more/reports/orders" },
   { key: "stock-valuation", title: "Stock Valuation", description: "Stock value, potential & realized profit by category", icon: "scale-outline", webPath: "/more/reports/stock-valuation" },
 ];
@@ -129,6 +130,7 @@ export default function MoreScreen() {
     openEnvironmentPath(item.webPath);
   };
   const openMenu = (item: MenuItem) => {
+    if (item.key === "due") return router.push("/more/due" as never);
     if (item.key === "tasks") return router.push("/more/tasks");
     if (item.key === "pre-orders") return router.push("/more/pre-orders");
     if (item.key === "reports") return setReportsOpen(value => !value);

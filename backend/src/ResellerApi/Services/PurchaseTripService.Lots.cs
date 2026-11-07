@@ -73,12 +73,16 @@ public partial class PurchaseTripService
         var number = request.LotNo.Trim();
         if (number.Length is < 1 or > 40) throw new ArgumentException("Lot number must be 1–40 characters.");
         ValidateWeight(request.DeclaredWeightGrams);
-        if (request.DeclaredWeightGrams == 0) throw new ArgumentException("Enter the representative's declared total lot weight.");
+        if (!request.IsDraft && request.DeclaredWeightGrams == 0) throw new ArgumentException("Enter the representative's declared total lot weight.");
         if (trip.Shipments.Any(s => s.Id != lotId && s.LotNo.Equals(number, StringComparison.OrdinalIgnoreCase)))
             throw new InvalidOperationException("Lot number already exists on this PO.");
         var lot = lotId == null ? new PurchaseShipment { TripId = tripId } :
             trip.Shipments.SingleOrDefault(s => s.Id == lotId && !s.IsLegacy) ?? throw new KeyNotFoundException("Lot not found.");
-        if (lot.Status != "READY") throw new InvalidOperationException("Only ready lots can be edited.");
+        if (lot.Status is not ("READY" or "DRAFT")) throw new InvalidOperationException("Only draft or ready lots can be edited.");
+        if (request.IsDraft && lotId.HasValue && lot.Status != "DRAFT")
+            throw new InvalidOperationException("A ready lot cannot be changed back to draft.");
+        if (request.IsDraft && request.ShippingCompanyId.HasValue)
+            throw new ArgumentException("Save the lot as ready before assigning a shipping company.");
         if (request.CourierId is Guid courierId)
         {
             var courier = await _db.Couriers.SingleOrDefaultAsync(c => c.Id == courierId && c.BusinessId == trip.BusinessId && c.IsActive && c.DeletedAt == null)
@@ -109,6 +113,7 @@ public partial class PurchaseTripService
             lot.CourierName = null;
         }
         ValidateLotItems(trip, request.Items, lotId);
+        lot.Status = request.IsDraft ? "DRAFT" : "READY";
         lot.LotNo = number; lot.DeclaredWeightGrams = request.DeclaredWeightGrams;
         lot.TrackingNumber = request.TrackingNumber; lot.Note = request.Note;
         if (lotId == null) _db.PurchaseShipments.Add(lot);
@@ -164,7 +169,7 @@ public partial class PurchaseTripService
         if (!ApprovedPurchase(trip)) throw new InvalidOperationException("Only lots on an open, approved PO can be deleted.");
         var lot = trip.Shipments.SingleOrDefault(s => s.Id == lotId && !s.IsLegacy && s.DeletedAt == null)
             ?? throw new KeyNotFoundException("Lot not found.");
-        if (lot.Status != "READY") throw new InvalidOperationException("Only ready lots can be deleted.");
+        if (lot.Status is not ("READY" or "DRAFT")) throw new InvalidOperationException("Only draft or ready lots can be deleted.");
         if (trip.Sessions.Any(s => s.ShipmentId == lotId))
             throw new InvalidOperationException("A lot with receiving records cannot be deleted.");
         var costIds = await _db.PurchaseTripCosts.IgnoreQueryFilters()

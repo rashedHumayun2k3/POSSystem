@@ -1,3 +1,5 @@
+import SharedDatePicker from "../components/SharedDatePicker";
+import {reportToday} from "../components/reportDate";
 import { Text } from "../i18n/LocalizedText";
 import { useCallback, useRef, useState } from "react";
 import {
@@ -535,14 +537,7 @@ export default function OrdersScreen() {
           {(["from", "to"] as const).map((key) => (
             <View key={key} style={s.field}>
               <Text style={s.name}>{key === "from" ? "From" : "To"}</Text>
-              <TextInput
-                accessibilityLabel={key === "from" ? "From date" : "To date"}
-                autoCapitalize="none"
-                placeholder="YYYY-MM-DD"
-                value={draft[key]}
-                onChangeText={(value) => setDraft({ ...draft, [key]: value })}
-                style={s.input}
-              />
+              <SharedDatePicker label={key === "from" ? "From date" : "To date"} value={draft[key]} onChange={value=>setDraft({...draft,[key]:value})} maximumDate={reportToday()} clearable/>
             </View>
           ))}
           {!!dateError && (
