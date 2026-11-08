@@ -55,7 +55,7 @@ public class ExpenseFundingService(AppDbContext db, IBusinessContext business)
                 && i.InjectedAt >= start && i.InjectedAt < end)
             .ToListAsync();
         var expenses = await db.Expenses.IgnoreQueryFilters().AsNoTracking()
-            .Where(e => e.BusinessId == id && e.DeletedAt == null && e.FundingSource != "PERSONAL"
+            .Where(e => e.BusinessId == id && e.DeletedAt == null && e.FundingSource != "PERSONAL" && e.FundingSource != "CASH"
                 && (e.Status == "APPROVED" || e.PettyCashBoxId != null && e.Status == "PENDING")
                 && e.ExpenseDate >= start && e.ExpenseDate < end)
             .ToListAsync();

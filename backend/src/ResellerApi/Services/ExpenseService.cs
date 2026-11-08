@@ -153,8 +153,9 @@ public class ExpenseService : IExpenseService
         }
         ExpenseFundingService.ToPaisa(req.Amount);
         var source = req.FundingSource?.Trim().ToUpperInvariant();
-        if (source != null && source != "BUSINESS" && source != "PERSONAL")
-            throw new ArgumentException("Choose Business Capital or Paid personally.");
+        if (source != null && source != "BUSINESS" && source != "PERSONAL" && source != "CASH")
+            throw new ArgumentException("Choose Business Capital, Paid personally, or Expense from Cash.");
+        ExpenseCashPaymentValidation.Validate(source, req.Amount, req.CashPayments);
         if (source != null && (!req.RequestId.HasValue || req.RequestId == Guid.Empty))
             throw new ArgumentException("A request ID is required for a funded expense.");
         if (source != null && req.PettyCashBoxId.HasValue)
@@ -176,7 +177,7 @@ public class ExpenseService : IExpenseService
         var partner = source == "PERSONAL" ? await Funding.PartnerAsync(userId) : null;
         if (source == "PERSONAL" && partner == null)
             throw new InvalidOperationException("Your account must be linked to an active business partner to record a personal investment.");
-        if (source != "PERSONAL")
+        if (source != "PERSONAL" && source != "CASH")
             await Funding.CheckBusinessPaymentAsync(req.Amount);
 
         var cat = await _db.ExpenseCategories.FirstOrDefaultAsync(c => c.Id == req.CategoryId)
@@ -186,6 +187,9 @@ public class ExpenseService : IExpenseService
         {
             ProductId = req.ProductId,
             FundingSource = source,
+            CashAmount = req.CashPayments?.Cash ?? 0,
+            BkashAmount = req.CashPayments?.Bkash ?? 0,
+            NagadAmount = req.CashPayments?.Nagad ?? 0,
             FundingPartnerId = partner?.Id,
             FundingPartnerName = partner?.Name,
             RequestId = req.RequestId,
@@ -237,7 +241,7 @@ public class ExpenseService : IExpenseService
         await Funding.AddPersonalInvestmentAsync(expense);
         await _db.SaveChangesAsync();
         await _log.LogAsync(_business.CurrentBusinessId, userId, "CREATE", "Expense", expense.Id,
-            null, new { expense.Amount, expense.SubType, expense.FundingSource, expense.FundingPartnerId });
+            null, new { expense.Amount, expense.SubType, expense.FundingSource, expense.FundingPartnerId, expense.CashAmount, expense.BkashAmount, expense.NagadAmount });
         if (tx != null) await tx.CommitAsync();
 
         return await GetAsync(expense.Id);
@@ -321,7 +325,7 @@ public class ExpenseService : IExpenseService
 
         await EnsureReviewerAsync(expense, userId);
 
-        if (expense.FundingSource != "PERSONAL" && !expense.PettyCashBoxId.HasValue)
+        if (expense.FundingSource != "PERSONAL" && expense.FundingSource != "CASH" && !expense.PettyCashBoxId.HasValue)
             await Funding.CheckBusinessPaymentAsync(expense.Amount);
         await Funding.AddPersonalInvestmentAsync(expense);
         await Funding.EnsureDateOpenAsync(expense.ExpenseDate);
@@ -411,5 +415,5 @@ public class ExpenseService : IExpenseService
         e.FundingPartnerId,
         null,
         e.UpdatedAt
-    ) { Title = e.Title };
+    ) { Title = e.Title, CashPayments = e.FundingSource == "CASH" ? new(e.CashAmount, e.BkashAmount, e.NagadAmount) : null };
 }

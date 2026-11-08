@@ -1640,11 +1640,19 @@ namespace ResellerApi.Data.Migrations
                     b.Property<Guid?>("ApprovedBy")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<decimal>("BkashAmount")
+                        .HasPrecision(14, 2)
+                        .HasColumnType("decimal(14,2)");
+
                     b.Property<Guid?>("BranchId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid>("BusinessId")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("CashAmount")
+                        .HasPrecision(14, 2)
+                        .HasColumnType("decimal(14,2)");
 
                     b.Property<Guid>("CategoryId")
                         .HasColumnType("uniqueidentifier");
@@ -1674,6 +1682,10 @@ namespace ResellerApi.Data.Migrations
 
                     b.Property<bool>("IsRecurring")
                         .HasColumnType("bit");
+
+                    b.Property<decimal>("NagadAmount")
+                        .HasPrecision(14, 2)
+                        .HasColumnType("decimal(14,2)");
 
                     b.Property<string>("Note")
                         .HasMaxLength(1000)

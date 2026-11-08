@@ -14,14 +14,24 @@ type Props = {
   fitContent?: boolean;
   keyboardAware?: boolean;
   onShow?: () => void;
+  stabilizeLayout?: boolean;
   children: ReactNode;
 };
 
 // Keep the navigation hidden until the last sheet in this provider closes.
 const openSheets = new Map<(hidden: boolean) => void, number>();
 
-export default function PopupSheet({ visible, onClose, title, headerAction, onShow, children, fitContent = false, keyboardAware = false }: Props) {
+export default function PopupSheet(props: Props) {
+  // A fresh instance resets the measurement gate on every calendar opening.
+  if (props.stabilizeLayout && !props.visible) return null;
+  return <PopupSheetContent {...props} />;
+}
+
+function PopupSheetContent({ visible, onClose, title, headerAction, onShow, children, fitContent = false, keyboardAware = false, stabilizeLayout = false }: Props) {
   const panelRef = useRef<View>(null);
+  const [shown, setShown] = useState(false);
+  const [overlayLayout, setOverlayLayout] = useState({ width: 0, height: 0 });
+  const [panelLayout, setPanelLayout] = useState({ x: 0, y: 0, width: 0, height: 0 });
   const [viewport, setViewport] = useState<{ height: number; top: number } | null>(null);
   useEffect(() => {
     if (!visible || !keyboardAware || Platform.OS !== "web" || typeof window === "undefined") return;
@@ -54,12 +64,16 @@ export default function PopupSheet({ visible, onClose, title, headerAction, onSh
       setViewport(null);
     };
   }, [visible, keyboardAware]);
-  const { width: windowWidth } = useWindowDimensions();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const desktop = windowWidth >= 768;
   // Resolve the sheet width before the opening animation, rather than relying
   // on percentage sizing through the modal's initially unmeasured wrappers.
   const panelWidth = desktop ? Math.min(620, Math.max(0, windowWidth - 40)) : windowWidth;
   const insets = useSafeAreaInsets();
+  const positioned = !stabilizeLayout || (shown && Math.abs(overlayLayout.width - windowWidth) <= 2 && overlayLayout.height >= windowHeight - insets.top - insets.bottom - 2 && panelLayout.height > 0 &&
+    (desktop
+      ? Math.abs(panelLayout.x + panelLayout.width / 2 - overlayLayout.width / 2) <= 2 && Math.abs(panelLayout.y + panelLayout.height / 2 - overlayLayout.height / 2) <= 2
+      : Math.abs(panelLayout.x) <= 2 && Math.abs(panelLayout.width - overlayLayout.width) <= 2 && Math.abs(panelLayout.y + panelLayout.height - overlayLayout.height) <= 2));
   const { setBottomNavHidden } = useModalChrome();
   useEffect(() => {
     if (!visible || desktop) return;
@@ -75,10 +89,10 @@ export default function PopupSheet({ visible, onClose, title, headerAction, onSh
     };
   }, [visible, desktop, setBottomNavHidden]);
 
-  return <Modal visible={visible} transparent animationType={desktop || fitContent ? "fade" : "slide"} onRequestClose={onClose} onShow={onShow}>
-    <KeyboardAvoidingView style={[s.fill, keyboardAware && viewport ? { position: "absolute", top: viewport.top, left: 0, right: 0, height: viewport.height } : undefined]} behavior={Platform.OS === "ios" ? "padding" : "height"} enabled={Platform.OS === "ios" ? !desktop : keyboardAware && Platform.OS === "android"}>
-      <View style={[s.overlay, !desktop && s.mobileOverlay]}>
-        <View ref={panelRef} style={[s.panel, desktop ? s.desktopPanel : s.mobilePanel, fitContent && s.fitContent, { width: panelWidth }, keyboardAware && { minHeight: 0 }, !desktop && { paddingBottom: insets.bottom }]}>
+  return <Modal visible={visible} transparent animationType={stabilizeLayout ? "none" : desktop || fitContent ? "fade" : "slide"} onRequestClose={onClose} onShow={() => { setShown(true); onShow?.(); }}>
+    <KeyboardAvoidingView style={[s.fill, stabilizeLayout && StyleSheet.absoluteFillObject, keyboardAware && viewport ? { position: "absolute", top: viewport.top, left: 0, right: 0, height: viewport.height } : undefined]} behavior={Platform.OS === "ios" ? "padding" : "height"} enabled={Platform.OS === "ios" ? !desktop : keyboardAware && Platform.OS === "android"}>
+      <View onLayout={stabilizeLayout ? event => setOverlayLayout(event.nativeEvent.layout) : undefined} style={[s.overlay, !desktop && s.mobileOverlay, stabilizeLayout && StyleSheet.absoluteFillObject]}>
+        <View ref={panelRef} onLayout={stabilizeLayout ? event => setPanelLayout(event.nativeEvent.layout) : undefined} pointerEvents={positioned ? "auto" : "none"} accessibilityElementsHidden={!positioned} importantForAccessibility={positioned ? "auto" : "no-hide-descendants"} style={[s.panel, desktop ? s.desktopPanel : s.mobilePanel, fitContent && s.fitContent, { width: panelWidth }, stabilizeLayout && !desktop && s.anchoredPanel, keyboardAware && { minHeight: 0 }, !desktop && { paddingBottom: insets.bottom }, !positioned && s.unpositioned]}>
           {!desktop && <View style={s.handle} />}
           <View style={s.header}>
             <Text style={s.title}>{title}</Text>
@@ -95,6 +109,8 @@ export default function PopupSheet({ visible, onClose, title, headerAction, onSh
 }
 
 const s = StyleSheet.create({
+  anchoredPanel: { position: "absolute", bottom: 0, left: 0, right: 0, width: "100%" },
+  unpositioned: { opacity: 0 },
   fill: { flex: 1, width: "100%", alignSelf: "stretch" },
   overlay: { flex: 1, width: "100%", alignItems: "center", justifyContent: "center", backgroundColor: colors.overlay, padding: 20 },
   mobileOverlay: { alignItems: "stretch", justifyContent: "flex-end", padding: 0 },

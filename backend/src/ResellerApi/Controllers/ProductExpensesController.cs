@@ -1,3 +1,4 @@
+using ResellerApi.DTOs.Expenses;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -17,14 +18,14 @@ public class ProductExpensesController(AppDbContext db, IBusinessContext busines
     private IQueryable<Expense> Expenses() => db.Expenses.IgnoreQueryFilters().Where(e => e.DeletedAt == null && e.BusinessId == business.CurrentBusinessId
         && (business.CurrentBranchId == null || e.BranchId == null || e.BranchId == business.CurrentBranchId));
     private Task<bool> ProductExists(Guid id) => db.Products.AnyAsync(p => p.Id == id && p.BusinessId == business.CurrentBusinessId);
-    public record ExpenseRow(Guid Id, string? Title, string SubType, decimal Amount, DateTime ExpenseDate, string Status, string? Note, Guid CreatedBy, DateTime UpdatedAt, bool IsAccountingPeriodClosed);
+    public record ExpenseRow(Guid Id, string? Title, string SubType, decimal Amount, DateTime ExpenseDate, string Status, string? Note, Guid CreatedBy, DateTime UpdatedAt, bool IsAccountingPeriodClosed, ExpenseCashPayments? CashPayments);
 
     [HttpGet("{expenseId:guid}")]
     public async Task<IActionResult> Detail(Guid productId, Guid expenseId)
     {
         if (!await ProductExists(productId)) return NotFound();
         var expense = await Expenses().AsNoTracking().Where(e => e.Id == expenseId && e.ProductId == productId)
-            .Select(e => new { e.Id, e.Title, e.SubType, e.Amount, e.ExpenseDate, e.Status, e.Note, CategoryName = e.Category.Name, CreatedByName = e.CreatedByUser.Name }).FirstOrDefaultAsync();
+            .Select(e => new { e.Id, e.Title, e.SubType, e.Amount, e.ExpenseDate, e.Status, e.Note, CategoryName = e.Category.Name, CreatedByName = e.CreatedByUser.Name, e.FundingSource, CashPayments = e.FundingSource == "CASH" ? new ExpenseCashPayments(e.CashAmount, e.BkashAmount, e.NagadAmount) : null }).FirstOrDefaultAsync();
         return expense == null ? NotFound() : Ok(expense);
     }
 
@@ -38,7 +39,7 @@ public class ProductExpensesController(AppDbContext db, IBusinessContext busines
         if (!string.IsNullOrWhiteSpace(search)) { var term = search.Trim(); query = query.Where(e => (e.Title != null && e.Title.Contains(term)) || e.SubType.Contains(term) || (e.Note != null && e.Note.Contains(term))); }
         var closedThrough = await db.AccountingPeriodClosings.AsNoTracking().OrderByDescending(c => c.PeriodEnd).Select(c => (DateTime?)c.PeriodEnd).FirstOrDefaultAsync();
         return Ok(new { total = await query.CountAsync(), items = await query.OrderByDescending(e => e.ExpenseDate).ThenByDescending(e => e.Id).Skip(skip).Take(take)
-            .Select(e => new ExpenseRow(e.Id, e.Title, e.SubType, e.Amount, e.ExpenseDate, e.Status, e.Note, e.CreatedBy, e.UpdatedAt, closedThrough != null && e.ExpenseDate <= closedThrough)).ToListAsync() });
+            .Select(e => new ExpenseRow(e.Id, e.Title, e.SubType, e.Amount, e.ExpenseDate, e.Status, e.Note, e.CreatedBy, e.UpdatedAt, closedThrough != null && e.ExpenseDate <= closedThrough, e.FundingSource == "CASH" ? new ExpenseCashPayments(e.CashAmount, e.BkashAmount, e.NagadAmount) : null)).ToListAsync() });
     }
 
     [HttpPut("{expenseId:guid}")]

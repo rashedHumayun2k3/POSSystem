@@ -7,7 +7,10 @@ public class Expense : BusinessScopedEntity, IBranchScoped
     public int ReviewVersion { get; set; } = 1;
     public Guid? ProductId { get; set; }
     public Product? Product { get; set; }
-    public string? FundingSource { get; set; } // BUSINESS | PERSONAL; null = legacy
+    public string? FundingSource { get; set; } // BUSINESS | PERSONAL | CASH; null = legacy
+    public decimal CashAmount { get; set; }
+    public decimal BkashAmount { get; set; }
+    public decimal NagadAmount { get; set; }
     public Guid? FundingPartnerId { get; set; }
     public string? FundingPartnerName { get; set; }
     public Guid? RequestId { get; set; }

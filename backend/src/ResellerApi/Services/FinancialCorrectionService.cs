@@ -1,12 +1,13 @@
 using Microsoft.EntityFrameworkCore;
 using ResellerApi.Data;
 using ResellerApi.Entities;
+using ResellerApi.DTOs.Expenses;
 using ResellerApi.Infrastructure;
 using ResellerApi.Services.Interfaces;
 
 namespace ResellerApi.Services;
 
-public record FinancialCorrectionRequest(decimal? Amount, bool Cancel, DateTime ExpectedUpdatedAt, string? Title = null);
+public record FinancialCorrectionRequest(decimal? Amount, bool Cancel, DateTime ExpectedUpdatedAt, string? Title = null, ExpenseCashPayments? CashPayments = null);
 
 public class FinancialCorrectionService(AppDbContext db, IBusinessContext business, IActivityLogService log)
 {
@@ -43,12 +44,15 @@ public class FinancialCorrectionService(AppDbContext db, IBusinessContext busine
         if (expense?.Status == "CANCELLED" || injection?.Status == "CANCELLED")
             throw new InvalidOperationException("This record is already cancelled.");
         if (expense != null) await funding.EnsureDateOpenAsync(expense.ExpenseDate);
+        if (!request.Cancel && expense != null)
+            ExpenseCashPaymentValidation.Validate(expense.FundingSource, request.Amount!.Value,
+                request.CashPayments ?? (expense.FundingSource == "CASH" ? new(expense.CashAmount, expense.BkashAmount, expense.NagadAmount) : null));
         if (injection != null) await funding.EnsureDateOpenAsync(injection.InjectedAt);
         if (injection is { ExpenseId: null, Status: "APPROVED" } && await funding.BalanceAsync() < injection.AmountPaisa)
             throw new InvalidOperationException("This capital has already been spent. Restore sufficient business funds before changing it.");
         var votes = injection == null ? new List<CapitalInjectionApprovalVote>() : await db.CapitalInjectionApprovalVotes.Where(v => v.CapitalInjectionId == injection.Id).ToListAsync();
         var before = new {
-            Expense = expense == null ? null : new { expense.Id, expense.Title, expense.Amount, expense.Status, expense.ApprovedBy, expense.PaidAt, expense.CreatedBy },
+            Expense = expense == null ? null : new { expense.Id, expense.Title, expense.Amount, expense.Status, expense.ApprovedBy, expense.PaidAt, expense.CreatedBy, expense.CashAmount, expense.BkashAmount, expense.NagadAmount },
             Installment = injection == null ? null : new { injection.Id, injection.AmountPaisa, injection.Status, injection.ApprovedBy, injection.ApprovedAt, injection.RejectionReason, injection.CreatedBy },
             Votes = votes.Select(v => new { v.Id, v.VotedByPartnerId, v.Decision, v.Note, v.VotedAt }).ToArray()
         };
@@ -86,6 +90,12 @@ public class FinancialCorrectionService(AppDbContext db, IBusinessContext busine
             }
             if (!request.Cancel) {
                 expense.Amount = request.Amount!.Value;
+                if (request.CashPayments != null)
+                {
+                    expense.CashAmount = request.CashPayments.Cash;
+                    expense.BkashAmount = request.CashPayments.Bkash;
+                    expense.NagadAmount = request.CashPayments.Nagad;
+                }
                 if (!installment && request.Title != null) expense.Title = string.IsNullOrWhiteSpace(request.Title) ? null : request.Title.Trim();
             }
             expense.Status = request.Cancel ? "CANCELLED" : "PENDING";
@@ -94,7 +104,7 @@ public class FinancialCorrectionService(AppDbContext db, IBusinessContext busine
         await db.SaveChangesAsync();
         if (!request.Cancel && expense != null)
         {
-            if (expense.FundingSource != "PERSONAL" && !expense.PettyCashBoxId.HasValue)
+            if (expense.FundingSource != "PERSONAL" && expense.FundingSource != "CASH" && !expense.PettyCashBoxId.HasValue)
                 await funding.CheckBusinessPaymentAsync(expense.Amount);
             expense.Status = "APPROVED"; expense.ApprovedBy = userId; expense.PaidAt = DateTime.UtcNow;
             await funding.AddPersonalInvestmentAsync(expense);
@@ -110,7 +120,7 @@ public class FinancialCorrectionService(AppDbContext db, IBusinessContext busine
             await db.SaveChangesAsync();
         }
         var action = request.Cancel ? "CANCEL" : "CORRECT";
-        var after = new { request.Amount, request.Title, request.Cancel, ExpenseStatus = expense?.Status, InstallmentStatus = injection?.Status };
+        var after = new { request.Amount, request.Title, request.Cancel, request.CashPayments, ExpenseStatus = expense?.Status, InstallmentStatus = injection?.Status };
         if (expense != null) await log.LogAsync(business.CurrentBusinessId, userId, action, "Expense", expense.Id, before, after);
         if (injection != null) await log.LogAsync(business.CurrentBusinessId, userId, action, "CapitalInjection", injection.Id, before, after);
         if (tx != null) await tx.CommitAsync();

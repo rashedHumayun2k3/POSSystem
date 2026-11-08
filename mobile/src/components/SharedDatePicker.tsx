@@ -50,7 +50,7 @@ export default function SharedDatePicker({value,onChange,label,minimumDate,maxim
   const months=Array.from({length:Math.max(0,monthLimit-monthStart+1)},(_,i)=>({value:i+monthStart,label:new Date(2020,i+monthStart-1,1).toLocaleDateString(locale,{month:"long"})}));
   const years=Array.from({length:Math.max(0,max.year-min.year+1)},(_,i)=>({value:min.year+i,label:(min.year+i).toLocaleString(locale,{useGrouping:false})}));
   return <><Pressable accessibilityRole="button" accessibilityLabel={label??t("sharedDate.open")} disabled={disabled} accessibilityState={{expanded:open,disabled}} onPress={()=>{const next=dateParts(isDateValue(value)?value:reportToday());setDraft(clampDate(next.year,next.month,next.day,minimum,maximum));setOpen(true)}} style={[s.field,disabled&&{opacity:.5}]}><Ionicons name="calendar-outline" size={20} color={colors.primaryDark}/><DropdownText style={s.fieldText}>{isDateValue(value)?new Date(`${value}T12:00:00`).toLocaleDateString(locale,{day:"numeric",month:"long",year:"numeric"}):label??t("sharedDate.open")}</DropdownText><Ionicons name="chevron-down" size={16} color={colors.primaryDark}/></Pressable>
-    <PopupSheet visible={open} onClose={()=>setOpen(false)} title={label??t("sharedDate.title")} fitContent>
+    <PopupSheet visible={open} onClose={()=>setOpen(false)} title={label??t("sharedDate.title")} fitContent stabilizeLayout>
       <View style={s.content}><View style={s.wheels}>
         <DateWheel label={t("sharedDate.day")} value={parts.day} options={days} onChange={day=>update({day})}/>
         <DateWheel label={t("sharedDate.month")} value={parts.month} options={months} onChange={month=>update({month})}/>

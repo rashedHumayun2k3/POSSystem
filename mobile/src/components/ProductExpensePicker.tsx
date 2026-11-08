@@ -1,10 +1,11 @@
+import type { ExpenseCashPayments } from "../utils/expenseCashPayments";
 import { useState } from "react";
 import { Pressable, Text as NativeText } from "react-native";
 import PopupSheet from "./PopupSheet";
 import NewExpenseScreen from "../screens/NewExpenseScreen";
 import { useLanguage } from "../i18n/LanguageContext";
 import { colors } from "../theme";
-export type LinkedExpense = { createdBy: string; updatedAt: string; isAccountingPeriodClosed: boolean; id: string; title: string | null; subType: string; amount: number; expenseDate: string; status: string; note: string | null };
+export type LinkedExpense = { cashPayments?: ExpenseCashPayments | null; createdBy: string; updatedAt: string; isAccountingPeriodClosed: boolean; id: string; title: string | null; subType: string; amount: number; expenseDate: string; status: string; note: string | null };
 export default function ProductExpensePicker({ productId, saved }: { productId: string; saved: () => void }) {
  const { lang } = useLanguage(); const bn = lang === "bn";
  const [open,setOpen]=useState(false),[busy,setBusy]=useState(false);

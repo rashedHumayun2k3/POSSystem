@@ -56,6 +56,56 @@ public class ExpenseFundingTests
     }
 
     [Fact]
+    public async Task CashSplitPersistsRetriesOnceAndDoesNotSpendCapital()
+    {
+        await using var f = new Fixture(); await f.Seed(0);
+        var req = f.Request("CASH", 3000) with { CashPayments = new(2000, 700, 300) };
+        var created = await f.Expenses.CreateAsync(req, f.User, true);
+        Assert.Equal(req.CashPayments, created.CashPayments);
+        Assert.Equal("CASH", created.FundingSource);
+        Assert.Equal(0, await f.Fund.BalanceAsync());
+        Assert.Equal(created.Id, (await f.Expenses.CreateAsync(req, f.User, true)).Id);
+        Assert.Equal(1, await f.Db.Expenses.CountAsync());
+        var listed = await f.Expenses.ListAsync(new(null, null, null, null, 1, 20));
+        Assert.Equal(req.CashPayments, Assert.Single(listed.Items).CashPayments);
+        var correction = new FinancialCorrectionService(f.Db, f.Business, new Log());
+        await correction.CorrectAsync(created.Id, false, new(3500, false, created.UpdatedAt, CashPayments: new(2000, 1200, 300)), f.User, true);
+        var updated = await f.Expenses.GetAsync(created.Id);
+        Assert.Equal(new ExpenseCashPayments(2000, 1200, 300), updated.CashPayments);
+        Assert.Equal(0, await f.Fund.BalanceAsync());
+        await correction.CorrectAsync(created.Id, false, new(null, true, updated.UpdatedAt), f.User, true);
+        Assert.Equal("CANCELLED", (await f.Expenses.GetAsync(created.Id)).Status);
+        Assert.Equal(0, await f.Fund.BalanceAsync());
+    }
+
+    [Theory]
+    [InlineData(0, 0, 0)]
+    [InlineData(50, 20, 20)]
+    [InlineData(-1, 101, 0)]
+    [InlineData(50.001, 49.999, 0)]
+    public async Task InvalidCashSplitsAreRejected(decimal cash, decimal bkash, decimal nagad)
+    {
+        await using var f = new Fixture(); await f.Seed();
+        await Assert.ThrowsAsync<ArgumentException>(() => f.Expenses.CreateAsync(
+            f.Request("CASH") with { CashPayments = new(cash, bkash, nagad) }, f.User, true));
+        Assert.Empty(f.Db.Expenses);
+        Assert.Equal(100000, await f.Fund.BalanceAsync());
+    }
+
+    [Fact]
+    public async Task CashSplitCannotBeMissingOrAttachedToAnotherFundingSource()
+    {
+        await using var f = new Fixture(); await f.Seed();
+        await Assert.ThrowsAsync<ArgumentException>(() => f.Expenses.CreateAsync(f.Request("CASH"), f.User, true));
+        await Assert.ThrowsAsync<ArgumentException>(() => f.Expenses.CreateAsync(
+            f.Request() with { CashPayments = new(100, 0, 0) }, f.User, true));
+        var created = await f.Expenses.CreateAsync(f.Request("CASH") with { CashPayments = new(0, 100, 0) }, f.User, true);
+        var correction = new FinancialCorrectionService(f.Db, f.Business, new Log());
+        await Assert.ThrowsAsync<ArgumentException>(() => correction.CorrectAsync(created.Id, false, new(150, false, created.UpdatedAt), f.User, true));
+        Assert.Equal(100, (await f.Expenses.GetAsync(created.Id)).Amount);
+    }
+
+    [Fact]
     public async Task ProductExpenseEditAndCancellationAdjustBusinessMoneyImmediately()
     {
         await using var f = new Fixture(); await f.Seed();

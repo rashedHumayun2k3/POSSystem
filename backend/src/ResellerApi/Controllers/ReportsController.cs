@@ -103,7 +103,7 @@ public class ReportsController : ControllerBase
             .Select(g => new { g.Key.FundingSource, g.Key.PettyCashBoxId, Amount = g.Sum(e => e.Amount), Count = g.Count() }).ToList();
         var sources = sourceTotals
             .GroupBy(x => x.FundingSource == "PERSONAL" ? "PERSONAL" :
-                x.PettyCashBoxId != null ? "PETTY_CASH" : x.FundingSource == "BUSINESS" ? "BUSINESS" : "UNSPECIFIED")
+                x.PettyCashBoxId != null ? "PETTY_CASH" : x.FundingSource == "BUSINESS" ? "BUSINESS" : x.FundingSource == "CASH" ? "CASH" : "UNSPECIFIED")
             .Select(g => new ExpenseReportFundingDto(g.Key, g.Sum(x => x.Amount), g.Sum(x => x.Count)))
             .OrderByDescending(x => x.Amount).ToList();
 

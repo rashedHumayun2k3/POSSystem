@@ -1130,6 +1130,9 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Expense>(e =>
         {
             e.ToTable("expenses");
+            e.Property(x => x.CashAmount).HasPrecision(14, 2);
+            e.Property(x => x.BkashAmount).HasPrecision(14, 2);
+            e.Property(x => x.NagadAmount).HasPrecision(14, 2);
             e.Property(x => x.ReviewVersion).HasDefaultValue(1);
             e.HasOne(x => x.Product).WithMany().HasForeignKey(x => x.ProductId).OnDelete(DeleteBehavior.Restrict);
             e.HasKey(x => x.Id);
@@ -1640,7 +1643,7 @@ public class AppDbContext : DbContext
     {
         foreach (var entry in ChangeTracker.Entries<Expense>().Where(e => e.State == EntityState.Modified))
         {
-            string[] reviewedFields = ["Amount", "Title", "SubType", "CategoryId", "Note", "ExpenseDate", "FundingSource", "FundingPartnerId", "Status", "DeletedAt", "ProductId", "BranchId", "PhotoUrl", "AllocateToTripId", "StaffId"];
+            string[] reviewedFields = ["CashAmount", "BkashAmount", "NagadAmount", "Amount", "Title", "SubType", "CategoryId", "Note", "ExpenseDate", "FundingSource", "FundingPartnerId", "Status", "DeletedAt", "ProductId", "BranchId", "PhotoUrl", "AllocateToTripId", "StaffId"];
             if (reviewedFields.Any(name => entry.Property(name).IsModified && !Equals(entry.Property(name).OriginalValue, entry.Property(name).CurrentValue)))
                 entry.Entity.ReviewVersion = entry.Property(e => e.ReviewVersion).OriginalValue + 1;
         }

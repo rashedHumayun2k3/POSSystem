@@ -1,5 +1,7 @@
 namespace ResellerApi.DTOs.Expenses;
 
+public record ExpenseCashPayments(decimal Cash, decimal Bkash, decimal Nagad);
+
 // ── Category ─────────────────────────────────────────────────────────────────
 public record ExpenseCategoryDto(
     Guid Id,
@@ -51,6 +53,7 @@ public record ExpenseDto(
     public string? PayerName { get; init; }
     public string? Title { get; init; }
     public Guid? PurchaseCostId { get; init; }
+    public ExpenseCashPayments? CashPayments { get; init; }
 }
 
 // ── Create ────────────────────────────────────────────────────────────────────
@@ -70,7 +73,8 @@ public record CreateExpenseRequest(
     string? FundingSource = null,
     Guid? RequestId = null,
     string? Title = null,
-    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] Guid? ProductId = null
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] Guid? ProductId = null,
+    ExpenseCashPayments? CashPayments = null
 );
 
 public record ExpenseFundingDto(bool Initialized, decimal? Balance, Guid? PartnerId, string? PartnerName, bool CanInitialize);
