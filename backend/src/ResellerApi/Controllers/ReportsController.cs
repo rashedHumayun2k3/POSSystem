@@ -31,6 +31,58 @@ public class ReportsController : ControllerBase
     public async Task<IActionResult> Dashboard()
         => Ok(await _svc.GetDashboardAsync(_user.CanSeeCosts));
 
+    [HttpGet("dashboard/sales-overview")]
+    public async Task<IActionResult> DashboardSalesOverview() => Ok(await _svc.GetDashboardSalesOverviewAsync(_user.CanSeeCosts));
+
+    [HttpGet("dashboard/expense-summary")]
+    public async Task<IActionResult> DashboardExpenseSummary() => Ok(await _svc.GetDashboardExpenseSummaryAsync());
+
+    [HttpGet("dashboard/today-expense")]
+    public async Task<IActionResult> DashboardTodayExpense() => Ok(await _svc.GetDashboardTodayExpenseAsync());
+
+    [HttpGet("dashboard/financial-summary")]
+    public async Task<IActionResult> DashboardFinancialSummary() => Ok(await _svc.GetDashboardFinancialSummaryAsync(_user.CanSeeCosts));
+
+    [HttpGet("dashboard/order-summary")]
+    public async Task<IActionResult> DashboardOrderSummary() => Ok(await _svc.GetDashboardOrderSummaryAsync());
+
+    [HttpGet("dashboard/collections-summary")]
+    public async Task<IActionResult> DashboardCollectionsSummary() => Ok(await _svc.GetDashboardCollectionsSummaryAsync());
+
+    [HttpGet("dashboard/today-sales") ]
+    public async Task<IActionResult> DashboardTodaySales() => Ok(await _svc.GetDashboardTodaySalesAsync());
+
+    [HttpGet("dashboard/today-orders") ]
+    public async Task<IActionResult> DashboardTodayOrders() => Ok(await _svc.GetDashboardTodayOrdersAsync());
+
+    [HttpGet("dashboard/today-returns") ]
+    public async Task<IActionResult> DashboardTodayReturns() => Ok(await _svc.GetDashboardTodayReturnsAsync());
+
+    [HttpGet("dashboard/stock") ]
+    public async Task<IActionResult> DashboardStock() => Ok(await _svc.GetDashboardStockAsync());
+
+    [HttpGet("dashboard/collections") ]
+    public async Task<IActionResult> DashboardGetSalesCollections() => Ok(await _svc.GetSalesCollectionsAsync());
+
+    [HttpGet("dashboard/due") ]
+    public async Task<IActionResult> DashboardDue() => Ok(await _svc.GetDashboardDueAsync());
+
+    [HttpGet("dashboard/trend") ]
+    public async Task<IActionResult> DashboardTrend() => Ok(await _svc.GetDashboardTrendAsync());
+
+    [HttpGet("dashboard/top-products") ]
+    public async Task<IActionResult> DashboardTopProducts() => Ok(await _svc.GetDashboardTopProductsAsync());
+
+    [HttpGet("dashboard/payment-methods") ]
+    public async Task<IActionResult> DashboardPaymentMethods() => Ok(await _svc.GetDashboardPaymentMethodsAsync());
+
+    [HttpGet("dashboard/categories") ]
+    public async Task<IActionResult> DashboardCategories() => Ok(await _svc.GetDashboardCategoriesAsync());
+
+    [HttpGet("dashboard/today-profit")]
+    public async Task<IActionResult> DashboardTodayProfit()
+        => _user.CanSeeCosts ? Ok(await _svc.GetDashboardTodayProfitAsync()) : Forbid();
+
     [HttpGet("home-summary")]
     public async Task<IActionResult> HomeSummary()
         => Ok(await _svc.GetHomeSummaryAsync(_user.CanSeeCosts));

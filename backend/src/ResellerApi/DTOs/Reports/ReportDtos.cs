@@ -2,8 +2,16 @@ namespace ResellerApi.DTOs.Reports;
 
 // ── Common ────────────────────────────────────────────────────────────────────
 
+public record DashboardFinancialSummary(decimal Sales, decimal? Profit);
+public record DashboardOrderSummary(int Orders, int Returns);
+
+public record DashboardSalesOverview(decimal TodaySales, decimal? TodayProfit, int TodayOrders, decimal YesterdaySales, decimal? ChangePercent, decimal SevenDaySales, List<DatePoint> Days);
+
+public record DashboardExpenseSummary(decimal TodayCost, decimal MonthCost);
+
 public record DatePoint(string Label, decimal Value);
 public record NameValue(string Name, decimal Value);
+public record SalesCollectionSummary(decimal Cash, decimal Bkash, decimal Nagad, decimal Card, decimal Due);
 // Code drives the frontend's icon lookup (CATEGORY_ICONS); Name/Value keep the same shape
 // NameValue already had, so the existing pie chart (dataKey="value" nameKey="name") needs no change.
 public record ExpenseCategoryBreakdownDto(string Code, string Name, decimal Value, List<NameValue> Subtypes);
@@ -23,7 +31,8 @@ public record DashboardKpiDto(
     List<NameValue> TopProducts,
     List<NameValue> PaymentMethods,
     List<DatePoint> HourlySales, // today 0-23h
-    List<NameValue> SalesByCategory
+    List<NameValue> SalesByCategory,
+    SalesCollectionSummary? SalesCollections = null
 );
 
 // ── Home summary (mobile home page tiles) ────────────────────────────────────

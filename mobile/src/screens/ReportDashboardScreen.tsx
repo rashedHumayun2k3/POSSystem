@@ -1,3 +1,6 @@
+import DashboardExpenseCard, {ExpenseSummary} from "../components/DashboardExpenseCard";
+import DashboardSalesCard, {SalesOverview} from "../components/DashboardSalesCard";
+import {useLanguage} from "../i18n/LanguageContext";
 import {Text} from "../i18n/LocalizedText";
 import {Ionicons} from "@expo/vector-icons";
 import {useEffect,useRef,useState} from "react";
@@ -6,11 +9,51 @@ import {useAuth} from "../auth/AuthContext";
 import {colors} from "../theme";
 
 type Point={label:string;value:number};type Named={name:string;value:number};
-type Dashboard={todaySales:number;todayOrders:number;todayProfit:number;todayCustomers:number;todayProductsSold:number;todayReturns:number;lowStockCount:number;outOfStockCount:number;salesTrend:Point[];topProducts:Named[];paymentMethods:Named[];hourlySales:Point[];salesByCategory:Named[]};
+type Collections={cash:number;bkash:number;nagad:number;card:number;due:number};
 const palette=["#F97316","#16A34A","#F59E0B","#DC2626","#8B5CF6","#EC4899","#2563EB"];
 const money=(n:number)=>`৳${Number(n||0).toLocaleString("en-BD",{maximumFractionDigits:2})}`;
-export default function ReportDashboardScreen(){const auth=useAuth();const apiRef=useRef(auth.api);apiRef.current=auth.api;const [data,setData]=useState<Dashboard|null>(null);const [loading,setLoading]=useState(true);const [error,setError]=useState("");const [reload,setReload]=useState(0);const canSeeCosts=["OWNER","MANAGER"].includes(auth.session?.user.role||"");useEffect(()=>{let active=true;setLoading(true);setError("");apiRef.current<Dashboard>("/reports/dashboard").then(value=>{if(active)setData(value)}).catch(e=>{if(active)setError((e as Error).message)}).finally(()=>{if(active)setLoading(false)});return()=>{active=false}},[reload,auth.session?.businessId,auth.session?.branchId]);if(loading&&!data)return <State loading text="Loading dashboard…"/>;if(error&&!data)return <State text={error} action={()=>setReload(v=>v+1)}/>;if(!data)return null;return <ScrollView style={s.screen} refreshControl={<RefreshControl refreshing={loading} onRefresh={()=>setReload(v=>v+1)} colors={[colors.primary]}/>} contentContainerStyle={s.content}><View style={s.pageHeader}><View style={s.headerIcon}><Ionicons name="bar-chart-outline" size={22} color={colors.primaryDark}/></View><View><Text style={s.pageTitle}>Report Dashboard</Text><Text style={s.pageHint}>Business performance at a glance</Text></View></View><View style={s.kpis}><Kpi label="Today's Sales" value={money(data.todaySales)} tone="orange" icon="cash-outline"/><Kpi label="Today's Orders" value={String(data.todayOrders)} tone="green" icon="receipt-outline"/>{canSeeCosts&&<Kpi label="Today's Profit" value={money(data.todayProfit)} tone="amber" icon="trending-up-outline"/>}<Kpi label="Customers" value={String(data.todayCustomers)} tone="orange" icon="people-outline"/><Kpi label="Products Sold" value={String(data.todayProductsSold)} tone="green" icon="cube-outline"/><Kpi label="Returns" value={String(data.todayReturns)} tone={data.todayReturns>0?"red":"orange"} icon="return-down-back-outline"/><Kpi label="Low Stock" value={String(data.lowStockCount)} sub="items" tone={data.lowStockCount>0?"amber":"orange"} icon="alert-circle-outline"/><Kpi label="Out of Stock" value={String(data.outOfStockCount)} sub="variants" tone={data.outOfStockCount>0?"red":"orange"} icon="close-circle-outline"/></View><Section title="Sales Trend — Last 30 Days"><ColumnChart data={data.salesTrend} color={colors.primary} moneyValues/></Section><Section title="Hourly Sales — Today"><ColumnChart data={data.hourlySales} color={colors.success} moneyValues compact/></Section>{data.topProducts.length>0&&<Section title="Top 10 Products — Last 30 Days"><HorizontalBars data={data.topProducts} color={colors.primary}/></Section>}{data.paymentMethods.length>0&&<Section title="Payment Methods — Last 30 Days"><Breakdown data={data.paymentMethods}/></Section>}{data.salesByCategory.length>0&&<Section title="Sales by Category — Last 30 Days"><Breakdown data={data.salesByCategory}/></Section>}{!!error&&<Text style={s.refreshError}>{error}</Text>}</ScrollView>}
-function State({loading,text,action}:{loading?:boolean;text:string;action?:()=>void}){return <View style={s.state}>{loading?<ActivityIndicator color={colors.primary}/>:<View style={s.errorIcon}><Ionicons name="alert-circle-outline" size={30} color={colors.danger}/></View>}<Text style={s.stateText}>{text}</Text>{action&&<Pressable onPress={action} style={s.retry}><Text style={s.retryText}>Try again</Text></Pressable>}</View>}
+export default function ReportDashboardScreen() {
+  const {lang}=useLanguage(); const bn=lang==="bn"; const auth=useAuth();
+  const [reload,setReload]=useState(0);
+  const canSeeCosts=["OWNER","MANAGER"].includes(auth.session?.user.role||"");
+  // Remount every independent loader on scope changes so previous-business data cannot linger.
+  const scope=`${auth.session?.businessId}:${auth.session?.branchId}:${auth.session?.user.id}:${reload}`;
+  return <ScrollView style={s.screen} refreshControl={<RefreshControl refreshing={false} onRefresh={()=>setReload(v=>v+1)} colors={[colors.primary]}/>} contentContainerStyle={s.content}>
+    <View style={s.pageHeader}><View style={s.headerIcon}><Ionicons name="bar-chart-outline" size={22} color={colors.primaryDark}/></View><View><Text style={s.pageTitle}>Report Dashboard</Text><Text style={s.pageHint}>Business performance at a glance</Text></View></View>
+    <View key={scope} style={{gap:12}}>
+      <View style={s.kpis}>
+        <DashboardPart<SalesOverview> endpoint="sales-overview" label={bn?"আজকের বিক্রয়":"Today's Sales"}>{value=><DashboardSalesCard data={value} canSeeCosts={canSeeCosts}/>}</DashboardPart>
+        <DashboardPart<ExpenseSummary> endpoint="expense-summary" label={bn?"খরচের সারাংশ":"Cost summary"}>{value=><DashboardExpenseCard data={value}/>}</DashboardPart>
+        <DashboardPart<number> endpoint="today-returns" label={bn?"আজকের রিটার্ন":"Today's Returns"}>{value=>value>0?<Kpi label={bn?"আজকের রিটার্ন":"Today's Returns"} value={String(value)} tone="red" icon="return-down-back-outline"/>:null}</DashboardPart>
+        <DashboardPart<Named[]> endpoint="stock" label={bn?"মজুত":"Stock"}>{rows=><><Kpi label="Low Stock" value={String(rows.find(r=>r.name==="LOW")?.value??0)} sub="items" tone="amber" icon="alert-circle-outline"/><Kpi label="Out of Stock" value={String(rows.find(r=>r.name==="OUT")?.value??0)} sub="variants" tone="red" icon="close-circle-outline"/></>}</DashboardPart>
+      </View>
+      <View style={s.section}><Text style={s.sectionTitle}>{bn?"বিক্রয় থেকে আদায় — শুরু থেকে এখন পর্যন্ত":"Sales collections — All time"}</Text><Text style={s.pageHint}>{bn?"রিফান্ড বাদ দিয়ে আদায়। খরচ ও উত্তোলন বাদ দেওয়া হয়নি। বাকি টাকা এখনো পাওয়া যায়নি।":"Receipts after refunds, before expenses and withdrawals. Due is money not yet collected."}</Text><View style={s.kpis}>
+        <DashboardPart<Collections> endpoint="collections-summary" label={bn?"আদায়":"Collections"}>{value=><>
+          <Kpi label={bn?"হাতে নগদ":"Cash"} value={money(value.cash)} tone="green" icon="cash-outline"/>
+          <Kpi label={bn?"বিকাশ":"bKash"} value={money(value.bkash)} tone="orange" icon="wallet-outline"/>
+          <Kpi label={bn?"নগদ":"Nagad"} value={money(value.nagad)} tone="amber" icon="wallet-outline"/>
+          <Kpi label={bn?"কার্ড":"Card"} value={money(value.card)} tone="green" icon="card-outline"/>
+          <Kpi label={bn?"বাকি":"Due"} value={money(value.due)} tone="red" icon="time-outline"/>
+        </>}</DashboardPart>
+      </View></View>
+      <DashboardPart<Point[]> endpoint="trend" label="Sales Trend — Last 30 Days">{rows=><Section title="Sales Trend — Last 30 Days"><ColumnChart data={rows} color={colors.primary} moneyValues/></Section>}</DashboardPart>
+      <DashboardPart<Named[]> endpoint="top-products" label="Top 10 Products — Last 30 Days">{rows=>rows.length>0?<Section title="Top 10 Products — Last 30 Days"><HorizontalBars data={rows} color={colors.primary}/></Section>:null}</DashboardPart>
+      <DashboardPart<Named[]> endpoint="payment-methods" label="Payment Methods — Last 30 Days">{rows=>rows.length>0?<Section title="Payment Methods — Last 30 Days"><Breakdown data={rows}/></Section>:null}</DashboardPart>
+      <DashboardPart<Named[]> endpoint="categories" label="Sales by Category — Last 30 Days">{rows=>rows.length>0?<Section title="Sales by Category — Last 30 Days"><Breakdown data={rows}/></Section>:null}</DashboardPart>
+    </View>
+  </ScrollView>;
+}
+function DashboardPart<T>({endpoint,label,children}:{endpoint:string;label:string;children:(value:T)=>React.ReactNode}) {
+  const auth=useAuth();const api=useRef(auth.api);api.current=auth.api;
+  const {lang}=useLanguage();const [value,setValue]=useState<T|null>(null);const [error,setError]=useState("");const [retry,setRetry]=useState(0);
+  useEffect(()=>{let active=true;setValue(null);setError("");
+    api.current<T>(`/reports/dashboard/${endpoint}`).then(result=>{if(active)setValue(result)}).catch(e=>{if(active)setError((e as Error).message)});
+    return()=>{active=false};
+  },[endpoint,retry]);
+  if(error)return <View style={s.panel}><Text>{label}</Text><Text style={s.refreshError}>{error}</Text><Pressable accessibilityRole="button" onPress={()=>setRetry(v=>v+1)} style={s.retry}><Text style={s.retryText}>{lang==="bn"?"আবার চেষ্টা করুন":"Try again"}</Text></Pressable></View>;
+  if(value===null)return <View style={{padding:12,gap:6}}><ActivityIndicator color={colors.primary}/><Text style={s.pageHint}>{label}</Text></View>;
+  return <>{children(value)}</>;
+}
 function Kpi({label,value,sub,tone,icon}:{label:string;value:string;sub?:string;tone:"orange"|"green"|"amber"|"red";icon:keyof typeof Ionicons.glyphMap}){const map={orange:{bg:colors.primaryLight,border:colors.border,text:colors.primaryDark},green:{bg:colors.successBackground,border:"#BBF7D0",text:colors.successText},amber:{bg:colors.warningBackground,border:"#FDE68A",text:colors.warningText},red:{bg:colors.dangerBackground,border:"#FECACA",text:colors.dangerText}}[tone];return <View style={[s.kpi,{backgroundColor:map.bg,borderColor:map.border}]}><View style={s.kpiTop}><Text style={[s.kpiLabel,{color:map.text}]}>{label}</Text><Ionicons name={icon} size={16} color={map.text}/></View><Text numberOfLines={1} adjustsFontSizeToFit style={[s.kpiValue,{color:map.text}]}>{value}</Text>{sub&&<Text style={s.kpiSub}>{sub}</Text>}</View>}
 function Section({title,children}:{title:string;children:React.ReactNode}){return <View style={s.section}><Text style={s.sectionTitle}>{title}</Text><View style={s.panel}>{children}</View></View>}
 function ColumnChart({data,color,moneyValues,compact}:{data:Point[];color:string;moneyValues?:boolean;compact?:boolean}){const max=Math.max(...data.map(x=>x.value),1);if(!data.length)return <Text style={s.empty}>No data available</Text>;const visible=data.length>16?data.filter((_,i)=>i%Math.ceil(data.length/16)===0||i===data.length-1):data;return <View><View style={[s.chart,{height:compact?125:150}]}>{visible.map((p,i)=><View key={`${p.label}-${i}`} style={s.columnWrap}><Text numberOfLines={1} style={s.columnValue}>{p.value>0?(moneyValues?compactMoney(p.value):String(p.value)):""}</Text><View style={s.columnTrack}><View style={[s.column,{height:`${Math.max(p.value/max*100,p.value?4:0)}%`,backgroundColor:color}]}/></View><Text numberOfLines={1} style={s.axisLabel}>{p.label}</Text></View>)}</View><View style={s.chartLegend}><View style={[s.dot,{backgroundColor:color}]}/><Text style={s.legendText}>Sales</Text></View></View>}

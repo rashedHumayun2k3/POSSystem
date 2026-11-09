@@ -8,7 +8,7 @@ using System.Text.Json;
 
 namespace ResellerApi.Services;
 
-public class ReportService : IReportService
+public partial class ReportService : IReportService
 {
     private readonly AppDbContext _db;
 
@@ -153,8 +153,32 @@ public class ReportService : IReportService
             topProducts,
             paymentMethods,
             hourlySales,
-            byCategory
+            byCategory,
+            (await GetSalesCollectionsAsync()) with { Due = await GetDashboardDueAsync() }
         );
+    }
+
+    public async Task<SalesCollectionSummary> GetSalesCollectionsAsync()
+    {
+        // Join through orders: payments have no business/branch fields of their own.
+        // Keep receipts and refunds on returned/cancelled orders: actual money still moved.
+        var orders = _db.Orders.AsNoTracking().Where(o => o.BusinessId == _db.CurrentBusinessId
+            && o.DeletedAt == null && !o.IsDraft);
+        var receipts = await _db.OrderPayments.AsNoTracking().Where(p => p.DeletedAt == null)
+            .Join(orders, p => p.OrderId, o => o.Id, (p, o) => new { p.Method, p.Amount })
+            .GroupBy(p => p.Method)
+            .Select(g => new { Method = g.Key, Amount = g.Sum(p => p.Amount) }).ToListAsync();
+        decimal Net(string method) => receipts.Where(p => p.Method == method || p.Method == "REFUND_" + method).Sum(p => p.Amount);
+        return new(Net("CASH"), Net("BKASH"), Net("NAGAD"), Net("CARD"), 0);
+    }
+
+    public async Task<decimal> GetDashboardDueAsync()
+    {
+        var dueOrders = await _db.Orders.AsNoTracking()
+            .Where(o => o.BusinessId == _db.CurrentBusinessId && !o.IsDraft && o.OrderStatus != "CANCELLED" && o.FulfillmentStatus != "RETURNED")
+            .Include(o => o.Items.Where(i => i.DeletedAt == null))
+            .Include(o => o.Payments.Where(p => p.DeletedAt == null)).ToListAsync();
+        return dueOrders.Sum(o => Math.Max(0, OrderFinancials.ComputeOrderRevenue(o) - o.Payments.Sum(p => p.Amount)));
     }
 
     // BranchVariantInventories isn't globally branch-filtered (its BranchId is part of the
