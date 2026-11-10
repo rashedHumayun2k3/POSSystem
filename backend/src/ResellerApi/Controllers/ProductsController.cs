@@ -417,6 +417,11 @@ public class ProductsController : ControllerBase
     public async Task<IActionResult> GetPriceHistory(Guid variantId)
         => Ok(await _priceSvc.GetHistoryAsync(variantId));
 
+    [HttpGet("variants/{variantId:guid}/discount-history")]
+    [Authorize(Roles = "OWNER")]
+    public async Task<IActionResult> GetDiscountHistory(Guid variantId)
+        => Ok(await _priceSvc.GetDiscountHistoryAsync(variantId));
+
     [HttpPost("variants/{variantId:guid}/prices")]
     [Authorize(Roles = "OWNER")]
     public async Task<IActionResult> ChangePrice(Guid variantId, [FromBody] ChangePriceRequest request)

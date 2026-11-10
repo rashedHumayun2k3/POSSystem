@@ -30,6 +30,15 @@ public class PriceHistoryService : IPriceHistoryService
         return rows.Select(ph => MapDto(ph)).ToList();
     }
 
+    // Every discount offer ever set on this variant, including removed ones (read-only history).
+    public async Task<List<PriceSlotDto>> GetDiscountHistoryAsync(Guid variantId) =>
+        await _db.PriceSlots.IgnoreQueryFilters().AsNoTracking()
+            .Where(s => s.BusinessId == _business.CurrentBusinessId && s.VariantId == variantId && s.Label != "Original Price")
+            .OrderByDescending(s => s.StartDate)
+            .Select(s => new PriceSlotDto(s.Id, s.Label, s.Price, s.Reason, s.IsActive, s.CreatedAt, s.CreatedByUser.Name,
+                s.StartDate, s.EndDate, s.DeletedAt, s.ReusableDiscountId))
+            .ToListAsync();
+
     public async Task<PriceHistoryDto> ChangePriceAsync(ChangePriceRequest request, Guid userId)
     {
         var variant = await _db.ProductVariants

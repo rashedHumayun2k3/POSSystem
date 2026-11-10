@@ -1,13 +1,37 @@
 {
   "dueNoPending": "No outstanding customer or courier dues.",
   "dueSummary": {"total": "Total pending", "customer": "{count} customer with outstanding dues", "customers": "{count} customers with outstanding dues", "filtered": "For the current search and date filters"},
-  "dueTabs": {"customer": "Customer Due (POS)", "courier": "Courier Due (COD)", "pending": "Pending COD", "customerHint": "Collect outstanding payments from customers for POS credit sales.", "courierHint": "Record COD money received from couriers, or view previous courier payments."},
+  "dueTabs": {"customer": "Shop Sale Due", "courier": "Online Order Due", "pending": "Pending COD", "customerHint": "Collect outstanding payments from customers for POS credit sales.", "courierHint": "Record COD money received from couriers, or view previous courier payments.", "collectCourier": "Collect from Courier"},
   "dueMenu": "Due",
   "dueMenuDescription": "Collect customer dues and courier COD payments",
-
   "posPositivePrice": "Product selling price must be greater than ৳0.",
   "posDue": {
-  "viewSale": "View due sale","label": "Due / Baki", "customerRequired": "Select a customer with a valid name and phone number for a due sale.", "selectCustomer": "Select customer", "positiveAmount": "A due sale must have an amount greater than zero.", "notice": "No payment is being received now. The full sale amount will remain due against this customer. Stock will be deducted when you confirm.", "confirmTitle": "Confirm due sale", "confirm": "Confirm due sale", "status": "Payment status", "remaining": "Amount due", "collect": "Collect payment", "amount": "Amount received", "reference": "Transaction ID / reference", "savePayment": "Save payment", "collected": "Payment recorded successfully.", "invalidAmount": "Enter an amount greater than zero, with up to two decimal places, no more than the remaining due.", "referenceRequired": "Enter the transaction ID using letters and digits.", "collectionHint": "Confirm only after receiving this money from the customer."},
+    "viewSale": "View due sale",
+    "label": "Due / Baki",
+    "customerRequired": "Select a customer with a valid name and phone number for a due sale.",
+    "selectCustomer": "Select customer",
+    "positiveAmount": "A due sale must have an amount greater than zero.",
+    "notice": "No payment is being received now. The full sale amount will remain due against this customer. Stock will be deducted when you confirm.",
+    "confirmTitle": "Confirm due sale",
+    "confirm": "Confirm due sale",
+    "status": "Payment status",
+    "remaining": "Amount due",
+    "collect": "Collect from Customer",
+    "amount": "Amount received",
+    "reference": "Transaction ID / reference",
+    "savePayment": "Save payment",
+    "collected": "Payment recorded successfully.",
+    "invalidAmount": "Enter an amount greater than zero, with up to two decimal places, no more than the remaining due.",
+    "referenceRequired": "Enter the transaction ID using letters and digits.",
+    "collectionHint": "Confirm only after receiving this money from the customer.",
+    "isDue": "Is Due",
+    "paidNowTotal": "Paid now",
+    "paidTooMuch": "Paid amount must be less than the total. For full payment, untick Is Due.",
+    "paymentsFailed": "Sale saved, but some payments were not recorded. Collect them from the Due page.",
+    "fullDue": "Full Due",
+    "partPaid": "Part Paid",
+    "paidWith": "Paid with"
+  },
   "purchaseList": {"loadMore": "Load {count} more POs"},
   "sharedDate": {"open": "Choose date", "title": "Choose date", "day": "Day", "month": "Month", "year": "Year", "cancel": "Cancel", "confirm": "Use this date", "clear": "Clear date"},
   "saleDateWheel": {"open": "Choose sale date", "title": "Choose sale date", "day": "Day", "month": "Month", "year": "Year", "cancel": "Cancel", "confirm": "Use this date"},
@@ -79,6 +103,7 @@
 },
   "reportCalendar": {"open": "Open report calendar", "title": "Select report date", "previousDate": "Previous date", "nextDate": "Next date", "previousMonth": "Previous month", "nextMonth": "Next month", "month": "Month", "year": "Year", "today": "Today"},
   "profitReportMenu": "Profit Report",
+  "cashBook": {"title": "Cash Book", "menu": "Cash in & out, owner withdrawals, cash in hand", "subtitle": "Every taka in and out of the drawer, day by day", "thisMonth": "This Month", "bkash": "bKash", "nagad": "Nagad", "chooseDates": "Choose both dates.", "startAfterEnd": "Start date must be on or before the end date.", "futureEnd": "End date cannot be in the future.", "tooLong": "Choose a range of up to one year.", "closing": "Closing balance", "totalInHand": "Total money in hand", "cashInHand": "Cash in hand now", "bkashNow": "bKash balance now", "nagadNow": "Nagad balance now", "opening": "Opening", "moneyIn": "Money In", "moneyOut": "Money Out", "ownerTookCard": "Owner Took", "salesCollected": "Sales collected", "ownerPutIn": "Owner put in", "otherIn": "Other cash in", "refunds": "Refunds", "ownerTook": "Owner took", "bankDeposit": "Bank deposit", "otherOut": "Other cash out", "in": "In", "out": "Out", "empty": "No money moved in this period.", "balance": "Balance", "loadMore": "Load more", "cashInOut": "Cash In / Out", "removeTitle": "Remove this entry?", "removeHint": "Use this only if the entry was a mistake. The balance will be recalculated.", "remove": "Remove entry", "keep": "Keep", "expense": "Expense", "ownerTookCash": "Owner took cash", "ownerPutCash": "Owner put cash in", "confirmOut": "Confirm cash out", "confirmIn": "Confirm cash in", "takeOut": "Take Cash Out", "putIn": "Put Cash In", "overDrawer": "More than recorded in drawer", "availableDrawer": "Available in drawer", "transactions": "Transactions", "ofTotal": "of total", "entries": "entries", "inclOwner": "Incl. owner & expenses", "inHand": "in hand", "inPeriod": "in period", "todayLower": "today", "showing": "Showing", "only": "only", "noMoney": "No money moved", "investmentCard": "Partner Investment", "investment": "Partner investment", "purchasePayment": "Purchase payment", "inclPurchases": "Incl. purchases & refunds", "partner": "Partner", "capital": "Capital", "canWithdraw": "Can withdraw", "recentWithdrawals": "Recent withdrawals", "withdrawalSaved": "Withdrawal saved.", "moneyAdded": "Money added to cash.", "waitingApproval": "Saved. Waiting for partner approval.", "withdrawalKind": "Partner withdrawal", "cashInHandWallet": "Cash in Hand", "card": "Card", "wallet": "Wallet", "cashInBy": "Cash In By", "cashOutBy": "Cash Out By", "addPartnerFirst": "Your login is not linked to a business partner (More → Settings → Business Partner).", "ownerPersonal": "Owner personal", "who": "Who?", "notePlaceholder": "e.g. Family expense, change money", "notExpense": "Not a business expense. It does not change profit, only the money in hand.", "moreOptions": "+ More options", "fewerOptions": "− Fewer options", "installmentFor": "Installment for", "entryBy": "Entry by", "uploadPhoto": "Upload photo", "removePhoto": "Remove photo", "noPartners": "Add a business partner first (More → Settings → Business Partner).", "recentCashIn": "Recent cash in"},
   "posCompleted": {"noCustomerMessage": "The sale was saved successfully. You can print the sale slip.","title": "Sale completed", "message": "The sale was saved successfully. Choose how to share the sale slip.", "paymentMethod": "Payment method", "quantity": "{count} total quantity"},
   "posConfirm": {"cashTitle": "Confirm cash sale", "title": "Confirm sale", "message": "Please review these details. The sale will update stock after confirmation.", "confirm": "Confirm Sale"},
   "posCart": {"addedOne": "{count} product added", "addedMany": "{count} products added", "collapse": "Tap to collapse", "review": "Tap to review cart", "inCart": "{count} in cart"},
@@ -209,7 +234,6 @@
     "marketplace": "Show this product on the website",
     "marketplaceHelp": "Turning this option off will hide this product from the website."
   },
-
   "nav": {
     "preOrders": "Pre-orders",
     "posLabel": "POS",
@@ -2424,5 +2448,7 @@
   "hide": "Hide sale details",
   "entered": "Entered at",
   "add": "Add a missing sale"
-}
+},
+  "stockTitles": {"currentStock": "CURRENT STOCK", "adjustmentHistory": "ADJUSTMENT HISTORY"},
+  "discountHistory": {"title": "Discount History", "removed": "Removed", "ended": "Ended", "scheduled": "Scheduled", "active": "Active", "inactive": "Inactive", "setOffer": "Set Discount Offer...", "removeCurrent": "Remove current discount"}
 }

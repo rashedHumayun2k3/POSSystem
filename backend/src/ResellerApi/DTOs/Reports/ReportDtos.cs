@@ -239,3 +239,20 @@ public record DailyClosingReportDto(
 );
 
 public record SendDailyClosingReportRequest(DateTime? Date, string? Lang);
+
+public record DashboardSalesChannel(string Channel, int Orders, decimal Sales, decimal Share);
+public record DashboardSalesSection(decimal Sales, decimal? Profit, int Orders, decimal ItemsSold,
+    decimal AverageBill, decimal? Margin, decimal? ChangePercent, List<DatePoint> Chart, List<DashboardSalesChannel> Channels)
+{ public decimal PreviousSales { get; init; } }
+
+public record DashboardCardRow(string Name, decimal Value, string? Unit = null, string? Detail = null, decimal? Quantity = null, int? Days = null, int? Count = null);
+public sealed class DashboardCardSection
+{
+ public decimal? ReturnRate { get; set; }
+ public int ResolvedOrders { get; set; }
+ public DateTime? AsOf { get; set; }
+ public decimal Total { get; set; }
+ public List<DashboardCardRow> Rows { get; set; } = [];
+ public List<DashboardCardRow> Metrics { get; set; } = [];
+ public List<DashboardCardRow> Recent { get; set; } = [];
+}

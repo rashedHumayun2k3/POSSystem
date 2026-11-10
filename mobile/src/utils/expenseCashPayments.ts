@@ -21,3 +21,10 @@ export function parseCashPayments(inputs: CashPaymentInputs, amount: number, bn:
   if (!error && totalPaisa !== Math.round(amount * 100)) error = bn ? "পেমেন্টের মোট পরিমাণ খরচের সমান হতে হবে।" : "The payment amounts must add up to the expense total.";
   return { payments, total: totalPaisa / 100, error };
 }
+
+// Accept editable decimal amounts only; never turn invalid pasted text into a different amount.
+export function expenseAmountInput(text: string, previous: string): string {
+  const normalized = text.replace(/[০-৯]/g, digit => String(digit.charCodeAt(0) - 0x09e6));
+  if (!/^\d{0,12}(\.\d{0,2})?$/.test(normalized)) return previous;
+  return normalized.startsWith(".") ? `0${normalized}` : normalized;
+}

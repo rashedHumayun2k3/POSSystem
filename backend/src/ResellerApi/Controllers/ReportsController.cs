@@ -31,6 +31,97 @@ public class ReportsController : ControllerBase
     public async Task<IActionResult> Dashboard()
         => Ok(await _svc.GetDashboardAsync(_user.CanSeeCosts));
 
+    // Contains expense amounts, so staff never receive it.
+    [HttpGet("cash-activity")]
+    [Authorize(Roles = Roles.OwnerOrManager)]
+    public async Task<IActionResult> CashActivity([FromQuery] DateOnly from,[FromQuery] DateOnly to,[FromQuery] string source="CASH",[FromQuery] string direction="ALL",[FromQuery] int page=1)
+    {
+        try { return Ok(await _svc.GetCashActivityAsync(from,to,source,direction,page)); }
+        catch(ArgumentException ex) { return BadRequest(new {message=ex.Message}); }
+    }
+
+    [HttpGet("dashboard/expense-section")]
+    public async Task<IActionResult> DashboardExpenseSection([FromQuery] string period = "MONTH")
+    {
+        if (period is not ("TODAY" or "YESTERDAY" or "7D" or "MONTH" or "ALL")) return BadRequest("Invalid dashboard period.");
+        return Ok(await _svc.GetDashboardExpenseSectionAsync(_user.CanSeeCosts, period));
+    }
+
+    [HttpGet("dashboard/money-section")]
+    public async Task<IActionResult> DashboardMoneySection() => Ok(await _svc.GetDashboardMoneySectionAsync());
+
+    [HttpGet("dashboard/collection-section")]
+    public async Task<IActionResult> DashboardCollectionSection([FromQuery] string period = "MONTH")
+    {
+        if (period is not ("TODAY" or "YESTERDAY" or "7D" or "MONTH" or "ALL")) return BadRequest("Invalid dashboard period.");
+        return Ok(await _svc.GetDashboardCollectionSectionAsync(_user.CanSeeCosts, period));
+    }
+
+    [HttpGet("dashboard/profit-section")]
+    public async Task<IActionResult> DashboardProfitSection([FromQuery] string period = "MONTH")
+    {
+        if (period is not ("TODAY" or "YESTERDAY" or "7D" or "MONTH")) return BadRequest("Invalid dashboard period.");
+        if (!_user.CanSeeCosts) return Forbid();
+        return Ok(await _svc.GetDashboardProfitSectionAsync(_user.CanSeeCosts, period));
+    }
+
+    [HttpGet("dashboard/orders-section")]
+    public async Task<IActionResult> DashboardOrdersSection([FromQuery] string period = "MONTH")
+    {
+        if (period is not ("TODAY" or "YESTERDAY" or "7D" or "MONTH" or "ALL")) return BadRequest("Invalid dashboard period.");
+        return Ok(await _svc.GetDashboardOrdersSectionAsync(_user.CanSeeCosts, period));
+    }
+
+    [HttpGet("dashboard/products-section")]
+    public async Task<IActionResult> DashboardProductsSection([FromQuery] string period = "MONTH")
+    {
+        if (period is not ("TODAY" or "YESTERDAY" or "7D" or "MONTH" or "ALL")) return BadRequest("Invalid dashboard period.");
+        return Ok(await _svc.GetDashboardProductsSectionAsync(_user.CanSeeCosts, period));
+    }
+
+    [HttpGet("dashboard/capital-section")]
+    [Authorize(Roles = Roles.OwnerOrPartner)]
+    public async Task<IActionResult> DashboardCapitalSection([FromQuery] string period = "MONTH")
+    {
+        if (period is not ("TODAY" or "YESTERDAY" or "7D" or "MONTH" or "ALL")) return BadRequest("Invalid dashboard period.");
+        return Ok(await _svc.GetDashboardCapitalSectionAsync(_user.CanSeeCosts, period));
+    }
+
+    [HttpGet("dashboard/dues-section")]
+    public async Task<IActionResult> DashboardDuesSection([FromQuery] string period = "MONTH")
+    {
+        if (period is not ("TODAY" or "YESTERDAY" or "7D" or "MONTH" or "ALL")) return BadRequest("Invalid dashboard period.");
+        return Ok(await _svc.GetDashboardDuesSectionAsync(_user.CanSeeCosts, period));
+    }
+
+    [HttpGet("dashboard/top-section")]
+    public async Task<IActionResult> DashboardTopSection([FromQuery] string period = "MONTH")
+    {
+        if (period is not ("TODAY" or "YESTERDAY" or "7D" or "MONTH" or "ALL")) return BadRequest("Invalid dashboard period.");
+        return Ok(await _svc.GetDashboardTopSectionAsync(_user.CanSeeCosts, period));
+    }
+
+    [HttpGet("dashboard/counter-section")]
+    public async Task<IActionResult> DashboardCounterSection([FromQuery] string period = "MONTH")
+    {
+        if (period is not ("TODAY" or "YESTERDAY" or "7D" or "MONTH" or "ALL")) return BadRequest("Invalid dashboard period.");
+        return Ok(await _svc.GetDashboardCounterSectionAsync(_user.CanSeeCosts, period));
+    }
+
+    [HttpGet("dashboard/transit-section")]
+    public async Task<IActionResult> DashboardTransitSection([FromQuery] string period = "MONTH")
+    {
+        if (period is not ("TODAY" or "YESTERDAY" or "7D" or "MONTH" or "ALL")) return BadRequest("Invalid dashboard period.");
+        return Ok(await _svc.GetDashboardTransitSectionAsync(_user.CanSeeCosts, period));
+    }
+
+    [HttpGet("dashboard/sales-section")]
+    public async Task<IActionResult> DashboardSalesSection([FromQuery] string period = "TODAY")
+    {
+        if (period is not ("TODAY" or "YESTERDAY" or "7D" or "MONTH")) return BadRequest("Invalid sales period.");
+        return Ok(await _svc.GetDashboardSalesSectionAsync(_user.CanSeeCosts, period));
+    }
+
     [HttpGet("dashboard/sales-overview")]
     public async Task<IActionResult> DashboardSalesOverview() => Ok(await _svc.GetDashboardSalesOverviewAsync(_user.CanSeeCosts));
 

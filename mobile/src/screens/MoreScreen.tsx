@@ -52,6 +52,7 @@ const reports: ChildItem[] = [
   { key: "invoices", title: "Invoices", description: "Find order invoices and receipts by order number", icon: "document-text-outline", webPath: "/more/reports/invoices" },
   { key: "dashboard", title: "Dashboard", description: "KPI cards, trends, top products", icon: "home-outline", webPath: "/more/reports/dashboard" },
   { key: "daily-closing", title: "Daily Summary Report", description: "Closing email with full PDF attachment", icon: "mail-outline", webPath: "/more/reports/daily-closing" },
+  { key: "cash-book", title: "Cash Book", description: "Cash in & out, owner withdrawals, cash in hand", icon: "wallet-outline", webPath: "/more/reports/cash-book" },
   { key: "sales", title: "Sales Reports", description: "Revenue, orders, by product & category", icon: "trending-up-outline", webPath: "/more/reports/sales" },
   { key: "inventory", title: "Inventory Reports", description: "Stock levels, low stock, movements", icon: "cube-outline", webPath: "/more/reports/inventory" },
   { key: "financial", title: "Financial Reports", description: "P&L, gross profit, expenses", icon: "cash-outline", webPath: "/more/reports/financial" },
@@ -121,6 +122,7 @@ export default function MoreScreen() {
     if (item.key === "dashboard") return router.push("/more/reports/dashboard");
     if (item.key === "invoices") return router.push("/more/reports/invoices");
     if (item.key === "daily-closing") return router.push("/more/reports/daily-closing");
+    if (item.key === "cash-book") return router.push("/more/reports/cash-book" as never);
     if (item.key === "sales") return router.push("/more/reports/sales");
     if (item.key === "inventory") return router.push("/more/reports/inventory");
     if (item.key === "financial") return router.push("/more/reports/financial");

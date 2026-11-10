@@ -1,157 +1,162 @@
+using System.Data;
+using System.Data.Common;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using ResellerApi.DTOs.Reports;
-using ResellerApi.Entities;
-using ResellerApi.Infrastructure;
 
 namespace ResellerApi.Services;
 
+// All dashboard calculations live in Data/Sql/DashboardReports.sql.
+// These methods only bind the authenticated scope and map procedure result sets.
 public partial class ReportService
 {
-    public async Task<DashboardSalesOverview> GetDashboardSalesOverviewAsync(bool canSeeCosts)
+    private async Task<T> ReadDashboardAsync<T>(string procedure, Func<DbDataReader, Task<T>> read, bool canSeeCosts = false, string? period = null)
     {
-        var today = DashboardToday; var first = today.AddDays(-6);
-        var orders = await _db.Orders.AsNoTracking()
-            .Where(OrderFinancials.SoldOrderFilter(DhakaTime.LocalToUtc(first), DhakaTime.LocalToUtc(today.AddDays(1))))
-            .Include(o => o.Items.Where(i => i.DeletedAt == null)).ToListAsync();
-        var daily = orders.GroupBy(o => DhakaTime.UtcToLocal(o.CreatedAt).Date)
-            .ToDictionary(g => g.Key, g => g.Sum(OrderFinancials.ComputeOrderRevenue));
-        var days = Enumerable.Range(0, 7).Select(i => new DatePoint(first.AddDays(i).ToString("yyyy-MM-dd"), daily.GetValueOrDefault(first.AddDays(i)))).ToList();
-        var current = orders.Where(o => DhakaTime.UtcToLocal(o.CreatedAt).Date == today).ToList();
-        var sales = days[^1].Value; var yesterday = days[^2].Value;
-        decimal? change = yesterday > 0 ? Math.Round((sales - yesterday) / yesterday * 100, 1) : sales == 0 ? 0 : null;
-        return new(sales, canSeeCosts ? current.Sum(o => OrderFinancials.ComputeOrderRevenue(o) - OrderFinancials.ComputeOrderCogs(o)) : null,
-            current.Count, yesterday, change, days.Sum(d => d.Value), days);
+        if (_db.CurrentBusinessId == Guid.Empty) throw new InvalidOperationException("A business must be selected.");
+        var connection = _db.Database.GetDbConnection();
+        var openedHere = connection.State != ConnectionState.Open;
+        try
+        {
+            if (openedHere) await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText = "dbo." + procedure; // Only internal constant names are accepted by callers.
+            command.CommandType = CommandType.StoredProcedure;
+            command.CommandTimeout = _db.Database.GetCommandTimeout() ?? 30;
+            command.Transaction = _db.Database.CurrentTransaction?.GetDbTransaction();
+            void Add(string name, DbType type, object? value)
+            {
+                var parameter = command.CreateParameter(); parameter.ParameterName = name;
+                parameter.DbType = type; parameter.Value = value ?? DBNull.Value; command.Parameters.Add(parameter);
+            }
+            Add("@BusinessId", DbType.Guid, _db.CurrentBusinessId);
+            Add("@BranchId", DbType.Guid, _db.CurrentBranchId);
+            Add("@CanSeeCosts", DbType.Boolean, canSeeCosts);
+            if (period != null) Add("@Period", DbType.String, period);
+            await using var reader = await command.ExecuteReaderAsync();
+            return await read(reader);
+        }
+        finally { if (openedHere) await connection.CloseAsync(); }
     }
 
+    private static decimal Amount(DbDataReader r, string name) => Convert.ToDecimal(r[name]);
+    private static int Count(DbDataReader r, string name) => Convert.ToInt32(r[name]);
+    private static decimal? OptionalAmount(DbDataReader r, string name) => r[name] is DBNull ? null : Amount(r, name);
+    private static async Task Row(DbDataReader r)
+    {
+        if (!await r.ReadAsync()) throw new InvalidOperationException("Dashboard procedure returned no summary row.");
+    }
+    private static async Task<List<DatePoint>> Points(DbDataReader r)
+    {
+        var rows = new List<DatePoint>();
+        while (await r.ReadAsync()) rows.Add(new((string)r["Label"], Amount(r, "Value")));
+        return rows;
+    }
+    private Task<List<NameValue>> Names(string procedure) => ReadDashboardAsync(procedure, async r =>
+    {
+        var rows = new List<NameValue>();
+        while (await r.ReadAsync()) rows.Add(new((string)r["Name"], Amount(r, "Value")));
+        return rows;
+    });
+
+    private Task<(DashboardSalesOverview Overview, int Customers, decimal Units)> ReadSalesOverviewAsync(bool canSeeCosts) =>
+        ReadDashboardAsync("DashboardSalesOverview", async r =>
+        {
+            await Row(r);
+            var overview = new DashboardSalesOverview(Amount(r,"TodaySales"), canSeeCosts ? OptionalAmount(r,"TodayProfit") : null,
+                Count(r,"TodayOrders"), Amount(r,"YesterdaySales"), OptionalAmount(r,"ChangePercent"), Amount(r,"SevenDaySales"), []);
+            var customers = Count(r,"TodayCustomers"); var units = Amount(r,"TodayProductsSold");
+            if (!await r.NextResultAsync()) throw new InvalidOperationException("Dashboard procedure returned no daily trend.");
+            return (overview with { Days = await Points(r) }, customers, units);
+        }, canSeeCosts);
+
+    private Task<DashboardCardSection> ReadCardSectionAsync(string procedure, bool canSeeCosts, string period)
+    {
+        if (period is not ("TODAY" or "YESTERDAY" or "7D" or "MONTH" or "ALL")) throw new ArgumentException("Invalid dashboard period.");
+        return ReadDashboardAsync(procedure, async r =>
+        {
+            var json = new System.Text.StringBuilder();
+            while (await r.ReadAsync()) json.Append(r.GetString(0));
+            return System.Text.Json.JsonSerializer.Deserialize<DashboardCardSection>(json.ToString())
+                ?? throw new InvalidOperationException("Missing dashboard card result.");
+        }, canSeeCosts, period);
+    }
+
+    public Task<DashboardCardSection> GetDashboardMoneySectionAsync() => ReadDashboardAsync("DashboardMoneySection", async r =>
+    {
+        var json = new System.Text.StringBuilder();
+        while (await r.ReadAsync()) json.Append(r.GetString(0));
+        return System.Text.Json.JsonSerializer.Deserialize<DashboardCardSection>(json.ToString())
+            ?? throw new InvalidOperationException("Missing current money result.");
+    });
+    public Task<DashboardCardSection> GetDashboardExpenseSectionAsync(bool canSeeCosts, string period) => ReadCardSectionAsync("DashboardExpenseSection", canSeeCosts, period);
+    public Task<DashboardCardSection> GetDashboardCollectionSectionAsync(bool canSeeCosts, string period) => ReadCardSectionAsync("DashboardCollectionSection", canSeeCosts, period);
+    public Task<DashboardCardSection> GetDashboardProfitSectionAsync(bool canSeeCosts, string period)
+    {
+        if (period is not ("TODAY" or "YESTERDAY" or "7D" or "MONTH")) throw new ArgumentException("Invalid profit period.");
+        return ReadCardSectionAsync("DashboardProfitSection", canSeeCosts, period);
+    }
+    public Task<DashboardCardSection> GetDashboardOrdersSectionAsync(bool canSeeCosts, string period) => ReadCardSectionAsync("DashboardOrdersSection", canSeeCosts, period);
+    public Task<DashboardCardSection> GetDashboardProductsSectionAsync(bool canSeeCosts, string period) => ReadCardSectionAsync("DashboardProductsSection", canSeeCosts, period);
+    public Task<DashboardCardSection> GetDashboardCapitalSectionAsync(bool canSeeCosts, string period) => ReadCardSectionAsync("DashboardCapitalSection", canSeeCosts, period);
+    public Task<DashboardCardSection> GetDashboardDuesSectionAsync(bool canSeeCosts, string period) => ReadCardSectionAsync("DashboardDuesSection", canSeeCosts, period);
+    public Task<DashboardCardSection> GetDashboardTopSectionAsync(bool canSeeCosts, string period) => ReadCardSectionAsync("DashboardTopSection", canSeeCosts, period);
+    public Task<DashboardCardSection> GetDashboardCounterSectionAsync(bool canSeeCosts, string period) => ReadCardSectionAsync("DashboardCounterSection", canSeeCosts, period);
+    public Task<DashboardCardSection> GetDashboardTransitSectionAsync(bool canSeeCosts, string period) => ReadCardSectionAsync("DashboardTransitSection", canSeeCosts, period);
+
+    public Task<DashboardSalesSection> GetDashboardSalesSectionAsync(bool canSeeCosts, string period)
+    {
+        if (period is not ("TODAY" or "YESTERDAY" or "7D" or "MONTH")) throw new ArgumentException("Invalid sales period.");
+        return ReadDashboardAsync("DashboardSalesSection", async r =>
+        {
+            await Row(r);
+            var result = new DashboardSalesSection(Amount(r,"Sales"), canSeeCosts ? OptionalAmount(r,"Profit") : null,
+                Count(r,"Orders"), Amount(r,"ItemsSold"), Amount(r,"AverageBill"), canSeeCosts ? OptionalAmount(r,"Margin") : null,
+                OptionalAmount(r,"ChangePercent"), [], []) { PreviousSales = Amount(r,"PreviousSales") };
+            if (!await r.NextResultAsync()) throw new InvalidOperationException("Missing sales chart.");
+            var chart = await Points(r);
+            if (!await r.NextResultAsync()) throw new InvalidOperationException("Missing sales channels.");
+            var channels = new List<DashboardSalesChannel>();
+            while (await r.ReadAsync()) channels.Add(new((string)r["Channel"], Count(r,"Orders"), Amount(r,"Sales"), Amount(r,"Share")));
+            return result with { Chart = chart, Channels = channels };
+        }, canSeeCosts, period);
+    }
+
+    public async Task<DashboardSalesOverview> GetDashboardSalesOverviewAsync(bool canSeeCosts) => (await ReadSalesOverviewAsync(canSeeCosts)).Overview;
     public async Task<DashboardFinancialSummary> GetDashboardFinancialSummaryAsync(bool canSeeCosts)
     {
-        var orders = await DashboardTodayOrders().Include(o => o.Items.Where(i => i.DeletedAt == null)).ToListAsync();
-        var sales = orders.Sum(OrderFinancials.ComputeOrderRevenue);
-        return new(sales, canSeeCosts ? sales - orders.Sum(OrderFinancials.ComputeOrderCogs) : null);
+        var result = await GetDashboardSalesOverviewAsync(canSeeCosts);
+        return new(result.TodaySales, result.TodayProfit);
     }
+    public Task<DashboardOrderSummary> GetDashboardOrderSummaryAsync() => ReadDashboardAsync("DashboardOrders", async r =>
+    { await Row(r); return new DashboardOrderSummary(Count(r,"Orders"), Count(r,"Returns")); });
+    public Task<DashboardExpenseSummary> GetDashboardExpenseSummaryAsync() => ReadDashboardAsync("DashboardExpenses", async r =>
+    { await Row(r); return new DashboardExpenseSummary(Amount(r,"TodayCost"), Amount(r,"MonthCost")); });
+    public Task<SalesCollectionSummary> GetDashboardCollectionsSummaryAsync() => ReadDashboardAsync("DashboardCollections", async r =>
+    { await Row(r); return new SalesCollectionSummary(Amount(r,"Cash"), Amount(r,"Bkash"), Amount(r,"Nagad"), Amount(r,"Card"), Amount(r,"Due")); });
+    public Task<NameValue[]> GetDashboardStockAsync() => ReadDashboardAsync("DashboardStock", async r =>
+    { await Row(r); return new NameValue[] { new("LOW", Amount(r,"LowStock")), new("OUT", Amount(r,"OutOfStock")) }; });
+    public Task<List<DatePoint>> GetDashboardTrendAsync() => ReadDashboardAsync("DashboardTrend", Points);
+    public Task<List<NameValue>> GetDashboardTopProductsAsync() => Names("DashboardTopProducts");
+    public Task<List<NameValue>> GetDashboardPaymentMethodsAsync() => Names("DashboardPaymentMethods");
+    public Task<List<NameValue>> GetDashboardCategoriesAsync() => Names("DashboardCategories");
+    public async Task<decimal> GetDashboardTodayExpenseAsync() => (await GetDashboardExpenseSummaryAsync()).TodayCost;
+    public async Task<int> GetDashboardTodayOrdersAsync() => (await GetDashboardOrderSummaryAsync()).Orders;
+    public async Task<int> GetDashboardTodayReturnsAsync() => (await GetDashboardOrderSummaryAsync()).Returns;
+    public async Task<decimal> GetDashboardTodaySalesAsync() => (await GetDashboardSalesOverviewAsync(false)).TodaySales;
+    public async Task<decimal> GetDashboardTodayProfitAsync() => (await GetDashboardSalesOverviewAsync(true)).TodayProfit ?? 0;
+    public Task<SalesCollectionSummary> GetSalesCollectionsAsync() => GetDashboardCollectionsSummaryAsync();
+    public async Task<decimal> GetDashboardDueAsync() => (await GetDashboardCollectionsSummaryAsync()).Due;
 
-    public async Task<DashboardOrderSummary> GetDashboardOrderSummaryAsync()
+    // Compatibility endpoint for older clients; the current UI requests each group independently.
+    // Calls remain sequential here because all commands share a scoped EF connection.
+    public async Task<DashboardKpiDto> GetDashboardAsync(bool canSeeCosts)
     {
-        var start = DhakaTime.LocalToUtc(DashboardToday); var end = start.AddDays(1);
-        var counts = await _db.Orders.AsNoTracking().Where(o => !o.IsDraft &&
-                ((o.CreatedAt >= start && o.CreatedAt < end && o.OrderStatus != "CANCELLED") ||
-                 (o.ReturnedAt >= start && o.ReturnedAt < end)))
-            .GroupBy(o => 1).Select(g => new DashboardOrderSummary(
-                g.Count(o => o.CreatedAt >= start && o.CreatedAt < end && o.OrderStatus != "CANCELLED"),
-                g.Count(o => o.ReturnedAt >= start && o.ReturnedAt < end))).FirstOrDefaultAsync();
-        return counts ?? new(0, 0);
-    }
-
-    public async Task<SalesCollectionSummary> GetDashboardCollectionsSummaryAsync()
-    {
-        // Sequential within this request: EF DbContext must not run concurrent queries.
-        var collections = await GetSalesCollectionsAsync();
-        return collections with { Due = await GetDashboardDueAsync() };
-    }
-
-    public async Task<DashboardExpenseSummary> GetDashboardExpenseSummaryAsync()
-    {
-        var today = DashboardToday; var tomorrow = today.AddDays(1);
-        var monthStart = new DateTime(today.Year, today.Month, 1);
-        // Both totals share one scoped query; future-dated entries are excluded.
-        return await _db.Expenses.AsNoTracking()
-            .Where(e => e.Status == "APPROVED" && e.ExpenseDate >= monthStart && e.ExpenseDate < tomorrow)
-            .GroupBy(e => 1)
-            .Select(g => new DashboardExpenseSummary(
-                g.Sum(e => e.ExpenseDate >= today ? e.Amount : 0), g.Sum(e => e.Amount)))
-            .FirstOrDefaultAsync() ?? new(0, 0);
-    }
-
-    public async Task<decimal> GetDashboardTodayExpenseAsync()
-    {
-        // ExpenseDate stores the business calendar date, not a UTC payment timestamp.
-        var today = DashboardToday; var tomorrow = today.AddDays(1);
-        return await _db.Expenses.AsNoTracking()
-            .Where(e => e.Status == "APPROVED" && e.ExpenseDate >= today && e.ExpenseDate < tomorrow)
-            .SumAsync(e => (decimal?)e.Amount) ?? 0;
-    }
-
-    private static DateTime DashboardToday => DhakaTime.UtcToLocal(DateTime.UtcNow).Date;
-    private IQueryable<Order> DashboardTodayOrders()
-    {
-        var start = DhakaTime.LocalToUtc(DashboardToday);
-        return _db.Orders.AsNoTracking().Where(OrderFinancials.SoldOrderFilter(start, start.AddDays(1)));
-    }
-
-    public Task<int> GetDashboardTodayOrdersAsync() => DashboardTodayOrders().CountAsync();
-
-    public async Task<decimal> GetDashboardTodaySalesAsync()
-    {
-        var orders = await DashboardTodayOrders().Include(o => o.Items.Where(i => i.DeletedAt == null)).ToListAsync();
-        return orders.Sum(OrderFinancials.ComputeOrderRevenue);
-    }
-
-    public async Task<decimal> GetDashboardTodayProfitAsync()
-    {
-        var orders = await DashboardTodayOrders().Include(o => o.Items.Where(i => i.DeletedAt == null)).ToListAsync();
-        return orders.Sum(o => OrderFinancials.ComputeOrderRevenue(o) - OrderFinancials.ComputeOrderCogs(o));
-    }
-
-    public Task<int> GetDashboardTodayReturnsAsync()
-    {
-        var start = DhakaTime.LocalToUtc(DashboardToday); var end = start.AddDays(1);
-        return _db.Orders.AsNoTracking().CountAsync(o => !o.IsDraft && o.ReturnedAt >= start && o.ReturnedAt < end);
-    }
-
-    public async Task<NameValue[]> GetDashboardStockAsync()
-    {
-        var (low, empty) = await GetStockAlertCountsAsync();
-        return [new("LOW", low), new("OUT", empty)];
-    }
-
-    private IQueryable<OrderPayment> DashboardRecentPayments()
-    {
-        var start = DhakaTime.LocalToUtc(DashboardToday.AddDays(-29));
-        var end = DhakaTime.LocalToUtc(DashboardToday.AddDays(1));
-        return _db.OrderPayments.AsNoTracking().Where(p => p.ReceivedAt >= start && p.ReceivedAt < end)
-            .Join(_db.Orders.AsNoTracking().Where(o => !o.IsDraft), p => p.OrderId, o => o.Id, (p, o) => p);
-    }
-
-    public async Task<List<DatePoint>> GetDashboardTrendAsync()
-    {
-        var start = DashboardToday.AddDays(-29);
-        var rows = await DashboardRecentPayments().GroupBy(p => p.ReceivedAt.AddHours(6).Date)
-            .Select(g => new { Day = g.Key, Total = g.Sum(p => p.Amount) }).ToListAsync();
-        return Enumerable.Range(0, 30).Select(i => new DatePoint(start.AddDays(i).ToString("MMM dd"),
-            rows.FirstOrDefault(r => r.Day == start.AddDays(i))?.Total ?? 0)).ToList();
-    }
-
-    public Task<List<NameValue>> GetDashboardPaymentMethodsAsync() => DashboardRecentPayments()
-        .GroupBy(p => p.Method).Select(g => new NameValue(g.Key, g.Sum(p => p.Amount))).ToListAsync();
-
-    private IQueryable<OrderItem> DashboardRecentItems()
-    {
-        var start = DhakaTime.LocalToUtc(DashboardToday.AddDays(-29));
-        var end = DhakaTime.LocalToUtc(DashboardToday.AddDays(1));
-        return _db.OrderItems.AsNoTracking()
-            .Join(_db.Orders.AsNoTracking().Where(OrderFinancials.SoldOrderFilter(start, end)),
-                i => i.OrderId, o => o.Id, (i, o) => i);
-    }
-
-    public async Task<List<NameValue>> GetDashboardTopProductsAsync()
-    {
-        var rows = await DashboardRecentItems().Join(_db.ProductVariants.AsNoTracking(), i => i.VariantId, v => v.Id,
-                (i, v) => new { i.Qty, i.UnitPrice, v.ProductId })
-            .Join(_db.Products.AsNoTracking(), i => i.ProductId, p => p.Id,
-                (i, p) => new { p.Name, Amount = i.Qty * i.UnitPrice }).ToListAsync();
-        return rows.GroupBy(r => r.Name).Select(g => new NameValue(g.Key, g.Sum(r => r.Amount)))
-            .OrderByDescending(r => r.Value).Take(10).ToList();
-    }
-
-    public async Task<List<NameValue>> GetDashboardCategoriesAsync()
-    {
-        var rows = await DashboardRecentItems().Join(_db.ProductVariants.AsNoTracking(), i => i.VariantId, v => v.Id,
-                (i, v) => new { i.Qty, i.UnitPrice, v.ProductId })
-            .Join(_db.Products.AsNoTracking(), i => i.ProductId, p => p.Id,
-                (i, p) => new { p.CategoryId, Amount = i.Qty * i.UnitPrice })
-            .Join(_db.Categories.AsNoTracking(), i => i.CategoryId, c => c.Id,
-                (i, c) => new { c.Name, i.Amount }).ToListAsync();
-        return rows.GroupBy(r => r.Name).Select(g => new NameValue(g.Key, g.Sum(r => r.Amount)))
-            .OrderByDescending(r => r.Value).ToList();
+        var (sales, customers, units) = await ReadSalesOverviewAsync(canSeeCosts);
+        var orders = await GetDashboardOrderSummaryAsync(); var stock = await GetDashboardStockAsync();
+        var trend = await GetDashboardTrendAsync(); var products = await GetDashboardTopProductsAsync();
+        var methods = await GetDashboardPaymentMethodsAsync(); var hourly = await ReadDashboardAsync("DashboardHourly", Points);
+        var categories = await GetDashboardCategoriesAsync(); var collections = await GetDashboardCollectionsSummaryAsync();
+        return new(sales.TodaySales, sales.TodayOrders, sales.TodayProfit ?? 0, customers, units, orders.Returns,
+            (int)stock[0].Value, (int)stock[1].Value, trend, products, methods, hourly, categories, collections);
     }
 }

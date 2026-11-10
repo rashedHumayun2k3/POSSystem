@@ -36,6 +36,16 @@
   </ItemGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="Data/Sql/DashboardReports.sql" />
+    <EmbeddedResource Include="Data/Sql/DashboardSalesSection.sql" />
+    <EmbeddedResource Include="Data/Sql/DashboardCardsV2.sql" />
+    <EmbeddedResource Include="Data/Sql/DashboardCurrentMoney.sql" />
+    <EmbeddedResource Include="Data/Sql/DashboardProfitPeriods.sql" />
+    <EmbeddedResource Include="Data/Sql/DashboardCompactDetails.sql" />
+    <EmbeddedResource Include="Data/Sql/CashActivity.sql" />
+    <EmbeddedResource Include="Data/Sql/CashActivityV2.sql" />
+    <EmbeddedResource Include="Data/Sql/CashFlowWithdrawals.sql" />
+    <EmbeddedResource Include="Data/Sql/CashFlowCard.sql" />
     <Content Include="Templates\Emails\*.html" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 

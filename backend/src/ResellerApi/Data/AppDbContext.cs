@@ -108,6 +108,7 @@ public class AppDbContext : DbContext
     public DbSet<CapitalInjection> CapitalInjections => Set<CapitalInjection>();
     public DbSet<CapitalInjectionApprovalVote> CapitalInjectionApprovalVotes => Set<CapitalInjectionApprovalVote>();
     public DbSet<CapitalLedgerEntry> CapitalLedgerEntries => Set<CapitalLedgerEntry>();
+    public DbSet<WithdrawalRequest> WithdrawalRequests => Set<WithdrawalRequest>();
     public DbSet<PartnerApprovalVote> PartnerApprovalVotes => Set<PartnerApprovalVote>();
 
     // ── Subscriptions & Billing ────────────────────────────────────────────
@@ -1103,6 +1104,20 @@ public class AppDbContext : DbContext
             e.HasIndex(x => new { x.BusinessId, x.PaidAt });
             e.HasOne<PurchaseTrip>().WithMany().HasForeignKey(x => x.TripId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne<PurchaseItem>().WithMany().HasForeignKey(x => x.PurchaseItemId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<Partner>().WithMany().HasForeignKey(x => x.PartnerId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<WithdrawalRequest>(e =>
+        {
+            e.ToTable("withdrawal_requests", t =>
+                t.HasCheckConstraint("CK_withdrawal_requests_amount", "[AmountPaisa] > 0 AND [AmountPaisa] <= [AvailableSnapshotPaisa]"));
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Source).HasMaxLength(10).IsRequired().HasDefaultValue("CASH");
+            e.Property(x => x.Type).HasMaxLength(10).IsRequired();
+            e.Property(x => x.Status).HasMaxLength(20).IsRequired();
+            e.Property(x => x.Note).HasMaxLength(300);
+            e.HasIndex(x => new { x.BusinessId, x.RequestId }).IsUnique();
+            e.HasIndex(x => new { x.BusinessId, x.RequestedAt });
             e.HasOne<Partner>().WithMany().HasForeignKey(x => x.PartnerId).OnDelete(DeleteBehavior.Restrict);
         });
 

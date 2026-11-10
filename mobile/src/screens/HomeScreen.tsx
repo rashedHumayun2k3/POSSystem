@@ -88,7 +88,8 @@ export default function HomeScreen() {
   const actions: { label: string; icon: Icon; color: string; press?: () => void }[] = [
     { label: "New Order", icon: "clipboard-outline", color: colors.primary, press: () => router.push("/orders/new") },
     { label: "New Sale", icon: "cart-outline", color: colors.primary, press: () => router.push("/sale") },
-    { label: "Sales Record", icon: "cash-outline", color: colors.primary, press: () => router.push("/more/reports/sales") },
+    // Sales Record lives under More → Reports → Sales Reports.
+    ...(auth.session?.user.role === "OWNER" ? [{ label: "Cash In / Out", icon: "swap-vertical-outline" as Icon, color: colors.primary, press: () => router.push("/cash-in-out" as never) }] : []),
     { label: "New Purchase", icon: "car-outline", color: colors.primary, press: () => router.push("/more/purchases/new") },
     { label: "Add Expense", icon: "logo-usd", color: colors.primary, press: () => router.push("/more/expenses/new") },
     { label: "Customers", icon: "people-outline", color: colors.primary, press: () => router.push("/more/customers") },

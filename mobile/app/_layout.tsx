@@ -68,6 +68,7 @@ const reportItems: MoreNavItem[] = [
   { key: "report-dashboard", label: "Dashboard", icon: "home-outline", route: "/" },
   { key: "report-invoices", label: "Invoices", icon: "document-text-outline" },
   { key: "report-daily", label: "Daily Summary", icon: "mail-outline" },
+  { key: "report-cash-book", label: "Cash Book", icon: "wallet-outline" },
   { key: "report-sales", label: "Sales Reports", icon: "trending-up-outline" },
   { key: "report-inventory", label: "Inventory Reports", icon: "cube-outline", route: "/products" },
   { key: "report-financial", label: "Financial Reports", icon: "cash-outline" },
@@ -106,7 +107,7 @@ const frontendPaths: Record<string, string> = {
   tasks: "/more/tasks",
   "pre-orders": "/more/pre-orders",
   "quick-add": "/more/catalog-templates", purchases: "/more/purchases", "supplier-returns": "/more/supplier-returns", storeroom: "/more/storeroom", deliveries: "/more/deliveries", expenses: "/more/expenses", "add-expense": "/more/expenses/new", baki: "/more/baki", customers: "/more/customers", faq: "/more/faq", feedback: "/more/feedback",
-  "report-dashboard": "/more/reports/dashboard", "report-invoices": "/more/reports/invoices", "report-daily": "/more/reports/daily-closing", "report-sales": "/more/reports/sales", "report-inventory": "/more/reports/inventory", "report-financial": "/more/reports/financial", "report-orders": "/more/reports/orders", "report-stock-valuation": "/more/reports/stock-valuation",
+  "report-dashboard": "/more/reports/dashboard", "report-invoices": "/more/reports/invoices", "report-daily": "/more/reports/daily-closing", "report-cash-book": "/more/reports/cash-book", "report-sales": "/more/reports/sales", "report-inventory": "/more/reports/inventory", "report-financial": "/more/reports/financial", "report-orders": "/more/reports/orders", "report-stock-valuation": "/more/reports/stock-valuation",
   staff: "/more/settings/staff", couriers: "/more/settings/couriers", "expense-categories": "/more/settings/expense-categories", "business-config": "/more/settings/config", "shop-type": "/more/settings/shop-type", branches: "/more/settings/branches", partners: "/more/settings/partners", subscription: "/more/settings/subscription", storefront: "/more/settings/storefront", "external-orders": "/more/settings/external-orders",
 };
 

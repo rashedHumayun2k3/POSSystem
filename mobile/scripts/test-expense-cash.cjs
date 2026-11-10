@@ -16,3 +16,8 @@ for (const input of [{}, { cash: '' }, { cash: '0' }, { cash: '-1' }, { cash: '1
 assert.deepEqual(JSON.parse(JSON.stringify(cashPaymentInputs({ cash: 0, bkash: 700, nagad: 300 }))), { bkash: '700', nagad: '300' });
 assert.ok(parse({}, 100, true).error.includes('নির্বাচন'));
 console.log('Expense cash payment validation passed.');
+
+const input = context.exports.expenseAmountInput;
+for (const invalid of ['abc','12a','1e3','-10','1.2.3','10.123','1,000']) assert.equal(input(invalid,'12'),'12');
+assert.equal(input('১২.৫০',''),'12.50');assert.equal(input('.5',''),'0.5');assert.equal(input('','12'),'');
+console.log('Expense amount input restrictions passed.');
