@@ -61,7 +61,11 @@ public class ExpenseFundingService(AppDbContext db, IBusinessContext business)
             .ToListAsync();
         var purchases = await db.PurchasePayments.IgnoreQueryFilters().AsNoTracking()
             .Where(p => p.BusinessId == id && p.DeletedAt == null && p.FundingSource == "BUSINESS" && p.PaidAt >= start && p.PaidAt < end).ToListAsync();
-        return (investments.Sum(i => i.AmountPaisa), expenses.Sum(e => ToPaisa(e.Amount)) + purchases.Sum(p => ToPaisa(p.Amount)), investments, expenses, purchases);
+        // Partner withdrawals take money out of the same business pool (net capital = invested - withdrawn).
+        var withdrawn = await db.WithdrawalRequests.IgnoreQueryFilters().AsNoTracking()
+            .Where(w => w.BusinessId == id && w.DeletedAt == null && w.Status == "APPROVED" && w.RequestedAt >= start && w.RequestedAt < end)
+            .SumAsync(w => (long?)w.AmountPaisa) ?? 0;
+        return (investments.Sum(i => i.AmountPaisa) - withdrawn, expenses.Sum(e => ToPaisa(e.Amount)) + purchases.Sum(p => ToPaisa(p.Amount)), investments, expenses, purchases);
     }
 
     public async Task<long> BalanceAsync()

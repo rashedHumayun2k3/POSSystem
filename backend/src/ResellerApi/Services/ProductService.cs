@@ -80,7 +80,7 @@ public class ProductService : IProductService
                         join variant in _db.ProductVariants on inventory.VariantId equals variant.Id
                         where variant.ProductId == p.Id &&
                             (!_business.CurrentBranchId.HasValue || inventory.BranchId == _business.CurrentBranchId.Value)
-                        select (decimal?)(inventory.OnHand - inventory.Committed - inventory.Damaged)).Sum() ?? 0m
+                        select (decimal?)(inventory.OnHand - inventory.Committed)).Sum() ?? 0m
         });
         if (stock == "in") ranked = ranked.Where(x => x.Quantity > 0);
         if (stock == "low") ranked = ranked.Where(x => x.Quantity > 0 && x.Quantity < x.Product.LowStockThreshold);
@@ -603,6 +603,7 @@ public class ProductService : IProductService
             foreach (var c in combinations)
             {
                 if (c.Qty <= 0) throw new ArgumentException("Quantity must be greater than zero for every variant.");
+                EnsureWholeQuantity(request.UnitCode, c.Qty);
                 if (c.CostPrice < 0) throw new ArgumentException("Cost cannot be negative.");
             }
             branchId = await ResolveSingleBranchIdAsync(request.BranchId);
@@ -841,6 +842,8 @@ public class ProductService : IProductService
         product.Description = request.Description;
         product.DefectNotes = request.DefectNotes;
         product.UnitCode = request.UnitCode;
+        if (request.SellingPrice <= 0 && request.SellingPrice != product.SellingPrice)
+            throw new ArgumentException("Sale price must be greater than zero.");
         product.SellingPrice = request.SellingPrice;
         product.MarketPrice = request.MarketPrice;
         product.PackagingCostPerUnit = request.PackagingCostPerUnit;
@@ -857,6 +860,14 @@ public class ProductService : IProductService
         await _db.SaveChangesAsync();
         await _log.LogAsync(_business.CurrentBusinessId, userId, "UPDATE", "Product", product.Id);
         return (ProductDetailDto)(await GetAsync(product.Id, true));
+    }
+
+    // Pieces, pairs, sets, dozens and boxes can't be split: 5.5 pcs is always a typing mistake.
+    private static readonly HashSet<string> WholeUnits = new(["pcs", "pair", "set", "dozen", "box"], StringComparer.OrdinalIgnoreCase);
+    public static void EnsureWholeQuantity(string? unitCode, decimal qty)
+    {
+        if (qty != decimal.Truncate(qty) && WholeUnits.Contains(string.IsNullOrWhiteSpace(unitCode) ? "pcs" : unitCode.Trim()))
+            throw new ArgumentException("Quantity must be a whole number for this unit.");
     }
 
     // Both null (wholesale off) is always valid. Otherwise both must be present: MinQty >= 2 (a
@@ -1257,7 +1268,7 @@ public class ProductService : IProductService
         _db.BranchVariantInventories.Any(i =>
             i.VariantId == v.Id &&
             (_db.CurrentBranchId == null || i.BranchId == _db.CurrentBranchId) &&
-            i.OnHand - i.Committed - i.Damaged > 0);
+            i.OnHand - i.Committed > 0);
 
     // Reads from branch_variant_inventories, not the old single-pool variant_inventories
     // (frozen/stale since stock mutations moved to the branch-aware table). Sums across
@@ -1276,7 +1287,7 @@ public class ProductService : IProductService
         return await _db.BranchVariantInventories
             .Where(i => ids.Contains(i.VariantId) && (_db.CurrentBranchId == null || i.BranchId == _db.CurrentBranchId))
             .GroupBy(i => i.VariantId)
-            .Select(g => new { VariantId = g.Key, Available = g.Sum(x => x.OnHand - x.Committed - x.Damaged) })
+            .Select(g => new { VariantId = g.Key, Available = g.Sum(x => x.OnHand - x.Committed) })
             .ToDictionaryAsync(x => x.VariantId, x => x.Available);
     }
 

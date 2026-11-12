@@ -86,6 +86,8 @@ public partial class PurchaseTripService : IPurchaseTripService
             q = q.Where(t => t.Status == status.ToUpper());
 
         var trips = await q.OrderByDescending(t => t.CreatedAt).ToListAsync();
+        // A draft opened and left without adding anything is noise in the list.
+        trips = trips.Where(t => !(t.Status == "DRAFT" && t.Items.Count == 0 && t.Costs.Count == 0 && t.Shipments.Count == 0)).ToList();
 
         var tripIds = trips.Select(t => t.Id).ToList();
         var latestReturnStatusByTrip = (await _db.SupplierReturns.AsNoTracking()
@@ -514,7 +516,8 @@ public partial class PurchaseTripService : IPurchaseTripService
     {
         var totalQty = oldOnHand + qtyUsable;
         if (totalQty == 0) return landedUnit;
-        return Math.Round((oldOnHand * oldAvg + qtyUsable * landedUnit) / totalQty, 2);
+        // Money rounding: half-up (2039.285 -> 2039.29), not banker's rounding.
+        return Math.Round((oldOnHand * oldAvg + qtyUsable * landedUnit) / totalQty, 2, MidpointRounding.AwayFromZero);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

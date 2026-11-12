@@ -202,7 +202,7 @@ public class ClientPageCheckoutService : IClientPageCheckoutService
         {
             var inv = await _db.BranchVariantInventories.IgnoreQueryFilters().AsNoTracking()
                 .FirstOrDefaultAsync(i => i.BranchId == branchId && i.VariantId == item.VariantId);
-            var available = inv == null ? 0m : inv.OnHand - inv.Committed - inv.Damaged;
+            var available = inv == null ? 0m : inv.OnHand - inv.Committed;
             if (available < item.Qty) return false;
         }
         return true;

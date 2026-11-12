@@ -10,6 +10,7 @@ import { DateFieldColumn, DateRangeRow } from "../components/DateRangeLayout";
 import ReportDateField from "../components/ReportDateField";
 import { reportToday } from "../components/reportDate";
 import { type CashBookReport, type CashPeriod, type CashSource, periodRange, sourceLabel, validRange } from "../utils/cashBook";
+import PageTitle from "../components/PageTitle";
 
 const periods: { value: CashPeriod; label: string }[] = [{ value: "TODAY", label: "Today" }, { value: "7D", label: "7 Days" }, { value: "MONTH", label: "This Month" }, { value: "CUSTOM", label: "Custom" }];
 const wallets = [{ id: "CASH", color: "#0F766E" }, { id: "BKASH", color: "#E2136E" }, { id: "NAGAD", color: "#F26522" }, { id: "CARD", color: "#4F46E5" }] as const;
@@ -72,10 +73,10 @@ export default function CashBookScreen() {
 
 
   return <View style={s.screen}>
+    <View style={s.header}><View style={s.titleToolbar}><PageTitle>Cash Book</PageTitle></View></View>
     <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled"
       refreshControl={<RefreshControl refreshing={loading && !!data} onRefresh={refresh} colors={[colors.primary]} />}>
       <View style={s.head}>
-        <Text style={s.h1}>Cash Book</Text>
         <Text style={s.muted}>{periodText}</Text>
       </View>
       <View style={s.seg}>
@@ -136,8 +137,10 @@ function Kpi({ label, value, meta, color }: { label: string; value: string; meta
 }
 
 const s = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#F6F7F9" },
-  content: { padding: 16, paddingBottom: 110, gap: 14, width: "100%", maxWidth: 960, alignSelf: "center" },
+  screen: { flex: 1, backgroundColor: colors.background },
+  header: { backgroundColor: colors.white, borderBottomWidth: 1, borderBottomColor: colors.divider, paddingHorizontal: 16, paddingVertical: 12 },
+  titleToolbar: { minHeight: 40, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
+  content: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 110, gap: 14 },
   flex: { flex: 1, minWidth: 0 },
   head: { gap: 2 },
   h1: { fontSize: 20, fontWeight: "700", color: "#111827" },

@@ -1,3 +1,5 @@
+import "../src/utils/localeDefaults";
+import "../src/utils/webAlert";
 import NotificationProvider from "../src/notifications/NotificationProvider";
 import AppQueryProvider from "../src/query/AppQueryProvider";
 import PickerSync from "../src/query/PickerSync";
@@ -29,7 +31,7 @@ const tabs = [
   { label: "Products", icon: "cube", href: "/products" },
 ] as const;
 
-type MoreNavItem = { key: string; label: string; icon: keyof typeof Ionicons.glyphMap; roles?: string[]; route?: "/" | "/orders" | "/products" | "/more/categories" };
+type MoreNavItem = { key: string; label: string; icon: keyof typeof Ionicons.glyphMap; roles?: string[]; route?: "/" | "/orders" | "/products" | "/more/categories"; group?: string };
 type QuickAction = { key: string; label: string; hint: string; icon: keyof typeof Ionicons.glyphMap; roles?: string[] };
 const quickActions: QuickAction[] = [
   { key: "order", label: "Add Order", hint: "Create customer order", icon: "receipt-outline" },
@@ -44,25 +46,27 @@ const quickActions: QuickAction[] = [
   { key: "task", label: "Add Task", hint: "Create and assign a task", icon: "checkbox-outline", roles: ["OWNER", "MANAGER", "PARTNER"] },
 ];
 const moreItems: MoreNavItem[] = [
-  { key: "due", label: "dueMenu", icon: "cash-outline", roles: ["OWNER", "MANAGER", "STAFF", "PARTNER"] },
-  { key: "tasks", label: "Tasks", icon: "checkbox-outline", roles: ["OWNER", "MANAGER", "PARTNER"] },
-  { key: "pre-orders", label: "Pre-orders", icon: "time-outline", roles: ["OWNER", "MANAGER", "STAFF"] },
-  { key: "categories", label: "Categories", icon: "pricetag-outline", roles: ["OWNER"], route: "/more/categories" },
-  { key: "discounts", label: "Discounts", icon: "pricetag-outline", roles: ["OWNER"] },
-  { key: "backdated-pos", label: "Backdated POS Sale", icon: "calendar-outline", roles: ["OWNER", "MANAGER", "STAFF", "PARTNER"] },
-  { key: "quick-add", label: "Quick Add Products", icon: "albums-outline", roles: ["OWNER"] },
-  { key: "purchases", label: "Purchases", icon: "cart-outline", roles: ["OWNER", "MANAGER", "WAREHOUSE"] },
+  // Grouped by topic; a heading shows above the first visible item of each group.
+  { group: "Sales", key: "due", label: "dueMenu", icon: "cash-outline", roles: ["OWNER", "MANAGER", "STAFF", "PARTNER"] },
+  { group: "Sales", key: "pre-orders", label: "Pre-orders", icon: "time-outline", roles: ["OWNER", "MANAGER", "STAFF"] },
+  { group: "Sales", key: "deliveries", label: "Deliveries", icon: "car-outline", roles: ["OWNER", "MANAGER", "STAFF"] },
+  { group: "Sales", key: "backdated-pos", label: "Backdated POS Sale", icon: "calendar-outline", roles: ["OWNER", "MANAGER", "STAFF", "PARTNER"] },
+  { group: "Sales", key: "customers", label: "Customers", icon: "people-outline", roles: ["OWNER", "MANAGER"] },
+  { group: "Products & Stock", key: "categories", label: "Categories", icon: "pricetag-outline", roles: ["OWNER"], route: "/more/categories" },
+  { group: "Products & Stock", key: "discounts", label: "Discounts", icon: "pricetag-outline", roles: ["OWNER"] },
+  { group: "Products & Stock", key: "quick-add", label: "Quick Add Products", icon: "albums-outline", roles: ["OWNER"] },
+  { group: "Products & Stock", key: "purchases", label: "Purchases", icon: "cart-outline", roles: ["OWNER", "MANAGER", "WAREHOUSE"] },
   // Temporarily hidden from navigation. Keep the storeroom routes and feature code intact.
-  // { key: "storeroom", label: "Storeroom", icon: "archive-outline", roles: ["OWNER", "WAREHOUSE"] },
-  { key: "barcodes", label: "Print Barcodes", icon: "barcode-outline", roles: ["OWNER", "MANAGER", "WAREHOUSE"] },
-  { key: "deliveries", label: "Deliveries", icon: "car-outline", roles: ["OWNER", "MANAGER", "STAFF"] },
-  { key: "expenses", label: "Expenses", icon: "wallet-outline", roles: ["OWNER", "MANAGER"] },
-
-  { key: "reports", label: "Reports", icon: "bar-chart-outline", roles: ["OWNER", "MANAGER"] },
-  { key: "customers", label: "Customers", icon: "people-outline", roles: ["OWNER", "MANAGER"] },
-  { key: "settings", label: "Settings", icon: "settings-outline", roles: ["OWNER", "MANAGER", "WAREHOUSE", "STAFF"] },
-  { key: "faq", label: "FAQ", icon: "help-circle-outline" },
-  { key: "feedback", label: "Feedback", icon: "chatbubble-ellipses-outline", roles: ["OWNER", "MANAGER", "WAREHOUSE", "STAFF"] },
+  // { group: "Products & Stock", key: "storeroom", label: "Storeroom", icon: "archive-outline", roles: ["OWNER", "WAREHOUSE"] },
+  { group: "Products & Stock", key: "barcodes", label: "Print Barcodes", icon: "barcode-outline", roles: ["OWNER", "MANAGER", "WAREHOUSE"] },
+  { group: "Money", key: "expenses", label: "Expenses", icon: "wallet-outline", roles: ["OWNER", "MANAGER"] },
+  { group: "Money", key: "cash-in-out", label: "Cash In / Out", icon: "swap-vertical-outline", roles: ["OWNER"] },
+  { group: "Money", key: "reports", label: "Reports", icon: "bar-chart-outline", roles: ["OWNER", "MANAGER"] },
+  { group: "Work", key: "tasks", label: "Tasks", icon: "checkbox-outline", roles: ["OWNER", "MANAGER", "PARTNER"] },
+  { group: "Account", key: "settings", label: "Settings", icon: "settings-outline", roles: ["OWNER", "MANAGER", "WAREHOUSE", "STAFF"] },
+  { group: "Account", key: "faq", label: "FAQ", icon: "help-circle-outline" },
+  { group: "Account", key: "feedback", label: "Feedback", icon: "chatbubble-ellipses-outline", roles: ["OWNER", "MANAGER", "WAREHOUSE", "STAFF"] },
+  { group: "Account", key: "logout", label: "Logout", icon: "log-out-outline" },
 ];
 const reportItems: MoreNavItem[] = [
   { key: "report-dashboard", label: "Dashboard", icon: "home-outline", route: "/" },
@@ -172,12 +176,14 @@ function AppShell() {
     if (item.key === "bulk-products") return router.push("/more/bulk-products");
     if (item.key === "purchases") return router.push("/more/purchases");
     if (item.key === "barcodes") return router.push("/more/barcodes");
+    if (item.key === "cash-in-out") return router.push("/cash-in-out" as never);
+    if (item.key === "logout") return router.push({ pathname: "/profile", params: { logout: "1" } } as never);
     const webPath = frontendPaths[item.key];
     if (webPath) return openEnvironmentPath(webPath);
     return item.route ? router.push(item.route) : router.push({ pathname: "/more", params: { focus: item.key } });
   };
   const openQuickAction=(key:string)=>{setQuickActionsOpen(false);if(key==="task")return router.push({pathname:"/more/tasks",params:{new:"1"}});if(key==="pre-order")return openEnvironmentPath("/more/pre-orders");if(key==="sale")return router.push("/sale");if(key==="order"||key==="customer")return router.push("/orders/new");if(key==="supplier")return setSupplierFormOpen(true);if(key==="purchase")return router.push("/more/purchases/new");if(key==="category")return router.push({pathname:"/more/categories",params:{new:"1"}});if(key==="product")return router.push("/products/new");if(key==="expense")return openEnvironmentPath("/more/expenses/new")};
-  const itemPath = (item: MoreNavItem) => item.key === "bulk-products" ? "/more/bulk-products" : item.key === "categories" ? "/more/categories" : item.key === "quick-add" ? "/more/catalog-templates" : item.key === "purchases" ? "/more/purchases" : item.key === "barcodes" ? "/more/barcodes" : item.key === "backdated-pos" ? "/more/backdated-pos" : frontendPaths[item.key] ?? item.route;
+  const itemPath = (item: MoreNavItem) => item.key === "cash-in-out" ? "/cash-in-out" : item.key === "discounts" ? "/more/discounts" : item.key === "bulk-products" ? "/more/bulk-products" : item.key === "categories" ? "/more/categories" : item.key === "quick-add" ? "/more/catalog-templates" : item.key === "purchases" ? "/more/purchases" : item.key === "barcodes" ? "/more/barcodes" : item.key === "backdated-pos" ? "/more/backdated-pos" : frontendPaths[item.key] ?? item.route;
   const itemActive = (item: MoreNavItem) => { const target = itemPath(item); return !!target && ((item.key === "expense-history" || item.key === "purchase-history") ? path === target : target === "/" ? path === "/" : path === target || path.startsWith(`${target}/`)); };
   const moreRows = (entries: MoreNavItem[], nested = false) => entries.map(item => { const active=itemActive(item); return <Pressable key={item.key} accessibilityState={{selected:active}} onPress={() => openMoreItem(item)} style={({ pressed }) => [s.moreRow, nested && s.nestedRow, active&&s.activeMoreRow, pressed && s.pressed]}>
     <Ionicons name={item.icon} size={nested ? 17 : 19} color={active?colors.primaryDark:colors.neutralIcon} />
@@ -202,7 +208,13 @@ function AppShell() {
     </Link>;
   });
   const drawerMorePanel = <View style={s.moreList}>
-    {drawerMoreItems.map(item => {
+    {drawerMoreItems.map((item, index) => <View key={`g-${item.key}`}>
+      {!!item.group && item.group !== drawerMoreItems[index - 1]?.group && <View style={index > 0 && s.moreGroupGap}><Text style={s.moreGroup}>{t(item.group)}</Text></View>}
+      {renderMoreItem(item)}
+    </View>)}
+  </View>;
+  function renderMoreItem(item: MoreNavItem) {
+    {
       if (item.key === "expenses" || item.key === "purchases") {
         const isExpense = item.key === "expenses";
         const expanded = !!menuQuery || (isExpense ? expensesOpen : purchasesOpen);
@@ -228,8 +240,8 @@ function AppShell() {
         {(!!menuQuery||settingsOpen) && <View style={s.nestedList}>{moreRows(drawerSettings, true)}</View>}
       </View>;
       return moreRows([item]);
-    })}
-  </View>;
+    }
+  }
   const menuSearchField = <View style={[s.drawerSearch, showSidebar && Platform.OS === "web" && { marginHorizontal: 0 }]}><Ionicons name="search-outline" size={19} color={colors.muted}/><TextInput autoCapitalize="none" autoCorrect={false} accessibilityLabel={t("more.searchMenu")} placeholder={t("more.searchMenu")} placeholderTextColor={colors.muted} value={menuSearch} onChangeText={setMenuSearch} style={s.drawerSearchInput}/>{!!menuSearch&&<Pressable accessibilityLabel={t("more.clearSearch")} onPress={()=>setMenuSearch("")} style={s.drawerSearchClear}><Ionicons name="close" size={18} color={colors.secondary}/></Pressable>}</View>;
   return <SafeAreaView style={s.shell} edges={["top", "left", "right"]}>
     <StatusBar style="dark" />
@@ -287,6 +299,8 @@ const s = StyleSheet.create({
   pressed: { opacity: 0.75 },
   moreList: { marginTop: 2 },
   moreRow: { minHeight: 38, flexDirection: "row", alignItems: "center", gap: 8, borderBottomWidth: 1, borderBottomColor: colors.divider, paddingHorizontal: 9, paddingVertical: 5 },
+  moreGroup: { color: colors.primaryDark, fontSize: 12, fontWeight: "800", letterSpacing: .6, textTransform: "uppercase", paddingHorizontal: 12, paddingTop: 16, paddingBottom: 6 },
+  moreGroupGap: { marginTop: 14 },
   moreLabel: { flex: 1, color: colors.heading, fontSize: 12, fontWeight: "600" },
   activeMoreRow: { backgroundColor: colors.primaryLight, borderBottomColor: colors.border, borderRadius: 8 },
   activeMoreLabel: { color: colors.primaryDark, fontWeight: "700" },

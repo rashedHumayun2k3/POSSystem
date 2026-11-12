@@ -41,6 +41,7 @@ public class PriceHistoryService : IPriceHistoryService
 
     public async Task<PriceHistoryDto> ChangePriceAsync(ChangePriceRequest request, Guid userId)
     {
+        if (request.NewPrice <= 0) throw new ArgumentException("Sale price must be greater than zero.");
         var variant = await _db.ProductVariants
             .Include(v => v.Product)
             .FirstOrDefaultAsync(v => v.Id == request.VariantId)

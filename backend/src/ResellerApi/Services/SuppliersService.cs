@@ -50,6 +50,16 @@ public class SuppliersService : ISuppliersService
         return new SupplierDto(s.Id, s.Name, s.Address, s.Phone, s.Country, s.Notes, s.UsageCount, s.LastUsedAt);
     }
 
+    // Suppliers can be abroad (+86 …), so allow digits with +, spaces and dashes — but never letters.
+    private static string? ValidPhone(string? phone)
+    {
+        if (string.IsNullOrWhiteSpace(phone)) return null;
+        var p = phone.Trim();
+        if (!System.Text.RegularExpressions.Regex.IsMatch(p, @"^\+?[0-9][0-9 \-]{5,19}$"))
+            throw new ArgumentException("Enter a valid mobile number (digits only).");
+        return p;
+    }
+
     public async Task<SupplierDto> CreateAsync(CreateSupplierRequest request, Guid userId)
     {
         if (string.IsNullOrWhiteSpace(request.Name))
@@ -60,7 +70,7 @@ public class SuppliersService : ISuppliersService
             BusinessId = _business.CurrentBusinessId,
             Name = request.Name.Trim(),
             Address = request.Address?.Trim(),
-            Phone = request.Phone?.Trim(),
+            Phone = ValidPhone(request.Phone),
             Country = request.Country?.Trim(),
             Notes = request.Notes?.Trim()
         };
@@ -80,7 +90,7 @@ public class SuppliersService : ISuppliersService
 
         supplier.Name = request.Name.Trim();
         supplier.Address = request.Address?.Trim();
-        supplier.Phone = request.Phone?.Trim();
+        supplier.Phone = ValidPhone(request.Phone);
         supplier.Country = request.Country?.Trim();
         supplier.Notes = request.Notes?.Trim();
         await _db.SaveChangesAsync();

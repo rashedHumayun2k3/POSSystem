@@ -48,7 +48,8 @@ export default function CashTransactions({ from, to, source = "ALL", reload = 0 
 
   const loc = lang === "bn" ? "bn-BD-u-nu-latn" : "en-GB";
   const fmtDate = (d: string) => new Date(`${d}T00:00:00Z`).toLocaleDateString(loc, { day: "numeric", month: "short", timeZone: "UTC" });
-  const time = (at: string) => new Date(at).toLocaleTimeString(lang === "bn" ? "bn-BD-u-nu-latn" : "en-US", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Dhaka" });
+  // Date-only entries (e.g. capital added for a date) are stored as midnight UTC: no real time to show.
+  const time = (at: string) => /T00:00:00(\.0+)?Z?$/.test(at) ? "" : new Date(at).toLocaleTimeString(lang === "bn" ? "bn-BD-u-nu-latn" : "en-US", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Dhaka" });
   const openRow = (row: CashRow) => {
     if (row.referenceType === "ORDER") return router.push({ pathname: "/orders/[id]", params: { id: row.referenceId } });
     if (row.referenceType === "EXPENSE") return router.push({ pathname: "/more/expenses/[id]", params: { id: row.referenceId } });
@@ -81,7 +82,7 @@ export default function CashTransactions({ from, to, source = "ALL", reload = 0 
       : !data && error ? <View style={s.empty}><Text style={s.error}>{error}</Text><Pressable onPress={() => setRetry(v => v + 1)} style={s.retry}><Text style={s.retryText}>Try again</Text></Pressable></View>
       : !items.length ? <View style={s.empty}><Text style={s.emptyTitle}>No money moved</Text><Text style={s.muted}>No money moved in this period.</Text></View>
       : items.map((row, i) => <CashTransactionRow key={`${row.id}-${row.source}`} first={i === 0} highlight={row.kind === "INVESTMENT"} onPress={() => openRow(row)} amount={row.amount} title={rowTitle(row, t)}
-        sub={[range.from !== range.to ? fmtDate(row.date) : "", time(row.at), rowDetail(row), source !== "ALL" ? "" : sourceLabel(row.source)].filter(Boolean).join(" · ")} />)}
+        sub={[range.from !== range.to ? fmtDate(row.date) : "", time(row.at), rowDetail(row), source !== "ALL" ? "" : sourceLabel(row.source, lang)].filter(Boolean).join(" · ")} />)}
     {data && items.length < data.totalItems && <Pressable disabled={loading} onPress={() => setPage(p => p + 1)} style={s.more}>
       {loading ? <ActivityIndicator color={colors.primary} /> : <Text style={s.moreText}>Load more</Text>}
     </Pressable>}

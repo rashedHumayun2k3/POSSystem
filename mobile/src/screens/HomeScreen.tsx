@@ -27,7 +27,7 @@ const cash = (value: number | null | undefined) => `৳${Number(value ?? 0).toLo
 
 export default function HomeScreen() {
   const auth = useAuth();
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const [data, setData] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -72,7 +72,7 @@ export default function HomeScreen() {
   }, [auth.api, metricsLoading, metricsOpacity, todayMetrics]);
   const business = auth.session?.businesses.find(item => item.id === auth.session?.businessId);
   const canSeeCosts = ["OWNER", "MANAGER"].includes(auth.session?.user.role ?? "OWNER");
-  const date = new Intl.DateTimeFormat("en-BD", { day: "numeric", month: "long", year: "numeric", timeZone: "Asia/Dhaka" }).format(new Date());
+  const date = new Intl.DateTimeFormat(lang === "bn" ? "bn-BD-u-nu-latn" : "en-BD", { day: "numeric", month: "long", year: "numeric", timeZone: "Asia/Dhaka" }).format(new Date());
   const stockAlerts = (data?.lowStockCount ?? 0) + (data?.outOfStockCount ?? 0);
   const attention = useMemo(() => data ? [
     data.pendingOrders > 0 && { icon: "clipboard-outline" as Icon, title: `${data.pendingOrders} order${data.pendingOrders === 1 ? "" : "s"} needs processing`, detail: "Pack them or hand them over for delivery.", action: () => router.push({ pathname: "/orders", params: { tab: "WAITING_COURIER" } }) },
@@ -106,7 +106,7 @@ export default function HomeScreen() {
         <Info value={stockAlerts} label="Stock alerts" color="#be123c" />
         <Info value={data.pendingDeliveries} label="Pending deliveries" color={colors.infoText} action={() => router.push({ pathname: "/orders", params: { tab: "PENDING" } })} />
       </View>
-      <View style={s.metricGrid}><Metric label="Today's sales" value={todayMetrics ? cash(todayMetrics.todaySales) : "Tap to view"} detail={todayMetrics ? salesDetailFor(todayMetrics) : metricsError} icon="trending-up-outline" tone="green" revealed={!!todayMetrics} loading={metricsLoading} opacity={metricsOpacity} onPress={revealTodayMetrics} />{canSeeCosts && <Metric label="Today's profit" value={todayMetrics?.todayProfit != null ? cash(todayMetrics.todayProfit) : "Tap to view"} detail={todayMetrics?.todayProfit != null ? `Margin: ${todayMetrics.todayMarginPercent ?? 0}%` : metricsError} icon="logo-usd" tone="amber" revealed={!!todayMetrics} loading={metricsLoading} opacity={metricsOpacity} onPress={revealTodayMetrics} />}</View>
+      <View style={s.metricGrid}><Metric label="Today's sales" value={todayMetrics ? cash(todayMetrics.todaySales) : "Tap to view"} detail={todayMetrics ? salesDetailFor(todayMetrics, lang) : metricsError} icon="trending-up-outline" tone="green" revealed={!!todayMetrics} loading={metricsLoading} opacity={metricsOpacity} onPress={revealTodayMetrics} />{canSeeCosts && <Metric label="Today's profit" value={todayMetrics?.todayProfit != null ? cash(todayMetrics.todayProfit) : "Tap to view"} detail={todayMetrics?.todayProfit != null ? `${lang === "bn" ? "লাভের হার" : "Margin"}: ${todayMetrics.todayMarginPercent ?? 0}%` : metricsError} icon="logo-usd" tone="amber" revealed={!!todayMetrics} loading={metricsLoading} opacity={metricsOpacity} onPress={revealTodayMetrics} />}</View>
 
       <SectionTitle title="Quick Actions" />
       <View style={s.actions}>{actions.map(item => <Pressable key={item.label} onPress={item.press} style={({ pressed }) => [s.action, { backgroundColor: item.color }, pressed && s.pressed]}><View style={s.actionIcon}><Ionicons name={item.icon} size={21} color={colors.white} /></View><Text style={s.actionText}>{item.label}</Text></Pressable>)}</View>
@@ -137,9 +137,9 @@ function SectionTitle({ title, subtitle, link, href }: { title: string; subtitle
   </View>;
 }
 function Info({ value, label, color, action }: { value: number; label: string; color: string; action?: () => void }) { return <Pressable onPress={action} style={s.info}><Text style={[s.infoValue, { color }]}>{value}</Text><Text style={s.infoLabel}>{label}</Text></Pressable>; }
-function salesDetailFor(metrics: TodayMetrics) {
+function salesDetailFor(metrics: TodayMetrics, lang = "bn") {
   const change = metrics.salesChangePercent;
-  if (typeof change !== "number" || !Number.isFinite(change)) return typeof metrics.yesterdaySales === "number" ? `Yesterday: ${cash(metrics.yesterdaySales)}` : "Comparison unavailable";
+  if (typeof change !== "number" || !Number.isFinite(change)) return typeof metrics.yesterdaySales === "number" ? `${lang === "bn" ? "গতকাল" : "Yesterday"}: ${cash(metrics.yesterdaySales)}` : "Comparison unavailable";
   return change === 0 ? "Same as yesterday" : `${Math.abs(change)}% ${change > 0 ? "more" : "less"} than yesterday`;
 }
 function Metric({ label, value, detail, icon, tone, revealed, loading, opacity, onPress }: { label: string; value: string; detail: string; icon: Icon; tone: "green" | "amber"; revealed: boolean; loading: boolean; opacity: Animated.Value; onPress: () => void }) { const green = tone === "green"; return <Pressable accessibilityRole="button" accessibilityLabel={`${label}, ${revealed ? value : "tap to view"}`} onPress={onPress} style={({ pressed }) => [s.metric, green ? s.metricGreen : s.metricAmber, pressed && s.metricPressed]}><View style={s.metricHead}><Text style={s.metricLabel}>{label}</Text><Ionicons name={icon} size={20} color={green ? colors.successText : colors.warningText} /></View><View style={s.metricValueRow}>{loading ? <ActivityIndicator size="small" color={green ? colors.successText : colors.warningText} /> : revealed ? <Animated.Text style={[s.metricValue, { opacity }]}>{value}</Animated.Text> : <View style={s.tapToView}><Text style={s.tapToViewText}>Tap to view</Text><Ionicons name="eye-outline" size={17} color={green ? colors.successText : colors.warningText} /></View>}</View><Text numberOfLines={1} style={s.metricDetail}>{detail}</Text></Pressable>; }

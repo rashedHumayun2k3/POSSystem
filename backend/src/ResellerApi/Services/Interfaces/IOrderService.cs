@@ -12,7 +12,7 @@ public interface IOrderService
     Task<OrderDetailDto> GetAsync(Guid id, bool isOwner);
     Task<OrderDetailDto> UpdateAsync(Guid id, UpdateOrderRequest request, Guid userId);
     Task<OrderDetailDto> ReviseAsync(Guid id, ReviseOrderRequest request, Guid userId);
-    Task DeleteAsync(Guid id, string reason, Guid userId);
+    Task DeleteAsync(Guid id, string reason, Guid userId, decimal? refundAmount = null, string? refundMethod = null);
     Task<OrderDetailDto> ConfirmAsync(Guid id, Guid userId, bool allowOversell = false);
     Task<OrderDetailDto> PackAsync(Guid id, Guid userId);
     Task<OrderDetailDto> HandoverAsync(Guid id, HandoverOrderRequest request, Guid userId);

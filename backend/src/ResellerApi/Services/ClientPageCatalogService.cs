@@ -396,7 +396,7 @@ public class ClientPageCatalogService : IClientPageCatalogService
         return rows.ToDictionary(r => r.ProductId, r => (r.Average, r.Count));
     }
 
-    // Sum of OnHand-Committed-Damaged across every branch (BranchVariantInventory carries no
+    // Sum of OnHand-Committed across every branch (BranchVariantInventory carries no
     // business scoping of its own, so no IgnoreQueryFilters needed here — see entity definition).
     private async Task<Dictionary<Guid, bool>> BuildVariantAvailabilityAsync(List<Guid> variantIds)
     {
@@ -405,7 +405,7 @@ public class ClientPageCatalogService : IClientPageCatalogService
         return await _db.BranchVariantInventories
             .Where(i => variantIds.Contains(i.VariantId))
             .GroupBy(i => i.VariantId)
-            .Select(g => new { VariantId = g.Key, Available = g.Sum(x => x.OnHand - x.Committed - x.Damaged) })
+            .Select(g => new { VariantId = g.Key, Available = g.Sum(x => x.OnHand - x.Committed) })
             .ToDictionaryAsync(x => x.VariantId, x => x.Available > 0);
     }
 }

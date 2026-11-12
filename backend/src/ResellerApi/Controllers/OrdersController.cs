@@ -123,7 +123,7 @@ public class OrdersController : ControllerBase
     {
         if (string.IsNullOrWhiteSpace(request.Reason))
             return BadRequest(new { message = "Deletion reason is required." });
-        await _svc.DeleteAsync(id, request.Reason, _user.UserId);
+        await _svc.DeleteAsync(id, request.Reason, _user.UserId, request.RefundAmount, request.RefundMethod);
         return NoContent();
     }
 

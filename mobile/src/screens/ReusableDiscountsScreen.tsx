@@ -7,6 +7,7 @@ import { useAuth } from "../auth/AuthContext";
 import PopupSheet from "../components/PopupSheet";
 import { DateTimeField } from "../components/DateTimeField";
 import { colors } from "../theme";
+import { useLanguage } from "../i18n/LanguageContext";
 
 type Discount = { id: string; name: string; percent: number; reason: string | null; startDate: string; endDate: string | null; createdAt: string; isArchived: boolean; appliedVariantCount: number; activeVariantCount: number };
 type Category = { id: string; name: string; parentCategoryId: string | null };
@@ -30,6 +31,7 @@ const startOfDay = (value: string) => { if (value === localDate()) return new Da
 const endOfDay = (value: string) => { const [y, m, d] = value.slice(0, 10).split("-").map(Number); return new Date(y, m - 1, d, 23, 59, 59).toISOString(); };
 
 export default function ReusableDiscountsScreen() {
+  const { t: tr } = useLanguage();
   const auth = useAuth();
   const { productId: targetedProductId } = useLocalSearchParams<{ productId?: string }>();
   const [discounts, setDiscounts] = useState<Discount[]>([]);
@@ -178,7 +180,7 @@ export default function ReusableDiscountsScreen() {
         const updated = await auth.api<AppliedVariant[]>(`/discounts/${applying.id}/applied-variants`);
         setApplyExistingVariants(updated);
       } catch { /* The discount was applied; the next modal open will reload its variants. */ }
-      setApplyResult(result); setNotice(`Discount applied to ${result.productCount} products (${result.activatedCount} active, ${result.scheduledCount} scheduled).`);
+      setApplyResult(result); setApplying(null); setNotice(`Discount applied to ${result.productCount} products (${result.activatedCount} active, ${result.scheduledCount} scheduled).`);
       await load(true);
     } catch (e) { setError((e as Error).message); }
     finally { setSaving(false); }
@@ -308,7 +310,7 @@ export default function ReusableDiscountsScreen() {
       </> : <>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}><Ionicons name="pricetag-outline" size={18} color={colors.primaryDark}/><Text style={{ color: colors.heading, fontSize: 14, fontWeight: "700" }}>Current discounts</Text><Text style={{ color: colors.secondary, fontSize: 11 }}>{assignedProducts.length} products · {visibleAssignments.length} variants</Text></View>
         {!!assignmentDiscountId && <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: colors.cardSecondary, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7 }}><Text style={{ color: colors.heading, fontSize: 12, fontWeight: "700" }}>Showing: {discounts.find(item => item.id === assignmentDiscountId)?.name ?? activeAssignments.find(item => item.discountId === assignmentDiscountId)?.discountName ?? "Selected discount"}</Text><Pressable accessibilityRole="button" accessibilityLabel="Show all discounts" onPress={() => setAssignmentDiscountId(null)} style={{ padding: 4 }}><Ionicons name="close" size={18} color={colors.secondary}/></Pressable></View>}
-        <View style={s.searchBox}><Ionicons name="search-outline" size={17} color={colors.muted}/><TextInput value={assignmentSearch} onChangeText={setAssignmentSearch} placeholder="Search category, product or discount" style={s.searchInput}/></View>
+        <View style={s.searchBox}><Ionicons name="search-outline" size={17} color={colors.muted}/><TextInput value={assignmentSearch} onChangeText={setAssignmentSearch} placeholder={tr("Search category, product or discount")} style={s.searchInput}/></View>
         <View accessibilityRole="tablist" style={{ flexDirection: "row", borderBottomWidth: 1, borderBottomColor: colors.divider }}>
           <Pressable accessibilityRole="tab" accessibilityState={{ selected: appliedView === "categories" }} onPress={() => setAppliedView("categories")} style={{ flex: 1, alignItems: "center", paddingVertical: 10, borderBottomWidth: 2, borderBottomColor: appliedView === "categories" ? colors.primary : "transparent" }}><Text style={{ color: appliedView === "categories" ? colors.primaryDark : colors.secondary, fontSize: 12, fontWeight: "700" }}>Categories</Text></Pressable>
           <Pressable accessibilityRole="tab" accessibilityState={{ selected: appliedView === "products" }} onPress={() => setAppliedView("products")} style={{ flex: 1, alignItems: "center", paddingVertical: 10, borderBottomWidth: 2, borderBottomColor: appliedView === "products" ? colors.primary : "transparent" }}><Text style={{ color: appliedView === "products" ? colors.primaryDark : colors.secondary, fontSize: 12, fontWeight: "700" }}>Products</Text></Pressable>
@@ -327,11 +329,11 @@ export default function ReusableDiscountsScreen() {
       </>}
     </ScrollView>
 
-    <PopupSheet visible={createOpen} onClose={() => !saving && setCreateOpen(false)} title={editingDiscount ? "Edit reusable discount" : "Create reusable discount"}>
+    <PopupSheet visible={createOpen} onClose={() => { if (saving) return; setCreateOpen(false); setError(""); }} title={editingDiscount ? "Edit reusable discount" : "Create reusable discount"}>
       <ScrollView style={s.sheetBody} contentContainerStyle={s.sheetContent} keyboardShouldPersistTaps="handled">
         <Text style={s.label}>Discount name</Text><TextInput value={createName} onChangeText={setCreateName} placeholder="e.g. Eid Sale" style={s.input} maxLength={120}/>
         <Text style={s.label}>Discount percentage</Text><View style={s.percentInputRow}><TextInput value={percent} onChangeText={v => setPercent(v.replace(/[^\d.]/g, ""))} keyboardType="decimal-pad" style={s.percentInput}/><Text style={s.percentSuffix}>%</Text><Text style={s.help}>1% to 90%</Text></View>
-        <Text style={s.label}>Note (optional)</Text><TextInput value={reason} onChangeText={setReason} placeholder="Short reason for this discount" style={s.input}/>
+        <Text style={s.label}>Note (optional)</Text><TextInput value={reason} onChangeText={setReason} placeholder={tr("Short reason for this discount")} style={s.input}/>
         <Text style={s.label}>Start date</Text><DateTimeField value={startDate} onChange={setStartDate} includeTime={false} minimumDate={new Date()}/>
         <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: hasEndDate }} onPress={() => { setHasEndDate(v => !v); if (!hasEndDate) setEndDate(startDate); }} style={s.checkRow}><View style={[s.checkbox, hasEndDate && s.checked]}>{hasEndDate && <Ionicons name="checkmark" size={14} color={colors.white}/>}</View><Text style={s.checkText}>Set an end date</Text></Pressable>
         {hasEndDate && <><Text style={s.label}>End date</Text><DateTimeField value={endDate} onChange={setEndDate} includeTime={false} minimumDate={new Date(`${startDate}T00:00:00`)}/></>}
@@ -345,7 +347,7 @@ export default function ReusableDiscountsScreen() {
       <View style={s.deleteConfirm}><Text style={s.detailText}>Delete “{deletingDiscount?.name}” permanently? This is only available because it has not been applied to any products.</Text><View style={s.cardActions}><Pressable accessibilityRole="button" disabled={saving} onPress={() => setDeletingDiscount(null)} style={s.archiveButton}><Text style={s.archiveText}>Cancel</Text></Pressable><Pressable accessibilityRole="button" disabled={saving} onPress={() => void deleteDiscount()} style={[s.deleteConfirmButton, saving && s.disabled]}>{saving ? <ActivityIndicator color={colors.white}/> : <Text style={s.applyText}>Delete discount</Text>}</Pressable></View></View>
     </PopupSheet>
 
-    <PopupSheet visible={!!applying} onClose={() => !saving && setApplying(null)} title={applying ? `Apply ${applying.name}` : "Apply discount"}>
+    <PopupSheet visible={!!applying} onClose={() => { if (saving) return; setApplying(null); setError(""); }} title={applying ? `Apply ${applying.name}` : "Apply discount"}>
       <View style={s.applySheet}>
         <ScrollView style={s.sheetBody} contentContainerStyle={s.sheetContent} keyboardShouldPersistTaps="handled">
           <View style={s.discountSummary}><Text style={s.summaryPercent}>{applying?.percent}% OFF</Text><Text style={s.summaryMeta}>{applying?.startDate ? `Starts ${displayDate(applying.startDate)}` : ""}{applying?.endDate ? ` · Ends ${displayDate(applying.endDate)}` : " · No end date"}</Text></View>
@@ -369,7 +371,7 @@ export default function ReusableDiscountsScreen() {
             {scopeTab === "categories" && <ScrollView nestedScrollEnabled style={{ maxHeight: 260, borderWidth: 1, borderColor: colors.divider, borderRadius: 9, backgroundColor: colors.white, paddingHorizontal: 10 }}>
               {categories.map(category => { const eligible = categoryProductCount(category); const total = categoryTotalCount(category); return <Pressable key={category.id} accessibilityRole="checkbox" accessibilityState={{ checked: categoryIds.includes(category.id), disabled: eligible === 0 }} disabled={eligible === 0} onPress={() => toggle(categoryIds, setCategoryIds, category.id)} style={[s.optionRow, eligible === 0 && s.disabled]}><View style={[s.checkbox, categoryIds.includes(category.id) && s.checked]}>{categoryIds.includes(category.id) && <Ionicons name="checkmark" size={14} color={colors.white}/>}</View><Text style={s.optionText}>{category.parentCategoryId ? `↳ ${category.name}` : category.name} · {total === 0 ? "No active products" : eligible === 0 ? "Already applied" : eligible < total ? `Partially applied · ${eligible} remaining` : `${eligible} products`}</Text></Pressable>; })}
             </ScrollView>}
-            {scopeTab === "products" && <><View style={s.searchBox}><Ionicons name="search-outline" size={17} color={colors.muted}/><TextInput value={productSearch} onChangeText={setProductSearch} placeholder="Search products or SKU" style={s.searchInput}/></View>
+            {scopeTab === "products" && <><View style={s.searchBox}><Ionicons name="search-outline" size={17} color={colors.muted}/><TextInput value={productSearch} onChangeText={setProductSearch} placeholder={tr("Search products or SKU")} style={s.searchInput}/></View>
               <ScrollView nestedScrollEnabled style={s.productOptions}>{visibleProducts.slice(0, 100).map(product => { const applied = appliedCountForProduct(product); const alreadyApplied = applied >= product.variantCount; return <Pressable key={product.id} accessibilityRole="checkbox" accessibilityState={{ checked: productIds.includes(product.id), disabled: alreadyApplied }} disabled={alreadyApplied} onPress={() => toggle(productIds, setProductIds, product.id)} style={[s.optionRow, alreadyApplied && s.disabled]}><View style={[s.checkbox, productIds.includes(product.id) && s.checked]}>{productIds.includes(product.id) && <Ionicons name="checkmark" size={14} color={colors.white}/>}</View><View style={s.productCopy}><Text numberOfLines={1} style={s.optionText}>{product.name}</Text><Text style={s.productMeta}>{product.sku} · {product.categoryName} · {alreadyApplied ? "Already applied" : applied > 0 ? `Partially applied · ${product.variantCount - applied} variants remaining` : "Not applied"}</Text></View></Pressable>; })}{visibleProducts.length > 100 && <Text style={s.productMeta}>Showing first 100 matches. Search to narrow the list.</Text>}{visibleProducts.length === 0 && !applyOptionsLoading && <Text style={s.productMeta}>No products found.</Text>}</ScrollView></>}
           </>}
           <Text style={s.warning}>Applying this replaces any currently active offer on the selected variants. Previous prices remain in price history.</Text>

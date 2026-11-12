@@ -19,3 +19,27 @@ public record StockAdjustmentDto(
     string UserName,
     DateTime CreatedAt
 );
+
+// Product stock timeline (newest first). AffectsStock=false for damaged-unit events: damaged units
+// are kept in a separate count and never part of sellable stock.
+public record StockHistoryEntryDto(
+    Guid Id,
+    string MovementType,
+    string Reason,
+    decimal Qty,
+    bool AffectsStock,
+    decimal BalanceAfter,
+    string? Note,
+    string? UserName,
+    DateTime CreatedAt,
+    string? RefKind,      // PO | ORDER | null
+    Guid? RefId,
+    string? RefNo,
+    string? Tag);         // DAMAGED | null
+
+public record StockHistoryDto(
+    decimal OnHand,
+    decimal Committed,
+    decimal Damaged,
+    decimal OpeningWithoutHistory,   // stock that existed before any recorded movement (old/seed data)
+    List<StockHistoryEntryDto> Entries);

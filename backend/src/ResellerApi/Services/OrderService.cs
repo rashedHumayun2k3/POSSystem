@@ -238,6 +238,34 @@ public class OrderService : IOrderService
             // do not apply. Stock was committed above; mark it as completed at the counter.
             if (isPosSale)
             {
+                // The customer takes the goods at the counter: move them out of physical stock now
+                // (same as courier handover) instead of leaving them reserved forever.
+                await using var posTx = _db.Database.IsRelational() && _db.Database.CurrentTransaction == null
+                    ? await _db.Database.BeginTransactionAsync() : null;
+                foreach (var item in order.Items.Where(i => i.DeletedAt == null))
+                {
+                    var inv = (_db.Database.IsSqlServer()
+                        ? await _db.BranchVariantInventories
+                            .FromSqlRaw("SELECT * FROM branch_variant_inventories WITH (UPDLOCK) WHERE [BranchId] = {0} AND [VariantId] = {1}", order.BranchId, item.VariantId)
+                            .FirstOrDefaultAsync()
+                        : await _db.BranchVariantInventories.FirstOrDefaultAsync(i => i.BranchId == order.BranchId && i.VariantId == item.VariantId))
+                        ?? throw new InvalidOperationException($"Inventory record not found for variant {item.VariantId}.");
+                    inv.OnHand -= item.Qty;
+                    inv.Committed = Math.Max(0, inv.Committed - item.Qty);
+                    _db.StockMovements.Add(new StockMovement
+                    {
+                        BusinessId = _db.CurrentBusinessId,
+                        BranchId = order.BranchId,
+                        VariantId = item.VariantId,
+                        MovementType = "SALE_OUT",
+                        Qty = -item.Qty,
+                        ReferenceType = "Order",
+                        ReferenceId = order.Id,
+                        UserId = userId,
+                        Note = "POS sale"
+                    });
+                }
+
                 order.FulfillmentStatus = "DELIVERED";
                 order.DeliveredAt = DateTime.UtcNow;
                 order.OrderStatus = "COMPLETED";
@@ -259,6 +287,7 @@ public class OrderService : IOrderService
                     UserId = userId
                 });
                 await _db.SaveChangesAsync();
+                if (posTx != null) await posTx.CommitAsync();
             }
         }
 
@@ -277,7 +306,7 @@ public class OrderService : IOrderService
                     && (o.Source == "POS" || o.Channel == "SHOP" || o.Channel == "HAWKER"))));
         if (dueOnly)
             query = query.Where(o => o.PaymentTerms == "CREDIT" && !o.IsDraft
-                && o.OrderStatus == "COMPLETED" && o.FulfillmentStatus != "RETURNED"
+                && o.OrderStatus == "COMPLETED"
                 && (o.Source == "POS" || o.Channel == "SHOP" || o.Channel == "HAWKER"));
         var ordered = query.OrderByDescending(o => o.BusinessDate).ThenByDescending(o => o.CreatedAt);
         var orders = await (dueOnly ? ordered : ordered.Take(200)).ToListAsync();
@@ -358,7 +387,7 @@ public class OrderService : IOrderService
                 o.FulfillmentStatus == "IN_TRANSIT" ? "PENDING" : o.FulfillmentStatus,
             Issue = o.IsDraft && o.OrderStatus != "CANCELLED" && o.Items.Any(i => i.DeletedAt == null &&
                 (_db.BranchVariantInventories.Where(s => s.BranchId == o.BranchId && s.VariantId == i.VariantId)
-                    .Select(s => (decimal?)(s.OnHand - s.Committed - s.Damaged)).FirstOrDefault() ?? 0) < i.Qty)
+                    .Select(s => (decimal?)(s.OnHand - s.Committed)).FirstOrDefault() ?? 0) < i.Qty)
         });
         var grouped = await queues.GroupBy(o => o.Queue).Select(g => new { Key = g.Key, Count = g.Count() }).ToListAsync();
         var counts = grouped.ToDictionary(g => g.Key, g => g.Count);
@@ -675,10 +704,11 @@ public class OrderService : IOrderService
 
     // ── Delete (soft, OWNER-only) ──────────────────────────────────────────────
 
-    public async Task DeleteAsync(Guid id, string reason, Guid userId)
+    public async Task DeleteAsync(Guid id, string reason, Guid userId, decimal? refundAmount = null, string? refundMethod = null)
     {
         var order = await _db.Orders
             .Include(o => o.Items)
+            .Include(o => o.Payments)
             .FirstOrDefaultAsync(o => o.Id == id)
             ?? throw new KeyNotFoundException("Order not found.");
 
@@ -719,6 +749,10 @@ public class OrderService : IOrderService
                 }
             }
 
+            // A deleted order disappears from the cash book with its payments, so money that is
+            // still kept must not be hidden this way: refund it, or cancel the order instead.
+            if (ApplyAdvanceRefund(order, refundAmount, refundMethod, userId) > 0)
+                throw new InvalidOperationException("অগ্রিম টাকা আছে — ফেরত দিন অথবা অর্ডারটি বাতিল করুন।");
             order.CancelledReason = reason;
             order.DeletedAt = DateTime.UtcNow;
 
@@ -887,6 +921,7 @@ public class OrderService : IOrderService
         var order = await _db.Orders
             .Include(o => o.Items)
             .Include(o => o.Customer)
+            .Include(o => o.Payments)
             .FirstOrDefaultAsync(o => o.Id == id)
             ?? throw new KeyNotFoundException("Order not found.");
 
@@ -903,9 +938,31 @@ public class OrderService : IOrderService
                     $"Return window of {windowDays} days has expired (delivered {order.DeliveredAt.Value:yyyy-MM-dd}).");
         }
 
-        var validResolutions = new[] { "COURIER_RETURN", "REFUND", "STORE_CREDIT", "REPLACE_SAME", "EXCHANGE_DIFFERENT" };
+        var validResolutions = new[] { "COURIER_RETURN", "REFUND", "STORE_CREDIT", "REPLACE_SAME", "EXCHANGE_DIFFERENT", "DUE_ADJUST" };
         if (!validResolutions.Contains(request.ResolutionType))
             throw new InvalidOperationException($"Invalid resolution type '{request.ResolutionType}'.");
+
+        // One product may come back as part good, part damaged (two rows for the same item),
+        // but never more than was ordered.
+        if (request.Items.Count == 0 || request.Items.Any(i => i.Qty <= 0))
+            throw new InvalidOperationException("Choose at least one product to return.");
+        if (request.Items.Any(i => i.Inspection != "SELLABLE" && i.Inspection != "DAMAGED"))
+            throw new InvalidOperationException("Each returned item must be marked good or damaged.");
+        foreach (var g in request.Items.GroupBy(i => i.OrderItemId))
+        {
+            var ordered = order.Items.FirstOrDefault(i => i.Id == g.Key && i.DeletedAt == null)
+                ?? throw new KeyNotFoundException($"Order item {g.Key} not found.");
+            if (g.Sum(i => i.Qty) > ordered.Qty)
+                throw new InvalidOperationException("Returned quantity is more than the ordered quantity.");
+        }
+
+        // Money actually received (adjustments against due are not cash).
+        var cashPaid = order.Payments.Where(p => p.Method != "RETURN_ADJUST").Sum(p => p.Amount);
+        var dueNow = Math.Max(0, ComputeTotal(order) - order.Payments.Sum(p => p.Amount));
+        if (request.ResolutionType == "REFUND" && request.RefundAmount > cashPaid)
+            throw new InvalidOperationException($"Refund cannot be more than the ৳{cashPaid:N2} received.");
+        if (request.ResolutionType == "DUE_ADJUST" && (request.RefundAmount is not > 0 || request.RefundAmount > dueNow))
+            throw new InvalidOperationException($"Due adjustment must be between ৳0 and ৳{dueNow:N2}.");
 
         await using var tx = await _db.Database.BeginTransactionAsync();
         try
@@ -928,6 +985,7 @@ public class OrderService : IOrderService
                     "STORE_CREDIT" => "Store credit return",
                     "REPLACE_SAME" => "Replacement return",
                     "EXCHANGE_DIFFERENT" => "Exchange return",
+                    "DUE_ADJUST" => "Return against due",
                     _ => "Customer return"
                 };
 
@@ -978,8 +1036,21 @@ public class OrderService : IOrderService
                     UserId = userId
                 });
                 // Mark order as refunded if full amount returned
-                var totalPaid = order.Payments.Sum(p => p.Amount) - request.RefundAmount.Value;
+                var totalPaid = cashPaid - request.RefundAmount.Value;
                 order.PaymentStatus = totalPaid <= 0 ? "REFUNDED" : "PARTIALLY_PAID";
+            }
+            else if (request.ResolutionType == "DUE_ADJUST")
+            {
+                // Returned goods reduce what the customer owes. No cash moves (cash reports ignore this method).
+                _db.OrderPayments.Add(new OrderPayment
+                {
+                    OrderId = order.Id,
+                    Method = "RETURN_ADJUST",
+                    Amount = request.RefundAmount!.Value,
+                    ReceivedAt = DateTime.UtcNow,
+                    UserId = userId
+                });
+                order.PaymentStatus = request.RefundAmount.Value >= dueNow ? "PAID" : "PARTIALLY_PAID";
             }
             else if (request.ResolutionType == "STORE_CREDIT" && request.RefundAmount is > 0 && order.Customer != null)
             {
@@ -1029,6 +1100,22 @@ public class OrderService : IOrderService
 
     // ── Cancel ────────────────────────────────────────────────────────────────
 
+    // Gives back advance money when an order is cancelled/deleted. Returns money still kept after this.
+    private decimal ApplyAdvanceRefund(Order order, decimal? amount, string? method, Guid userId)
+    {
+        var received = order.Payments.Where(p => p.Method != "RETURN_ADJUST").Sum(p => p.Amount);
+        if (amount is not > 0) return received;
+        var wallet = (method ?? "").Trim().ToUpperInvariant();
+        if (wallet is not ("CASH" or "BKASH" or "NAGAD"))
+            throw new InvalidOperationException("Choose Cash, bKash or Nagad for the refund.");
+        if (amount.Value > received)
+            throw new InvalidOperationException($"Refund cannot be more than the ৳{received:N2} received.");
+        _db.OrderPayments.Add(new OrderPayment { OrderId = order.Id, Method = $"REFUND_{wallet}", Amount = -amount.Value, ReceivedAt = DateTime.UtcNow, UserId = userId });
+        var left = received - amount.Value;
+        order.PaymentStatus = left <= 0 ? "REFUNDED" : "PARTIALLY_PAID";
+        return left;
+    }
+
     public async Task<OrderDetailDto> CancelAsync(Guid id, CancelOrderRequest request, Guid userId)
     {
         if (string.IsNullOrWhiteSpace(request.Reason))
@@ -1036,6 +1123,7 @@ public class OrderService : IOrderService
 
         var order = await _db.Orders
             .Include(o => o.Items)
+            .Include(o => o.Payments)
             .FirstOrDefaultAsync(o => o.Id == id)
             ?? throw new KeyNotFoundException("Order not found.");
 
@@ -1074,6 +1162,7 @@ public class OrderService : IOrderService
                 }
             }
 
+            ApplyAdvanceRefund(order, request.RefundAmount, request.RefundMethod, userId);
             var prevOrder = order.OrderStatus;
             order.OrderStatus = "CANCELLED";
             order.CancelledReason = request.Reason.Trim();

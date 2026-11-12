@@ -437,6 +437,11 @@ public class ProductsController : ControllerBase
     public async Task<IActionResult> GetStockAdjustments(Guid variantId)
         => Ok(await _stockAdjSvc.GetHistoryAsync(variantId));
 
+    [HttpGet("variants/{variantId:guid}/stock-history")]
+    [Authorize(Roles = Roles.OwnerOrManager)]
+    public async Task<IActionResult> GetStockHistory(Guid variantId)
+        => Ok(await _stockAdjSvc.GetTimelineAsync(variantId));
+
     [HttpPost("variants/{variantId:guid}/stock-adjustments")]
     [Authorize(Roles = Roles.OwnerOrManager)]
     public async Task<IActionResult> AdjustStock(Guid variantId, [FromBody] AdjustStockRequest request)

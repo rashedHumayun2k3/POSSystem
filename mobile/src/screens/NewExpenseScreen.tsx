@@ -52,7 +52,7 @@ export default function NewExpenseScreen({ productId, onSaved, onClose, onSaving
        const result=await DocumentPicker.getDocumentAsync({type:["image/jpeg","image/png","image/webp","application/pdf"],copyToCacheDirectory:true,multiple:false});
        if(result.canceled)return;
        const file=result.assets[0];
-       if(file.size!=null&&file.size>5*1024*1024)throw new Error(lang==="bn"?"ফাইল ৫ এমবি বা তার কম হতে হবে।":"File must be 5MB or smaller.");
+       if(file.size!=null&&file.size>5*1024*1024)throw new Error(lang==="bn"?"ফাইল 5 এমবি বা তার কম হতে হবে।":"File must be 5MB or smaller.");
        const form=new FormData();
        if(Platform.OS==="web"&&file.file)form.append("file",file.file,file.name);
        else form.append("file",{uri:file.uri,name:file.name,type:file.mimeType||"application/octet-stream"} as never);
@@ -84,12 +84,12 @@ export default function NewExpenseScreen({ productId, onSaved, onClose, onSaving
  {fundingSource==="CASH"&&<ExpenseCashPaymentFields active={step==="note"} value={cashInputs} onChange={setCashInputs} amount={Number(amount)} disabled={saving}/>}
 
  </>}{!!fundingError&&<><Text style={s.error}>{fundingError}</Text><Pressable disabled={fundingLoading||saving} onPress={()=>void refreshFunding()}><Text style={s.retryText}>Retry</Text></Pressable></>}</View>
- <TextInput value={note} onChangeText={setNote} multiline placeholder="Note (optional)" placeholderTextColor={colors.muted} style={s.note}/>{!!error&&<Text style={s.error}>{error}</Text>}{!!pendingFunding&&<Text accessibilityRole="alert" style={s.warning}>{pendingFunding}</Text>}<Pressable disabled={saving||!!pendingFunding} onPress={()=>void save()} style={[s.primary,(saving||!!pendingFunding)&&s.disabled]}>{saving?<ActivityIndicator color={colors.white}/>:<Text style={s.primaryText}>{t("poCostPayment.confirm")}</Text>}</Pressable></Sheet></Modal>
+ <TextInput value={note} onChangeText={setNote} multiline placeholder={t("Note (optional)")} placeholderTextColor={colors.muted} style={[s.note,!note&&{fontSize:12}]}/>{!!error&&<Text style={s.error}>{error}</Text>}{!!pendingFunding&&<Text accessibilityRole="alert" style={s.warning}>{pendingFunding}</Text>}<Pressable disabled={saving||!!pendingFunding} onPress={()=>void save()} style={[s.primary,(saving||!!pendingFunding)&&s.disabled]}>{saving?<ActivityIndicator color={colors.white}/>:<Text style={s.primaryText}>{t("poCostPayment.confirm")}</Text>}</Pressable></Sheet></Modal>
 
  <Modal visible={step==="document"} transparent animationType="fade" onRequestClose={finishExpense}><Sheet mobile={mobile}>
  <Text style={s.sheetTitle}>{lang==="bn"?"খরচের স্লিপ / ডকুমেন্ট আপলোড করুন":"Upload expense slip / document"}</Text>
  <Text style={s.fundingHint}>{lang==="bn"?"পেমেন্ট সেভ হয়েছে। চাইলে এই খরচের স্লিপ আপলোড করুন। আপলোড করা বাধ্যতামূলক নয়।":"Payment saved. You can upload a slip for this expense. Uploading is optional."}</Text>
- <Text style={s.subtitle}>JPG · PNG · WebP · PDF · {lang==="bn"?"সর্বোচ্চ ৫ এমবি":"Up to 5MB"}</Text>
+ <Text style={s.subtitle}>JPG · PNG · WebP · PDF · {lang==="bn"?"সর্বোচ্চ 5 এমবি":"Up to 5MB"}</Text>
  {!!error&&<Text accessibilityRole="alert" style={s.error}>{error}</Text>}
  <Pressable accessibilityRole="button" disabled={uploading} onPress={()=>void uploadDocument()} style={[s.primary,uploading&&s.disabled]}>{uploading?<ActivityIndicator color={colors.white}/>:<Text style={s.primaryText}>{lang==="bn"?"আপলোড":"Upload"}</Text>}</Pressable>
  <Pressable accessibilityRole="button" disabled={uploading} onPress={finishExpense} style={[s.chip,{alignItems:"center",justifyContent:"center"}]}><Text style={[s.chipText,{textAlign:"center"}]}>{lang==="bn"?"আপলোড করতে চাই না":"Don’t upload"}</Text></Pressable>

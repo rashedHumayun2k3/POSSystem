@@ -176,6 +176,10 @@ export default function MoreScreen() {
         </View>}
       </View>;
     })}
+    {!query && <Pressable accessibilityRole="button" onPress={() => router.push({ pathname: "/profile", params: { logout: "1" } } as never)} style={({ pressed }) => [s.card, s.row, s.logoutCard, pressed && s.pressed]}>
+      <View style={[s.iconBox, s.logoutIcon]}><Ionicons name="log-out-outline" size={21} color={colors.danger} /></View>
+      <View style={s.copy}><Text style={[s.title, { color: colors.danger }]}>Logout</Text></View>
+    </Pressable>}
   </ScrollView>;
 }
 
@@ -190,6 +194,8 @@ const s = StyleSheet.create({
   accordion: { borderColor: colors.border, backgroundColor: colors.primaryLight },
   row: { minHeight: 64, flexDirection: "row", alignItems: "center", gap: 14, paddingHorizontal: 16, paddingVertical: 10 },
   pressed: { opacity: 0.72, transform: [{ scale: 0.99 }] },
+  logoutCard: { marginTop: 4 },
+  logoutIcon: { backgroundColor: colors.dangerBackground },
   iconBox: { width: 40, height: 40, flexShrink: 0, alignItems: "center", justifyContent: "center", borderRadius: 12, backgroundColor: colors.cardSecondary },
   accordionIcon: { backgroundColor: colors.border },
   copy: { flex: 1, minWidth: 0 },

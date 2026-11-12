@@ -53,7 +53,7 @@ function SoldProducts({report}:{report:ProductProfitReport}){
 }
 function RangeBar({period,lang,onPeriod,dateMode,onCustom}:{period:ReportPeriod;lang:string;onPeriod:(v:ReportPeriod)=>void;dateMode:boolean;onCustom:()=>void}){
   const {t}=useLanguage();
-  const items:Array<{value:ReportPeriod|"custom";label:string}>=[{value:"today",label:lang==="bn"?"আজ":"Today"},{value:"7d",label:lang==="bn"?"৭ দিন":"7D"},{value:"30d",label:lang==="bn"?"৩০ দিন":"30D"},{value:"3m",label:lang==="bn"?"৩ মাস":"3M"},{value:"6m",label:lang==="bn"?"৬ মাস":"6M"},{value:"custom",label:t("salesReportLabels.customDate")}];
+  const items:Array<{value:ReportPeriod|"custom";label:string}>=[{value:"today",label:lang==="bn"?"আজ":"Today"},{value:"7d",label:lang==="bn"?"7 দিন":"7D"},{value:"30d",label:lang==="bn"?"30 দিন":"30D"},{value:"3m",label:lang==="bn"?"3 মাস":"3M"},{value:"6m",label:lang==="bn"?"6 মাস":"6M"},{value:"custom",label:t("salesReportLabels.customDate")}];
   return <View style={s.rangeWrap}><ReportPeriodTabs items={items} selected={dateMode?"custom":period} onChange={value=>value==="custom"?onCustom():onPeriod(value)}/></View>;
 }
 function Metric({label,value,icon}:{label:string;value:string;icon:keyof typeof Ionicons.glyphMap}){return <View style={s.metric}><View style={s.metricTop}><Text style={s.metricLabel}>{label}</Text><Ionicons name={icon} size={16} color={colors.primaryDark}/></View><Text numberOfLines={1} adjustsFontSizeToFit style={s.metricValue}>{value}</Text></View>}

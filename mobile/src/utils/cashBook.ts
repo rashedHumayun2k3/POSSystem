@@ -2,10 +2,10 @@ export type CashSource = "CASH" | "BKASH" | "NAGAD" | "CARD" | "ALL";
 export type CashFilter = "ALL" | "IN" | "OUT";
 export type CashPeriod = "TODAY" | "7D" | "MONTH" | "CUSTOM";
 // IN: sales, partner investments. OUT: refunds, expenses, purchase payments from business capital.
-export type CashKind = "PAYMENT" | "REFUND" | "EXPENSE" | "PURCHASE" | "INVESTMENT" | "WITHDRAWAL";
+export type CashKind = "PAYMENT" | "REFUND" | "EXPENSE" | "PURCHASE" | "INVESTMENT" | "WITHDRAWAL" | "COURIER";
 
 export type CashRow = {
-  id: string; referenceId: string; referenceType: "ORDER" | "EXPENSE" | "PURCHASE" | "CAPITAL" | "WITHDRAW"; kind: CashKind; source: string;
+  id: string; referenceId: string; referenceType: "ORDER" | "EXPENSE" | "PURCHASE" | "CAPITAL" | "WITHDRAW" | "REMIT"; kind: CashKind; source: string;
   amount: number; title: string; at: string; date: string; firstProduct?: string | null; productCount: number;
 };
 export type CashDay = { date: string; moneyIn: number; moneyOut: number; closing: number };
@@ -18,9 +18,10 @@ export type CashBookReport = {
 };
 
 export const kindLabel: Record<CashKind, string> = {
-  PAYMENT: "Sale", REFUND: "Refund", EXPENSE: "Expense", PURCHASE: "Purchase payment", INVESTMENT: "Partner investment", WITHDRAWAL: "Partner withdrawal",
+  PAYMENT: "Sale", REFUND: "Refund", EXPENSE: "Expense", PURCHASE: "Purchase payment", INVESTMENT: "Partner investment", WITHDRAWAL: "Partner withdrawal", COURIER: "Courier payment",
 };
-export const sourceLabel = (source: string) => source === "BKASH" ? "bKash" : source === "NAGAD" ? "Nagad" : source === "CARD" ? "Card" : source === "ALL" ? "All" : "Cash";
+// "হাতে নগদ" (cash in hand) so it is never confused with the Nagad wallet.
+export const sourceLabel = (source: string, lang?: string) => source === "BKASH" ? "bKash" : source === "NAGAD" ? "Nagad" : lang === "bn" ? (source === "CARD" ? "কার্ড" : source === "ALL" ? "সব" : "ক্যাশ") : source === "CARD" ? "Card" : source === "ALL" ? "All" : "Cash";
 export const balanceOf = (form: { cash: number; bkash: number; nagad: number }, source: string) => source === "BKASH" ? form.bkash : source === "NAGAD" ? form.nagad : form.cash;
 
 const shift = (value: string, days: number) => {

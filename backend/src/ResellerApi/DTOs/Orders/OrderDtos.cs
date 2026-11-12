@@ -180,8 +180,9 @@ public record ReturnOrderRequest(
     string? Note
 );
 
-public record CancelOrderRequest(string Reason);
-public record DeleteOrderRequest(string Reason);
+// RefundAmount/RefundMethod: give back (part of) the advance in the same step. Empty = keep the money.
+public record CancelOrderRequest(string Reason, decimal? RefundAmount = null, string? RefundMethod = null);
+public record DeleteOrderRequest(string Reason, decimal? RefundAmount = null, string? RefundMethod = null);
 
 // ── Revise (reduce/remove line items, pre-fulfillment) ─────────────────────────
 
@@ -225,7 +226,7 @@ public record OrderItemDto(
     decimal? UnitCostSnapshot,
     decimal? LineProfit,
     bool IsDamagedItem,
-    // Current available stock (OnHand - Committed - Damaged) at the order's branch, at read
+    // Current available stock (OnHand - Committed) at the order's branch, at read
     // time — same field/semantics as OrderListItemSummaryDto.AvailableStock.
     decimal AvailableStock
 );
@@ -261,7 +262,7 @@ public record OrderListItemSummaryDto(
     string ProductName,
     string VariantSku,
     decimal Qty,
-    // Current available stock (OnHand - Committed - Damaged) at the order's branch, at read
+    // Current available stock (OnHand - Committed) at the order's branch, at read
     // time — lets staff see at a glance whether a not-yet-confirmed order can actually be
     // fulfilled before they call the customer to confirm it.
     decimal AvailableStock,

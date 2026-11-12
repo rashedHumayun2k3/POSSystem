@@ -7,13 +7,15 @@ import { Text } from "../i18n/LocalizedText";
 import { useAuth } from "../auth/AuthContext";
 import { useModalChrome } from "./ModalChromeContext";
 import { colors } from "../theme";
+import { useLanguage } from "../i18n/LanguageContext";
 
 export type OrderCustomer = { id: string; name: string; phone: string; address?: string | null };
 
-type Props = { visible: boolean; onClose: () => void; onSelect: (customer: OrderCustomer) => void };
+type Props = { visible: boolean; onClose: () => void; onSelect: (customer: OrderCustomer) => void; addressRequired?: boolean };
 const digits = (value: string) => value.replace(/\D/g, "");
 
-export default function OrderCustomerPicker({ visible, onClose, onSelect }: Props) {
+export default function OrderCustomerPicker({ visible, onClose, onSelect, addressRequired = true }: Props) {
+  const { t: tr } = useLanguage();
   const auth = useAuth();
   const api = useRef(auth.api); api.current = auth.api;
   const { width } = useWindowDimensions();
@@ -66,7 +68,10 @@ export default function OrderCustomerPicker({ visible, onClose, onSelect }: Prop
   const reset = () => { setSearch(""); setAdding(false); setName(""); setPhone(""); setAddress(""); setPhoneMatches([]); };
   const close = () => { reset(); onClose(); };
   const choose = (customer: OrderCustomer) => { reset(); onSelect(customer); };
-  const canUseNew = !!name.trim() && !!phone.trim() && !!address.trim() && !checkingPhone && phoneMatches.length === 0;
+  // Bangladesh mobile: 01XXXXXXXXX (11 digits), optional +88 / 88 prefix.
+  const phoneValid = /^(?:\+?88)?01[3-9]\d{8}$/.test(phone.trim());
+  const missing = !phone.trim() ? "মোবাইল নম্বর দিন" : !phoneValid ? "সঠিক মোবাইল নম্বর দিন (01XXXXXXXXX)" : !name.trim() ? "গ্রাহকের নাম দিন" : addressRequired && !address.trim() ? "ঠিকানা দিন" : "";
+  const canUseNew = !missing && !checkingPhone && phoneMatches.length === 0;
 
   return <Modal visible={visible} transparent animationType={desktop ? "fade" : "slide"} onShow={() => { if (!desktop) setTimeout(() => (adding ? phoneInput.current : searchInput.current)?.focus(), 250); }} onRequestClose={close}>
     <KeyboardAvoidingView style={s.keyboard} behavior="padding" enabled={!desktop && Platform.OS === "ios"}>
@@ -80,19 +85,20 @@ export default function OrderCustomerPicker({ visible, onClose, onSelect }: Prop
             <Pressable accessibilityLabel="Close customer picker" onPress={close} hitSlop={8}><Ionicons name="close" size={23} color={colors.secondary}/></Pressable>
           </View>
           {!adding ? <>
-            <View style={s.searchBox}><Ionicons name="search-outline" size={18} color={colors.muted}/><TextInput ref={searchInput} accessibilityLabel="Search customers" value={search} onChangeText={setSearch} placeholder="Search by phone or name" placeholderTextColor={colors.muted} style={s.search} returnKeyType="search"/>{!!search&&<Pressable onPress={()=>setSearch("")}><Ionicons name="close-circle" size={18} color={colors.muted}/></Pressable>}</View>
+            <View style={s.searchBox}><Ionicons name="search-outline" size={18} color={colors.muted}/><TextInput ref={searchInput} accessibilityLabel="Search customers" value={search} onChangeText={setSearch} placeholder={tr("Search by phone or name")} placeholderTextColor={colors.muted} style={s.search} returnKeyType="search"/>{!!search&&<Pressable onPress={()=>setSearch("")}><Ionicons name="close-circle" size={18} color={colors.muted}/></Pressable>}</View>
             {!!error && <Text style={s.error}>{error}</Text>}
             <ScrollView style={s.list} keyboardShouldPersistTaps="handled" keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"} contentContainerStyle={s.listContent}>
               {loading ? <ActivityIndicator color={colors.primary} style={s.loader}/> : customers.length ? customers.map(customer=><Pressable key={customer.id} onPress={()=>choose(customer)} style={s.customerRow}><View style={s.avatar}><Ionicons name="person-outline" size={18} color={colors.primaryDark}/></View><View style={s.customerCopy}><Text style={s.customerName}>{customer.name}</Text><Text style={s.meta}>{customer.phone}</Text>{!!customer.address&&<Text numberOfLines={1} style={s.meta}>{customer.address}</Text>}</View><Ionicons name="chevron-forward" size={17} color={colors.muted}/></Pressable>) : <Text style={s.empty}>{search.trim()?"No matching customers found.":"No customers found yet."}</Text>}
             </ScrollView>
           </> : <ScrollView contentContainerStyle={s.form} keyboardShouldPersistTaps="handled">
             <Text style={s.formHint}>Enter the customer details. The customer will be saved when the order or sale is completed.</Text>
-            <Field label="PHONE NUMBER"><TextInput ref={phoneInput} accessibilityLabel="Phone number" value={phone} onChangeText={setPhone} placeholder="Phone number" placeholderTextColor={colors.muted} keyboardType="phone-pad" style={s.input}/></Field>
+            <Field label="PHONE NUMBER"><TextInput ref={phoneInput} accessibilityLabel="Phone number" value={phone} onChangeText={v => setPhone(v.replace(/(?!^\+)[^\d]/g, "").slice(0, 14))} placeholder="01XXXXXXXXX" placeholderTextColor={colors.muted} keyboardType="phone-pad" style={s.input}/></Field>
             {!!phoneMatches.length && <View style={s.duplicate}><Text style={s.duplicateText}>This mobile number already belongs to {phoneMatches[0].name}. Select that customer to avoid a duplicate.</Text><Pressable onPress={()=>choose(phoneMatches[0])} style={s.useExisting}><Text style={s.useExistingText}>Use existing customer</Text></Pressable></View>}
             {checkingPhone && <Text style={s.meta}>Checking phone number…</Text>}
-            <Field label="CUSTOMER NAME"><TextInput accessibilityLabel="Customer name" value={name} onChangeText={setName} placeholder="Customer name" placeholderTextColor={colors.muted} style={s.input}/></Field>
-            <Field label="DELIVERY ADDRESS"><TextInput accessibilityLabel="Customer address" value={address} onChangeText={setAddress} placeholder="Customer address" placeholderTextColor={colors.muted} multiline style={[s.input,s.addressInput]}/></Field>
+            <Field label="CUSTOMER NAME"><TextInput accessibilityLabel="Customer name" value={name} onChangeText={setName} placeholder={tr("Customer name")} placeholderTextColor={colors.muted} style={s.input}/></Field>
+            <Field label={addressRequired ? "DELIVERY ADDRESS" : "ADDRESS (OPTIONAL)"}><TextInput accessibilityLabel="Customer address" value={address} onChangeText={setAddress} placeholder={tr("Customer address")} placeholderTextColor={colors.muted} multiline style={[s.input,s.addressInput,!address&&{fontSize:12}]}/></Field>
             {!!error&&<Text style={s.error}>{error}</Text>}
+            {!!missing && !!(phone.trim() || name.trim()) && <Text style={s.error}>{missing}</Text>}
             <Pressable disabled={!canUseNew} onPress={()=>choose({id:"new",name:name.trim(),phone:phone.trim(),address:address.trim()})} style={[s.saveButton,!canUseNew&&s.disabled]}><Text style={s.saveText}>Use new customer</Text></Pressable>
           </ScrollView>}
         </SafeAreaView>

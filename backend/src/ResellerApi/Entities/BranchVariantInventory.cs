@@ -12,5 +12,5 @@ public class BranchVariantInventory
     public ProductVariant Variant { get; set; } = null!;
 
     // Computed — not stored
-    public decimal Available => OnHand - Committed - Damaged;
+    public decimal Available => OnHand - Committed;
 }

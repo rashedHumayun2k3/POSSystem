@@ -59,6 +59,7 @@ public class PartnerService : IPartnerService
             throw new ArgumentException("NID number is required.");
         if (string.IsNullOrWhiteSpace(request.Address))
             throw new ArgumentException("Address is required.");
+        ValidatePartnerDetails(request.NidNumber, request.Email, request.BankAccountNumber, request.AgreedProfitSharePct);
         var phone = NormalizeOptionalBangladeshMobile(request.Phone, "Partner phone");
         var emergencyContactPhone = NormalizeOptionalBangladeshMobile(request.EmergencyContactPhone, "Emergency contact phone");
         Guid? linkedUserId = request.LinkedUserId;
@@ -144,6 +145,7 @@ public class PartnerService : IPartnerService
             throw new ArgumentException("NID number is required.");
         if (string.IsNullOrWhiteSpace(request.Address))
             throw new ArgumentException("Address is required.");
+        ValidatePartnerDetails(request.NidNumber, request.Email, request.BankAccountNumber, request.AgreedProfitSharePct);
         var phone = NormalizeOptionalBangladeshMobile(request.Phone, "Partner phone");
         var emergencyContactPhone = NormalizeOptionalBangladeshMobile(request.EmergencyContactPhone, "Emergency contact phone");
         await ValidateLinkedUserAsync(request.PartnerType, request.LinkedUserId, id);
@@ -321,6 +323,19 @@ public class PartnerService : IPartnerService
             balance.CashInstallmentsPaisa, balance.PersonalExpensesPaisa, balance.OtherCapitalPaisa);
     }
 
+    // NID: 10, 13 or 17 digits. Email and bank account are optional but must look right when given.
+    private static void ValidatePartnerDetails(string nid, string? email, string? bankAccount, decimal? profitPct)
+    {
+        var n = nid.Trim();
+        if (!System.Text.RegularExpressions.Regex.IsMatch(n, @"^(\d{10}|\d{13}|\d{17})$"))
+            throw new ArgumentException("NID number must be 10, 13 or 17 digits.");
+        if (!string.IsNullOrWhiteSpace(email) && !System.Text.RegularExpressions.Regex.IsMatch(email.Trim(), @"^[^@\s]+@[^@\s]+\.[^@\s]+$"))
+            throw new ArgumentException("Enter a valid email address.");
+        if (!string.IsNullOrWhiteSpace(bankAccount) && !System.Text.RegularExpressions.Regex.IsMatch(bankAccount.Trim(), @"^[0-9\- ]{4,30}$"))
+            throw new ArgumentException("Bank account number can only contain digits.");
+        if (profitPct is < 0 or > 100)
+            throw new ArgumentException("Profit share must be between 0 and 100.");
+    }
     private static string? NormalizeOptionalBangladeshMobile(string? value, string fieldName)
     {
         if (string.IsNullOrWhiteSpace(value)) return null;

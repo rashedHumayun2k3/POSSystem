@@ -3,14 +3,18 @@ import { useLanguage } from "../../src/i18n/LanguageContext";
 import { Text } from "../../src/i18n/LocalizedText";
 import { useAuth } from "../../src/auth/AuthContext";
 import { colors } from "../../src/theme";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { router } from "expo-router";
+import PopupSheet from "../../src/components/PopupSheet";
+import { WALLETS, type Wallet } from "../../src/components/AdvanceRefundChoice";
+import { decimalInput } from "../../src/utils/numericInput";
 import {
   ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
   TextInput,
+  Text as PlainText,
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -34,6 +38,33 @@ const channels = [
   "🌐 MyWebsite",
   "Other",
 ] as const;
+
+const taka = (n: number) => `৳${Number((Number(n) || 0).toFixed(2)).toLocaleString("en-BD", { maximumFractionDigits: 2 })}`;
+
+// Shows an amount as text with a pencil; tap to edit inline, ✓ to finish.
+function AmountRow({ label, value, onChange, minus = false, addLabel }: { label: string; value: string; onChange: (v: string) => void; minus?: boolean; addLabel?: string }) {
+  const [editing, setEditing] = useState(false);
+  const amount = Number(value) || 0;
+  if (editing) return <View style={styles.paymentRow}>
+    <Text style={styles.paymentLabel}>{label}</Text>
+    <TextInput autoFocus keyboardType="decimal-pad" value={value} onChangeText={v => onChange(decimalInput(v))} onSubmitEditing={() => setEditing(false)} onBlur={() => setEditing(false)} selectTextOnFocus style={styles.moneyInput} accessibilityLabel={label} />
+    <Pressable accessibilityLabel="Done" hitSlop={8} onPress={() => setEditing(false)} style={styles.editIcon}><Ionicons name="checkmark" size={18} color={colors.primaryDark} /></Pressable>
+  </View>;
+  if (!amount && addLabel) return <Pressable onPress={() => setEditing(true)} style={styles.paymentRow}><Text style={styles.paymentLabel}>{label}</Text><Text style={styles.discountAction}>{addLabel}</Text></Pressable>;
+  return <Pressable accessibilityLabel={`Edit ${label}`} onPress={() => setEditing(true)} style={styles.paymentRow}>
+    <Text style={styles.paymentLabel}>{label}</Text>
+    <Text style={styles.paymentValue}>{minus && amount ? "− " : ""}{taka(amount)}</Text>
+    <Ionicons name="create-outline" size={16} color={colors.primaryDark} style={styles.editIcon} />
+  </Pressable>;
+}
+
+// Numbered section heading; the number turns into a green tick once the section is filled.
+function StepTitle({ n, done, title }: { n: number; done?: boolean; title: string }) {
+  return <View style={styles.stepTitle}>
+    <View style={[styles.stepBadge, done && styles.stepBadgeDone]}>{done ? <Ionicons name="checkmark" size={14} color={colors.white} /> : <Text style={styles.stepBadgeText}>{n}</Text>}</View>
+    <Text style={styles.stepTitleText}>{title}</Text>
+  </View>;
+}
 
 export default function NewOrderScreen() {
   const auth = useAuth();
@@ -85,13 +116,51 @@ export default function NewOrderScreen() {
   const [deliveryZone, setDeliveryZone] = useState<"inside" | "outside">(
     "outside",
   );
+  const deliveryZoneRef = useRef(deliveryZone); deliveryZoneRef.current = deliveryZone;
   const [deliveryCharge, setDeliveryCharge] = useState("120");
+  // Zone charges come from the default courier (Settings → Couriers); 60/120 only until it loads.
+  type CourierRow = { id: string; name: string; isActive?: boolean; isDefault?: boolean; insideDhakaCharge?: number; outsideDhakaCharge?: number; returnCharge?: number; codFeeType?: string; codFeeValue?: number; contact?: string | null; phone?: string | null; trackingUrlTemplate?: string | null };
+  const [defaultCourier, setDefaultCourier] = useState<CourierRow | null>(null);
+  const [zoneCharges, setZoneCharges] = useState({ inside: "60", outside: "120" });
+  const [chargeEditOpen, setChargeEditOpen] = useState(false);
+  const [chargeDraft, setChargeDraft] = useState({ inside: "", outside: "" });
+  const [chargeSaving, setChargeSaving] = useState(false);
+  const [chargeError, setChargeError] = useState("");
+  useEffect(() => {
+    let alive = true;
+    auth.api<CourierRow[]>("/couriers").then(rows => {
+      if (!alive) return;
+      const c = rows.find(r => r.isDefault && r.isActive !== false) ?? rows.find(r => r.isActive !== false) ?? null;
+      setDefaultCourier(c);
+      if (c) {
+        const next = { inside: String(c.insideDhakaCharge ?? 60), outside: String(c.outsideDhakaCharge ?? 120) };
+        setZoneCharges(next);
+        setDeliveryCharge(current => (current === "60" || current === "120") ? next[deliveryZoneRef.current] : current);
+      }
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, [auth.session?.businessId]);
+  const saveZoneCharges = async () => {
+    const inside = Number(chargeDraft.inside), outside = Number(chargeDraft.outside);
+    if (!Number.isFinite(inside) || !Number.isFinite(outside) || inside < 0 || outside < 0) { setChargeError(lang === "bn" ? "সঠিক টাকার পরিমাণ দিন।" : "Enter valid amounts."); return; }
+    setChargeSaving(true); setChargeError("");
+    try {
+      if (defaultCourier) {
+        const c = defaultCourier;
+        await auth.api(`/couriers/${c.id}`, { method: "PATCH", body: JSON.stringify({ name: c.name, insideDhakaCharge: inside, outsideDhakaCharge: outside, returnCharge: c.returnCharge ?? 0, codFeeType: c.codFeeType ?? "PCT", codFeeValue: c.codFeeValue ?? 0, contact: c.contact ?? c.phone ?? null, trackingUrlTemplate: c.trackingUrlTemplate ?? null, isActive: c.isActive !== false }) });
+        setDefaultCourier({ ...c, insideDhakaCharge: inside, outsideDhakaCharge: outside });
+      }
+      const next = { inside: String(inside), outside: String(outside) };
+      setZoneCharges(next); setDeliveryCharge(next[deliveryZone]); setChargeEditOpen(false);
+    } catch (e) { setChargeError((e as Error).message || (lang === "bn" ? "সেভ করা যায়নি।" : "Could not save.")); }
+    finally { setChargeSaving(false); }
+  };
   const [discount, setDiscount] = useState("0");
   const [showDiscount, setShowDiscount] = useState(false);
   const [advancePayment, setAdvancePayment] = useState("0");
   const [channel, setChannel] =
     useState<(typeof channels)[number]>("📘 Facebook");
-  const [noteOpen, setNoteOpen] = useState(false);
+  const [noteOpen, setNoteOpen] = useState(false); const [advanceMethod, setAdvanceMethod] = useState<Wallet>("BKASH"); const [advanceRef, setAdvanceRef] = useState(""); const [advanceOpen, setAdvanceOpen] = useState(false); const [advDraft, setAdvDraft] = useState({ amount: "", method: "BKASH" as Wallet, ref: "" }); const [channelEditing, setChannelEditing] = useState(false); const [addressEditing, setAddressEditing] = useState(false); const [orderNote, setOrderNote] = useState("");
   const payableTotal = Math.max(
     orderTotal + (Number(deliveryCharge) || 0) - (Number(discount) || 0),
     0,
@@ -100,6 +169,11 @@ export default function NewOrderScreen() {
     payableTotal - (Number(advancePayment) || 0),
     0,
   );
+  // Advance popup (same wallets as POS, no card): the money is recorded only when the order is saved.
+  const openAdvance = () => { setAdvDraft({ amount: Number(advancePayment) > 0 ? advancePayment : "", method: advanceMethod, ref: advanceRef }); setAdvanceOpen(true); };
+  const advNeedsRef = advDraft.method !== "CASH";
+  const advError = (() => { const v = Number(advDraft.amount); if (!advDraft.amount) return ""; if (!Number.isFinite(v) || v < 0) return lang === "bn" ? "সঠিক টাকার পরিমাণ দিন।" : "Enter a valid amount."; if (v > payableTotal) return lang === "bn" ? `মোট ${taka(payableTotal)}-এর বেশি হতে পারবে না।` : `Cannot be more than ${taka(payableTotal)}.`; if (v > 0 && advNeedsRef && !/^[a-z0-9]{1,100}$/i.test(advDraft.ref.trim())) return lang === "bn" ? "ট্রানজেকশন আইডি (TxID) লিখুন — শুধু ইংরেজি অক্ষর ও সংখ্যা।" : "Enter the transaction ID (letters and digits)."; return ""; })();
+  const confirmAdvance = () => { if (advError) return; setAdvancePayment(advDraft.amount || "0"); setAdvanceMethod(advDraft.method); setAdvanceRef(advDraft.method === "CASH" ? "" : advDraft.ref.trim()); setAdvanceOpen(false); };
   const submitOrder = async () => {
     if (submitting) return;
     if (!orderBranchId) { setSubmitError("Choose a branch before creating this order."); return; }
@@ -130,7 +204,9 @@ export default function NewOrderScreen() {
           discountValue: Number(discount) > 0 ? Number(discount) : undefined,
           deliveryChargeCustomer: Number(deliveryCharge) || 0,
           advancePaid: advance,
-          advancePaymentMethod: advance > 0 ? "CASH" : undefined,
+          advancePaymentMethod: advance > 0 ? advanceMethod : undefined,
+          advancePaymentReference: advance > 0 && advanceMethod !== "CASH" ? advanceRef : undefined,
+          note: noteOpen && orderNote.trim() ? orderNote.trim() : undefined,
         }),
       });
       router.replace({ pathname: "/orders/[id]", params: { id: order.id } });
@@ -185,17 +261,17 @@ export default function NewOrderScreen() {
         <View style={styles.titleCopy}>
           <PageTitle style={styles.title}>New Online Order</PageTitle>
           <Text style={styles.subtitle}>
-            Add products, customer details, and payment
+            {lang === "bn" ? "পণ্য, কাস্টমারের তথ্য ও পেমেন্ট যোগ করুন" : "Add products, customer details, and payment"}
           </Text>
         </View>
       </View>
 
       <Pressable accessibilityRole="button" onPress={()=>setShowSteps(true)} style={{alignSelf:"flex-start",paddingVertical:8}}><Text style={{color:colors.primaryDark,fontWeight:"600"}}>{lang==="bn"?"← অর্ডারের ধাপ":"← Order Steps"}</Text></Pressable>
-      <View style={styles.pinnedBranch}><Text style={styles.pinnedBranchLabel}>Order for branch</Text><Text style={styles.pinnedBranchName}>{branches.find(branch => branch.id === orderBranchId)?.name ?? ""}</Text></View>
+      <View style={styles.pinnedBranch}><Text style={styles.pinnedBranchLabel}>{lang === "bn" ? "যে শাখার অর্ডার" : "Order for branch"}</Text><Text style={styles.pinnedBranchName}>{branches.find(branch => branch.id === orderBranchId)?.name ?? ""}</Text></View>
 
       <View style={styles.section}>
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Products</Text>
+          <StepTitle n={1} done={productAdded} title={lang === "bn" ? "পণ্য" : "Products"} />
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Add Product"
@@ -242,14 +318,14 @@ export default function NewOrderScreen() {
                           size={14}
                           color={colors.successText}
                         />
-                        <Text style={styles.stockText}>Available in stock</Text>
+                        <Text style={styles.stockText}>{lang === "bn" ? "স্টকে আছে" : "Available in stock"}</Text>
                       </View>
                     </View>
                   </View>
                   <View style={styles.productControls}>
                     <View style={styles.controlColumn}>
                       <Text style={styles.controlLabel}>
-                        Price (৳ per piece)
+                        {lang === "bn" ? "দাম (প্রতি পিস ৳)" : "Price (৳ per piece)"}
                       </Text>
                       <TextInput
                         accessibilityLabel="Unit price"
@@ -311,12 +387,10 @@ export default function NewOrderScreen() {
                   </View>
                   <View style={styles.productTotalBar}>
                     <Text style={styles.totalEquation}>
-                      ৳{Number(unitPrice || 0).toLocaleString()} × {quantity}{" "}
-                      piece
-                      {quantity === 1 ? "" : "s"} =
+                      ৳{Number(unitPrice || 0).toLocaleString()} × {quantity}{" "}{lang === "bn" ? "পিস" : quantity === 1 ? "piece" : "pieces"} =
                     </Text>
                     <Text style={styles.productTotalText}>
-                      Total ৳{orderTotal.toFixed(2)}
+                      {lang === "bn" ? "মোট" : "Total"} ৳{orderTotal.toFixed(2)}
                     </Text>
                   </View>
                 </View>
@@ -336,14 +410,7 @@ export default function NewOrderScreen() {
           style={[styles.section, customer && styles.selectedCustomerSection]}
         >
           <View style={styles.sectionHeader}>
-            <Text
-              style={[
-                styles.sectionTitle,
-                customer && styles.selectedCustomerSectionTitle,
-              ]}
-            >
-              Customer
-            </Text>
+            <StepTitle n={2} done={customerAdded} title={lang === "bn" ? "কাস্টমার" : "Customer"} />
             {!customerOpen && !customerAdded && (
               <Pressable
                 accessibilityRole="button"
@@ -395,19 +462,22 @@ export default function NewOrderScreen() {
                 </Pressable>
               </View>
               <View style={styles.deliveryAddressBlock}>
-                <Text style={styles.deliveryAddressLabel}>
-                  Delivery address
-                </Text>
-                <TextInput
+                <Text style={styles.deliveryAddressLabel}>{lang === "bn" ? "ডেলিভারি ঠিকানা" : "Delivery address"}</Text>
+                {addressEditing || !customer.address?.trim() ? <TextInput
                   accessibilityLabel="Delivery address"
-                  placeholder="Customer address"
+                  autoFocus={addressEditing}
+                  placeholder={lang === "bn" ? "কাস্টমারের ঠিকানা লিখুন" : "Customer address"}
                   placeholderTextColor={colors.muted}
                   value={customer.address ?? ""}
                   onChangeText={(address) =>
                     setCustomer({ ...customer, address })
                   }
+                  onBlur={() => setAddressEditing(false)}
                   style={styles.deliveryAddressInput}
-                />
+                /> : <Pressable accessibilityLabel="Edit delivery address" onPress={() => setAddressEditing(true)} style={styles.addressView}>
+                  <Text style={styles.addressViewText}>{customer.address}</Text>
+                  <Ionicons name="create-outline" size={16} color={colors.primaryDark} />
+                </Pressable>}
               </View>
             </View>
           )}
@@ -416,8 +486,17 @@ export default function NewOrderScreen() {
 
       {customerAdded && (
         <View style={styles.channelSection}>
-          <Text style={styles.channelSectionTitle}>Channel</Text>
-          <View style={styles.channelOptions}>
+          <View style={styles.channelHeader}>
+            <StepTitle n={3} done={!!channel} title={lang === "bn" ? "চ্যানেল" : "Channel"} />
+            {!channelEditing && <View style={styles.channelCurrent}>
+              <Text style={styles.channelCurrentText}>{channel}</Text>
+              <Pressable accessibilityRole="button" accessibilityLabel="Change channel" hitSlop={8} onPress={() => setChannelEditing(true)} style={styles.channelChange}>
+                <Ionicons name="create-outline" size={16} color={colors.primaryDark} />
+                <Text style={styles.channelChangeText}>{lang === "bn" ? "পরিবর্তন" : "Change"}</Text>
+              </Pressable>
+            </View>}
+          </View>
+          {channelEditing && <View style={styles.channelOptions}>
             {channels.map((option) => {
               const selected = channel === option;
               return (
@@ -425,7 +504,7 @@ export default function NewOrderScreen() {
                   key={option}
                   accessibilityRole="button"
                   accessibilityState={{ selected }}
-                  onPress={() => setChannel(option)}
+                  onPress={() => { setChannel(option); setChannelEditing(false); }}
                   style={[
                     styles.channelButton,
                     selected
@@ -446,60 +525,31 @@ export default function NewOrderScreen() {
                 </Pressable>
               );
             })}
-          </View>
+          </View>}
         </View>
       )}
 
       {customerAdded && (
         <View style={styles.orderDetailSection}>
           <View style={styles.orderDetailHeader}>
-            <Text style={styles.orderDetailTitle}>Courier service</Text>
+            <StepTitle n={4} done title={lang === "bn" ? "কুরিয়ার সার্ভিস" : "Courier service"} />
             <Pressable
-              accessibilityLabel="Manage couriers"
+              accessibilityLabel="Change delivery charges"
+              onPress={() => { setChargeDraft({ ...zoneCharges }); setChargeError(""); setChargeEditOpen(true); }}
               style={styles.manageCourierButton}
             >
               <Ionicons name="settings-outline" size={18} color={colors.secondary} />
             </Pressable>
           </View>
-          <View style={styles.courierOptions}>
-            <Pressable
-              onPress={() => {
-                setDeliveryZone("inside");
-                setDeliveryCharge("60");
-              }}
-              style={[
-                styles.courierButton,
-                deliveryZone === "inside" && styles.courierButtonActive,
-              ]}
-            >
-              <Text
-                style={[
-                  styles.courierButtonText,
-                  deliveryZone === "inside" && styles.courierButtonTextActive,
-                ]}
-              >
-                Within Dhaka · ৳60
-              </Text>
-            </Pressable>
-            <Pressable
-              onPress={() => {
-                setDeliveryZone("outside");
-                setDeliveryCharge("120");
-              }}
-              style={[
-                styles.courierButton,
-                deliveryZone === "outside" && styles.courierButtonActive,
-              ]}
-            >
-              <Text
-                style={[
-                  styles.courierButtonText,
-                  deliveryZone === "outside" && styles.courierButtonTextActive,
-                ]}
-              >
-                Outside Dhaka · ৳120
-              </Text>
-            </Pressable>
+          <View style={styles.zoneRadios}>
+            {([["inside", lang === "bn" ? "ঢাকার ভেতরে" : "Inside Dhaka", zoneCharges.inside, colors.success], ["outside", lang === "bn" ? "ঢাকার বাইরে" : "Outside Dhaka", zoneCharges.outside, colors.primary]] as const).map(([zone, title, charge, accent]) => {
+              const on = deliveryZone === zone;
+              return <Pressable key={zone} accessibilityRole="radio" accessibilityState={{ checked: on }} onPress={() => { setDeliveryZone(zone); setDeliveryCharge(charge); }} style={styles.zoneRadio}>
+                <View style={[styles.radioOuter, on && { borderColor: accent }]}>{on && <View style={[styles.radioInner, { backgroundColor: accent }]} />}</View>
+                <Text style={[styles.zoneText, on && { color: colors.heading, fontWeight: "700" }]}>{title}</Text>
+                <Text style={[styles.zoneCharge, { color: on ? accent : colors.muted }]}>৳{charge}</Text>
+              </Pressable>;
+            })}
           </View>
         </View>
       )}
@@ -521,108 +571,50 @@ export default function NewOrderScreen() {
               </View>
             </>
           )}
-          <Text style={styles.orderDetailTitle}>Payment</Text>
+          <StepTitle n={5} done={payableTotal > 0} title={lang === "bn" ? "পেমেন্ট" : "Payment"} />
           <View style={styles.paymentCard}>
             <View style={styles.paymentRow}>
-              <Text style={styles.paymentLabel}>
-                Subtotal ({cart.length} product{cart.length === 1 ? "" : "s"})
-              </Text>
-              <Text style={styles.paymentValue}>
-                {"\u09F3"}
-                {orderTotal.toFixed(2)}
-              </Text>
+              <Text style={styles.paymentLabel}>{lang === "bn" ? `পণ্যের দাম (${cart.length}টি পণ্য)` : `Products (${cart.length})`}</Text>
+              <Text style={styles.paymentValue}>{taka(orderTotal)}</Text>
             </View>
-            <View style={styles.paymentRow}>
-              <Text style={styles.paymentLabel}>
-                Delivery charge ({"\u09F3"})
-              </Text>
-              <TextInput
-                accessibilityLabel="Delivery charge"
-                keyboardType="decimal-pad"
-                value={deliveryCharge}
-                onChangeText={setDeliveryCharge}
-                style={styles.moneyInput}
-              />
-            </View>
-            <Pressable
-              onPress={() => setShowDiscount((value) => !value)}
-              style={styles.paymentRow}
-            >
-              <Text style={styles.paymentLabel}>Additional discount</Text>
-              <Text style={styles.discountAction}>
-                {showDiscount ? "Hide discount" : "Add discount"}
-              </Text>
-            </Pressable>
-            {showDiscount && (
-              <View style={styles.paymentRow}>
-                <Text style={styles.paymentLabel}>Discount ({"\u09F3"})</Text>
-                <TextInput
-                  accessibilityLabel="Additional discount"
-                  keyboardType="decimal-pad"
-                  value={discount}
-                  onChangeText={setDiscount}
-                  style={styles.moneyInput}
-                />
-              </View>
-            )}
+            <AmountRow label={lang === "bn" ? "ডেলিভারি চার্জ" : "Delivery charge"} value={deliveryCharge} onChange={setDeliveryCharge} />
+            <AmountRow label={lang === "bn" ? "ছাড়" : "Discount"} value={discount} onChange={setDiscount} minus addLabel={lang === "bn" ? "+ ছাড় দিন" : "+ Add discount"} />
             <View style={styles.paymentTotalRow}>
-              <Text style={styles.paymentTotalLabel}>Total (COD)</Text>
-              <Text style={styles.paymentTotalValue}>
-                {"\u09F3"}
-                {payableTotal.toFixed(2)}
-              </Text>
+              <Text style={styles.paymentTotalLabel}>{lang === "bn" ? "মোট" : "Total"}</Text>
+              <Text style={styles.paymentTotalValue}>{taka(payableTotal)}</Text>
             </View>
-            <View style={styles.paymentRow}>
-              <Text style={styles.paymentLabel}>
-                Advance payment ({"\u09F3"})
-              </Text>
-              <TextInput
-                accessibilityLabel="Advance payment"
-                keyboardType="decimal-pad"
-                value={advancePayment}
-                onChangeText={setAdvancePayment}
-                style={styles.moneyInput}
-              />
-            </View>
-            <View style={styles.paymentBalanceRow}>
-              <Text style={styles.paymentLabel}>The rest</Text>
-              <Text style={styles.balanceValue}>
-                {"\u09F3"}
-                {remainingBalance.toFixed(2)}
-              </Text>
+            {Number(advancePayment) > 0 ? <Pressable accessibilityLabel="Edit advance" onPress={openAdvance} style={styles.paymentRow}>
+              <Text style={styles.paymentLabel}>{lang === "bn" ? "অগ্রিম নেওয়া হয়েছে" : "Advance received"}</Text>
+              <Text style={styles.paymentValue}>− {taka(Number(advancePayment))} <PlainText style={styles.advanceWallet}>({WALLETS.find(w => w[0] === advanceMethod)?.[1]})</PlainText></Text>
+              <Ionicons name="create-outline" size={16} color={colors.primaryDark} style={styles.editIcon} />
+            </Pressable> : <Pressable onPress={openAdvance} style={styles.paymentRow}>
+              <Text style={styles.paymentLabel}>{lang === "bn" ? "অগ্রিম নেওয়া হয়েছে" : "Advance received"}</Text>
+              <Text style={styles.discountAction}>{lang === "bn" ? "+ অগ্রিম যোগ করুন" : "+ Add advance"}</Text>
+            </Pressable>}
+            <View style={[styles.collectBox, remainingBalance <= 0 && styles.collectBoxPaid]}>
+              <Text style={[styles.collectLabel, remainingBalance <= 0 && styles.collectPaidText]}>{remainingBalance <= 0 ? (lang === "bn" ? "পুরো টাকা পরিশোধিত · কুরিয়ার কিছু নেবে না" : "Fully paid · courier collects nothing") : (lang === "bn" ? "কুরিয়ার নেবে (Cash On Delivery)" : "Courier collects (Cash On Delivery)")}</Text>
+              {remainingBalance > 0 && <Text style={styles.collectValue}>{taka(remainingBalance)}</Text>}
             </View>
           </View>
         </View>
       )}
 
       {customerAdded && (
-        <View style={styles.noteSection}>
+        <View style={noteOpen ? styles.noteSection : styles.noteLinkWrap}>
           {!noteOpen ? (
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Add note"
               onPress={() => setNoteOpen(true)}
-              style={styles.noteAddButton}
+              style={styles.noteLink}
             >
-              <View style={styles.noteIcon}>
-                <Ionicons
-                  name="document-text-outline"
-                  size={20}
-                  color={colors.primaryDark}
-                />
-              </View>
-              <View style={styles.noteButtonCopy}>
-                <Text style={styles.noteAddTitle}>Add Note</Text>
-                <Text style={styles.noteAddHint}>
-                  Include delivery or order instructions
-                </Text>
-              </View>
-              <Ionicons name="add-circle-outline" size={22} color={colors.primaryDark} />
+              <Ionicons name="add-circle-outline" size={18} color={colors.primaryDark} />
+              <Text style={styles.noteLinkText}>{lang === "bn" ? "নোট যোগ করুন (ঐচ্ছিক)" : "Add note (optional)"}</Text>
             </Pressable>
           ) : (
             <>
               <View style={styles.noteHeader}>
-                <Text style={styles.noteTitle}>Order note</Text>
+                <Text style={styles.noteTitle}>{lang === "bn" ? "অর্ডারের নোট" : "Order note"}</Text>
                 <Pressable
                   accessibilityLabel="Remove note"
                   onPress={() => setNoteOpen(false)}
@@ -632,31 +624,55 @@ export default function NewOrderScreen() {
               </View>
               <TextInput
                 accessibilityLabel="Order note"
-                placeholder="Add delivery or order instructions..."
+                placeholder={lang === "bn" ? "ডেলিভারি বা অর্ডারের জন্য কোনো নির্দেশনা লিখুন..." : "Add delivery or order instructions..."}
                 placeholderTextColor={colors.muted}
                 multiline
-                style={styles.noteInput}
+                value={orderNote}
+                onChangeText={setOrderNote}
+                style={[styles.noteInput,!orderNote&&{fontSize:12}]}
               />
             </>
           )}
         </View>
       )}
 
-      {customerAdded && (
-        <View style={styles.actions}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Create Order"
-            disabled={submitting}
-            onPress={() => void submitOrder()}
-            style={[styles.confirmButton, submitting && styles.disabledButton]}
-          >
-            {submitting ? <ActivityIndicator color={colors.white} /> : <Text style={styles.confirmText}>Create Order</Text>}
-          </Pressable>
-        </View>
-      )}
       {!!submitError && <Text style={styles.submitError}>{submitError}</Text>}
     </KeyboardAwareScrollView>
+    <PopupSheet visible={advanceOpen} onClose={() => setAdvanceOpen(false)} title={lang === "bn" ? "অগ্রিম টাকা" : "Advance payment"} fitContent>
+      <View style={styles.chargeSheet}>
+        <Text style={styles.chargeLabel}>{lang === "bn" ? "কত টাকা অগ্রিম?" : "How much?"}</Text>
+        <View style={styles.chargeInputWrap}><Text style={styles.chargeTaka}>৳</Text><TextInput autoFocus value={advDraft.amount} onChangeText={v => setAdvDraft(d => ({ ...d, amount: decimalInput(v) }))} keyboardType="decimal-pad" placeholder="0" placeholderTextColor={colors.muted} style={[styles.chargeInput, { flex: 1, width: undefined, textAlign: "left" }]} accessibilityLabel="Advance amount" /></View>
+        <Text style={styles.chargeHint}>{lang === "bn" ? `সর্বোচ্চ ${taka(payableTotal)}` : `Maximum ${taka(payableTotal)}`}</Text>
+        <Text style={styles.chargeLabel}>{lang === "bn" ? "কিভাবে পেয়েছেন?" : "Received by"}</Text>
+        <View style={styles.walletRow}>{WALLETS.map(([w, name, dot]) => <Pressable key={w} onPress={() => setAdvDraft(d => ({ ...d, method: w }))} style={[styles.walletChip, advDraft.method === w && styles.walletChipOn]}><View style={[styles.walletDot, { backgroundColor: dot }]} /><PlainText style={[styles.walletText, advDraft.method === w && styles.walletTextOn]}>{name}</PlainText></Pressable>)}</View>
+        {advNeedsRef && <><Text style={styles.chargeLabel}>{lang === "bn" ? "ট্রানজেকশন আইডি (TxID)" : "Transaction ID (TxID)"}</Text>
+          <TextInput value={advDraft.ref} onChangeText={v => setAdvDraft(d => ({ ...d, ref: v.replace(/[^a-z0-9]/gi, "") }))} autoCapitalize="characters" autoCorrect={false} maxLength={100} placeholder={lang === "bn" ? "যেমন: 8K7D2LQ4XZ" : "e.g. 8K7D2LQ4XZ"} placeholderTextColor={colors.muted} style={[styles.chargeInput, { width: "100%", textAlign: "left" }]} /></>}
+        {!!advError && <Text style={styles.submitError}>{advError}</Text>}
+        <Pressable accessibilityRole="button" disabled={!!advError} onPress={confirmAdvance} style={[styles.bottomButton, !!advError && styles.disabledButton]}><Text style={styles.confirmText}>{lang === "bn" ? "নিশ্চিত করুন" : "Confirm"}</Text></Pressable>
+      </View>
+    </PopupSheet>
+    <PopupSheet visible={chargeEditOpen} onClose={() => { if (!chargeSaving) setChargeEditOpen(false); }} title={lang === "bn" ? "ডেলিভারি চার্জ পরিবর্তন" : "Change delivery charges"} fitContent>
+      <View style={styles.chargeSheet}>
+        {!!defaultCourier && <Text style={styles.chargeHint}>{lang === "bn" ? `${defaultCourier.name}-এর চার্জ। সেভ করলে পরের সব অর্ডারেও এই চার্জ বসবে।` : `Charges for ${defaultCourier.name}. Saving also updates future orders.`}</Text>}
+        {(["inside", "outside"] as const).map(zone => <View key={zone} style={styles.chargeRow}>
+          <Text style={styles.chargeLabel}>{zone === "inside" ? (lang === "bn" ? "ঢাকার ভেতরে" : "Inside Dhaka") : (lang === "bn" ? "ঢাকার বাইরে" : "Outside Dhaka")}</Text>
+          <View style={styles.chargeInputWrap}><Text style={styles.chargeTaka}>৳</Text><TextInput value={chargeDraft[zone]} onChangeText={v => setChargeDraft(d => ({ ...d, [zone]: decimalInput(v) }))} keyboardType="decimal-pad" selectTextOnFocus style={styles.chargeInput} accessibilityLabel={zone} /></View>
+        </View>)}
+        {!!chargeError && <Text style={styles.submitError}>{chargeError}</Text>}
+        <Pressable accessibilityRole="button" disabled={chargeSaving} onPress={() => void saveZoneCharges()} style={[styles.bottomButton, chargeSaving && styles.disabledButton]}>
+          {chargeSaving ? <ActivityIndicator color={colors.white} /> : <Text style={styles.confirmText}>{lang === "bn" ? "সেভ করুন" : "Save"}</Text>}
+        </Pressable>
+      </View>
+    </PopupSheet>
+    {customerAdded && <View style={styles.bottomBar}>
+      <View style={styles.bottomTotal}>
+        <Text style={styles.bottomTotalLabel}>{remainingBalance > 0 ? (lang === "bn" ? "কুরিয়ার নেবে" : "Courier collects") : (lang === "bn" ? "মোট (পরিশোধিত)" : "Total (paid)")}</Text>
+        <Text style={styles.bottomTotalValue}>{taka(remainingBalance > 0 ? remainingBalance : payableTotal)}</Text>
+      </View>
+      <Pressable accessibilityRole="button" accessibilityLabel="Create Order" disabled={submitting} onPress={() => void submitOrder()} style={[styles.bottomButton, submitting && styles.disabledButton]}>
+        {submitting ? <ActivityIndicator color={colors.white} /> : <Text style={styles.confirmText}>{lang === "bn" ? "অর্ডার সেভ করুন" : "Save order"}</Text>}
+      </Pressable>
+    </View>}
     <ProductPicker
         open={productPickerOpen}
         onClose={() => setProductPickerOpen(false)}
@@ -691,8 +707,8 @@ export default function NewOrderScreen() {
 
 const styles = StyleSheet.create({
   keyboardAvoider: { flex: 1 },
-  screen: { flex: 1, backgroundColor: colors.white },
-  content: { flexGrow: 1, width: "100%", maxWidth: 760, alignSelf: "center", backgroundColor: colors.white, padding: 16, paddingBottom: 48, gap: 16 },
+  screen: { flex: 1, backgroundColor: "#F5F5F4" },
+  content: { flexGrow: 1, width: "100%", maxWidth: 760, alignSelf: "center", backgroundColor: "#F5F5F4", padding: 16, paddingBottom: 110, gap: 14 },
   branchContent: { flexGrow: 1, width: "100%", maxWidth: 760, alignSelf: "center", padding: 16, paddingBottom: 32, gap: 18, backgroundColor: colors.white },
   branchState: { flex: 1, alignItems: "center", justifyContent: "center", gap: 10, backgroundColor: colors.white },
   branchIntro: { gap: 8, paddingTop: 8 },
@@ -744,10 +760,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   sectionTitle: { color: colors.heading, fontSize: 15, fontWeight: "400" },
-  selectedCustomerSection: {
-    backgroundColor: colors.cardSecondary,
-    borderColor: colors.border,
-  },
+  selectedCustomerSection: {},
   selectedCustomerSectionTitle: {
     color: colors.primaryDark,
     fontSize: 11,
@@ -881,19 +894,19 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   productTotalBar: {
-    minHeight: 44,
+    minHeight: 36,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
+    justifyContent: "space-between",
     flexWrap: "wrap",
     gap: 6,
     paddingHorizontal: 12,
     paddingVertical: 9,
     borderRadius: 11,
-    backgroundColor: colors.primaryDark,
+    backgroundColor: colors.white, borderWidth: 1, borderColor: colors.divider,
   },
-  totalEquation: { color: colors.primaryLight, fontSize: 12 },
-  productTotalText: { color: colors.white, fontSize: 15, fontWeight: "400" },
+  totalEquation: { color: colors.secondary, fontSize: 12 },
+  productTotalText: { color: colors.heading, fontSize: 15, fontWeight: "700" },
   input: {
     minHeight: 46,
     borderWidth: 1,
@@ -1050,6 +1063,8 @@ const styles = StyleSheet.create({
   },
   changeCustomer: { paddingTop: 2, paddingLeft: 8 },
   changeCustomerText: { color: colors.primaryDark, fontSize: 12, fontWeight: "400" },
+  addressView: { flexDirection: "row", alignItems: "flex-start", gap: 8, paddingVertical: 2 },
+  addressViewText: { flex: 1, color: colors.heading, fontSize: 14, lineHeight: 20 },
   deliveryAddressBlock: {
     marginTop: 12,
     paddingTop: 12,
@@ -1073,11 +1088,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 11,
   },
   orderDetailSection: {
-    padding: 14,
+    padding: 15,
     borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 14,
-    backgroundColor: colors.cardSecondary,
+    borderColor: colors.divider,
+    borderRadius: 16,
+    backgroundColor: colors.white,
     gap: 10,
   },
   orderDetailHeader: {
@@ -1125,17 +1140,30 @@ const styles = StyleSheet.create({
     borderColor: colors.divider,
     borderRadius: 12,
     backgroundColor: colors.card,
-    gap: 13,
+    gap: 0,
   },
+  zoneRadios: { flexDirection: "row", flexWrap: "wrap", columnGap: 22, rowGap: 6, paddingVertical: 4 },
+  zoneRadio: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 32 },
+  radioOuter: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: colors.border, alignItems: "center", justifyContent: "center" },
+  radioInner: { width: 10, height: 10, borderRadius: 5 },
+  zoneText: { color: colors.secondary, fontSize: 14 },
+  zoneCharge: { fontSize: 14, fontWeight: "700" },
   paymentRow: {
-    minHeight: 36,
+    minHeight: 26,
+    paddingVertical: 1,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 12,
   },
-  paymentLabel: { flex: 1, color: colors.secondary, fontSize: 13 },
-  paymentValue: { color: colors.heading, fontSize: 13, fontWeight: "400" },
+  paymentLabel: { flex: 1, color: colors.secondary, fontSize: 13, lineHeight: 18 },
+  paymentValue: { color: colors.heading, fontSize: 14, fontWeight: "600", lineHeight: 18 },
+  editIcon: { marginLeft: -4 },
+  collectBox: { marginTop: 6, borderRadius: 10, backgroundColor: colors.primaryLight, paddingHorizontal: 12, paddingVertical: 10, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
+  collectBoxPaid: { backgroundColor: colors.successBackground },
+  collectLabel: { flex: 1, color: colors.primaryDark, fontSize: 14, fontWeight: "700" },
+  collectPaidText: { color: colors.successText },
+  collectValue: { color: colors.primaryDark, fontSize: 20, fontWeight: "800" },
   moneyInput: {
     width: 96,
     height: 38,
@@ -1155,10 +1183,11 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     borderTopWidth: 1,
     borderTopColor: colors.divider,
-    paddingTop: 13,
+    paddingTop: 8,
+    marginTop: 4,
   },
-  paymentTotalLabel: { color: colors.heading, fontSize: 15, fontWeight: "400" },
-  paymentTotalValue: { color: colors.primaryDark, fontSize: 18, fontWeight: "400" },
+  paymentTotalLabel: { color: colors.heading, fontSize: 15, fontWeight: "700" },
+  paymentTotalValue: { color: colors.heading, fontSize: 17, fontWeight: "800" },
   paymentBalanceRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -1169,11 +1198,11 @@ const styles = StyleSheet.create({
   },
   balanceValue: { color: colors.dangerText, fontSize: 14, fontWeight: "400" },
   channelSection: {
-    padding: 14,
+    padding: 15,
     borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 14,
-    backgroundColor: colors.cardSecondary,
+    borderColor: colors.divider,
+    borderRadius: 16,
+    backgroundColor: colors.white,
     gap: 10,
   },
   channelSectionTitle: {
@@ -1183,6 +1212,11 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
     textTransform: "uppercase",
   },
+  channelHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" },
+  channelCurrent: { flexDirection: "row", alignItems: "center", gap: 10 },
+  channelCurrentText: { color: colors.heading, fontSize: 14, fontWeight: "700" },
+  channelChange: { flexDirection: "row", alignItems: "center", gap: 4 },
+  channelChangeText: { color: colors.primaryDark, fontSize: 13, fontWeight: "600" },
   channelOptions: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   channelButton: {
     paddingHorizontal: 12,
@@ -1198,11 +1232,11 @@ const styles = StyleSheet.create({
   addRow: { minHeight: 42, flexDirection: "row", alignItems: "center", gap: 8 },
   addRowText: { color: colors.primaryDark, fontSize: 13, fontWeight: "400" },
   noteSection: {
-    padding: 14,
+    padding: 15,
     borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 14,
-    backgroundColor: colors.cardSecondary,
+    borderColor: colors.divider,
+    borderRadius: 16,
+    backgroundColor: colors.white,
     gap: 10,
   },
   noteAddButton: {
@@ -1247,6 +1281,33 @@ const styles = StyleSheet.create({
     textAlignVertical: "top",
   },
   actions: { gap: 9 },
+  advanceWallet: { color: colors.secondary, fontSize: 12, fontWeight: "400" },
+  walletRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  walletChip: { flexDirection: "row", alignItems: "center", gap: 6, borderWidth: 1, borderColor: colors.border, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8, backgroundColor: colors.white },
+  walletChipOn: { borderColor: colors.primary, backgroundColor: colors.primaryLight },
+  walletDot: { width: 10, height: 10, borderRadius: 5 },
+  walletText: { fontSize: 13, color: colors.secondary, fontWeight: "600" },
+  walletTextOn: { color: colors.primaryDark },
+  chargeSheet: { gap: 12, paddingHorizontal: 16, paddingTop: 8, paddingBottom: 18 },
+  chargeHint: { color: colors.secondary, fontSize: 12, lineHeight: 18 },
+  chargeRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  chargeLabel: { flex: 1, color: colors.heading, fontSize: 14, fontWeight: "600" },
+  chargeInputWrap: { flexDirection: "row", alignItems: "center", gap: 6 },
+  chargeTaka: { color: colors.heading, fontSize: 16, fontWeight: "700" },
+  chargeInput: { width: 110, minHeight: 42, borderWidth: 1, borderColor: colors.divider, borderRadius: 10, paddingHorizontal: 10, fontSize: 16, fontWeight: "700", color: colors.heading, textAlign: "right" },
+  stepTitle: { flexDirection: "row", alignItems: "center", gap: 9, flexShrink: 1 },
+  stepBadge: { width: 24, height: 24, borderRadius: 12, borderWidth: 1.5, borderColor: colors.primary, alignItems: "center", justifyContent: "center", backgroundColor: colors.white },
+  stepBadgeDone: { backgroundColor: colors.success, borderColor: colors.success },
+  stepBadgeText: { color: colors.primaryDark, fontSize: 12, fontWeight: "800" },
+  stepTitleText: { color: colors.heading, fontSize: 15, fontWeight: "700" },
+  noteLinkWrap: { paddingHorizontal: 4 },
+  noteLink: { flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-start", paddingVertical: 6 },
+  noteLinkText: { color: colors.primaryDark, fontSize: 14, fontWeight: "600" },
+  bottomBar: { position: "absolute", left: 0, right: 0, bottom: 0, flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 12, backgroundColor: colors.white, borderTopWidth: 1, borderTopColor: colors.divider, shadowColor: "#000", shadowOpacity: 0.08, shadowRadius: 12, shadowOffset: { width: 0, height: -3 }, elevation: 12 },
+  bottomTotal: { flex: 1, minWidth: 0 },
+  bottomTotalLabel: { color: colors.secondary, fontSize: 12 },
+  bottomTotalValue: { color: colors.heading, fontSize: 20, fontWeight: "800" },
+  bottomButton: { minHeight: 48, minWidth: 150, paddingHorizontal: 20, borderRadius: 12, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
   draftButton: {
     minHeight: 50,
     borderRadius: 11,

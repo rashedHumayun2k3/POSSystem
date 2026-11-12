@@ -6,12 +6,15 @@ import { ActivityIndicator, Alert, Modal, Pressable, RefreshControl, ScrollView,
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "../auth/AuthContext";
 import { colors } from "../theme";
+import { useLanguage } from "../i18n/LanguageContext";
 
 type CategoryField = { id: string; name: string };
 export type Category = { id: string; name: string; nameBn?: string | null; defaultUnit?: string | null; parentCategoryId?: string | null; fields: CategoryField[] };
 const units = ["pcs", "pair", "set", "dozen", "kg", "gm", "liter", "ml", "meter", "box"];
 
+const UNIT_BN: Record<string, string> = { pcs: "পিস", pair: "জোড়া", set: "সেট", dozen: "ডজন", kg: "কেজি", gm: "গ্রাম", liter: "লিটার", ml: "মিলি", meter: "মিটার", box: "বক্স" };
 export default function CategoriesScreen() {
+  const { lang } = useLanguage();
   const auth = useAuth();
   const params = useLocalSearchParams<{ new?: string }>();
   const [categories, setCategories] = useState<Category[]>([]);
@@ -37,7 +40,7 @@ export default function CategoriesScreen() {
   useEffect(() => { void load(); }, [load]);
 
   const create = async () => {
-    if (!name.trim()) { setError("Name required."); return; }
+    if (!name.trim()) { setError("ক্যাটাগরির নাম লিখুন।"); return; }
     setSaving(true); setError("");
     try {
       await auth.api("/categories", { method: "POST", body: JSON.stringify({ name: name.trim(), nameBn: nameBn.trim() || null, defaultUnit: unit, parentCategoryId: parentId || null }) });
@@ -50,31 +53,32 @@ export default function CategoriesScreen() {
     { text: "Delete", style: "destructive", onPress: async () => { setDeleting(category.id); setError(""); try { await auth.api(`/categories/${category.id}`, { method: "DELETE" }); await load(true); } catch (e) { setError((e as Error).message || "Cannot delete this category."); } finally { setDeleting(null); } } },
   ]);
   const top = categories.filter(category => !category.parentCategoryId);
-  const selectedParent = top.find(category => category.id === parentId)?.name ?? "None (top-level category)";
+  const selectedParent = top.find(category => category.id === parentId)?.name ?? (lang === "bn" ? "নেই (এটাই মূল ক্যাটাগরি)" : "None (top-level category)");
 
   return <View style={s.root}>
     <View style={s.header}><Text style={s.headerTitle}>Categories</Text>{isOwner ? <Pressable onPress={() => setShowNew(value => !value)}><Text style={s.newText}>{showNew ? "Cancel" : "New"}</Text></Pressable> : <View style={s.headerSpacer} />}</View>
     <ScrollView contentContainerStyle={s.content} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void load(true)} tintColor={colors.primary} colors={[colors.primary]} />}>
       {showNew && <View style={s.form}>
-        <TextInput value={name} onChangeText={setName} placeholder="Category name (e.g. Electronics)" placeholderTextColor={colors.muted} style={s.input} />
-        <TextInput value={nameBn} onChangeText={setNameBn} placeholder="বাংলা নাম (ঐচ্ছিক) — e.g. ইলেকট্রনিক্স" placeholderTextColor={colors.muted} style={s.input} />
-        <View style={s.formRow}><Text style={s.formLabel}>Default unit</Text><Pressable onPress={() => setPicker("unit")} style={s.select}><DropdownText style={s.selectText}>{unit}</DropdownText><Ionicons name="chevron-down" size={17} color={colors.secondary} /></Pressable></View>
-        <View style={s.formRow}><Text style={s.formLabel}>Parent category</Text><Pressable onPress={() => setPicker("parent")} style={s.select}><DropdownText numberOfLines={1} style={s.selectText}>{selectedParent}</DropdownText><Ionicons name="chevron-down" size={17} color={colors.secondary} /></Pressable></View>
+        <TextInput value={name} onChangeText={setName} placeholder={lang === "bn" ? "ক্যাটাগরির নাম (যেমন: পাঞ্জাবি)" : "Category name (e.g. Panjabi)"} placeholderTextColor={colors.muted} style={s.input} />{!!error && <Text style={s.error}>{error}</Text>}
+        <TextInput value={nameBn} onChangeText={setNameBn} placeholder="বাংলা নাম (ঐচ্ছিক) — যেমন: পাঞ্জাবি" placeholderTextColor={colors.muted} style={s.input} />
+        <View style={s.formRow}><Text style={s.formLabel}>{lang === "bn" ? "মাপের একক" : "Default unit"}</Text><Pressable onPress={() => setPicker("unit")} style={s.select}><DropdownText style={s.selectText}>{lang === "bn" ? UNIT_BN[unit] ?? unit : unit}</DropdownText><Ionicons name="chevron-down" size={17} color={colors.secondary} /></Pressable></View>
+        <View style={s.formRow}><Text style={s.formLabel}>{lang === "bn" ? "কোন ক্যাটাগরির ভিতরে" : "Parent category"}</Text><Pressable onPress={() => setPicker("parent")} style={s.select}><DropdownText numberOfLines={1} style={s.selectText}>{selectedParent}</DropdownText><Ionicons name="chevron-down" size={17} color={colors.secondary} /></Pressable></View>
         <Pressable disabled={saving} onPress={() => void create()} style={[s.primaryButton, saving && s.disabled]}>{saving ? <ActivityIndicator color={colors.white} /> : <Text style={s.primaryText}>Create Category</Text>}</Pressable>
       </View>}
-      {!!error && <View style={s.errorBox}><Text style={s.error}>{error}</Text></View>}
+      {!!error && !showNew && <View style={s.errorBox}><Text style={s.error}>{error}</Text></View>}
       {loading ? <View style={s.state}><ActivityIndicator color={colors.primary} /><Text style={s.muted}>Loading categories…</Text></View> : !categories.length ? <View style={s.state}><Ionicons name="pricetags-outline" size={38} color={colors.muted} /><Text style={s.muted}>No categories yet.</Text></View> : top.map(parent => <View key={parent.id} style={s.group}>
         <CategoryRow category={parent} owner={isOwner} deleting={deleting === parent.id} onDelete={remove} />
         {categories.filter(category => category.parentCategoryId === parent.id).map(child => <View key={child.id} style={s.subWrap}><CategoryRow category={child} owner={isOwner} deleting={deleting === child.id} onDelete={remove} sub /></View>)}
       </View>)}
     </ScrollView>
-    <Modal visible={picker !== null} transparent animationType="fade" onRequestClose={() => setPicker(null)}><Pressable style={s.overlay} onPress={() => setPicker(null)}><SafeAreaView style={s.pickerCard}><Text style={s.pickerTitle}>{picker === "unit" ? "Default unit" : "Parent category"}</Text><ScrollView>{picker === "unit" ? units.map(value => <Option key={value} label={value} selected={unit === value} press={() => { setUnit(value); setPicker(null); }} />) : <><Option label="None (top-level category)" selected={!parentId} press={() => { setParentId(""); setPicker(null); }} />{top.map(category => <Option key={category.id} label={category.name} selected={parentId === category.id} press={() => { setParentId(category.id); setPicker(null); }} />)}</>}</ScrollView></SafeAreaView></Pressable></Modal>
+    <Modal visible={picker !== null} transparent animationType="fade" onRequestClose={() => setPicker(null)}><Pressable style={s.overlay} onPress={() => setPicker(null)}><SafeAreaView style={s.pickerCard}><Text style={s.pickerTitle}>{picker === "unit" ? (lang === "bn" ? "মাপের একক" : "Default unit") : (lang === "bn" ? "কোন ক্যাটাগরির ভিতরে" : "Parent category")}</Text><ScrollView>{picker === "unit" ? units.map(value => <Option key={value} label={value} selected={unit === value} press={() => { setUnit(value); setPicker(null); }} />) : <><Option label={lang === "bn" ? "নেই (এটাই মূল ক্যাটাগরি)" : "None (top-level category)"} selected={!parentId} press={() => { setParentId(""); setPicker(null); }} />{top.map(category => <Option key={category.id} label={category.name} selected={parentId === category.id} press={() => { setParentId(category.id); setPicker(null); }} />)}</>}</ScrollView></SafeAreaView></Pressable></Modal>
   </View>;
 }
 
 function CategoryRow({ category, owner, deleting, onDelete, sub }: { category: Category; owner: boolean; deleting: boolean; onDelete: (category: Category) => void; sub?: boolean }) {
+  const { lang } = useLanguage();
   const edit = () => router.push({ pathname: "/more/categories/[id]", params: { id: category.id } });
-  return <View style={s.card}><Pressable onPress={edit} style={s.cardCopy}><Text style={s.categoryName}>{sub ? "— " : ""}{category.name}</Text><Text style={s.detail}>{sub ? "Uses parent's fields" : `${category.fields?.length ?? 0} ${(category.fields?.length ?? 0) === 1 ? "field" : "fields"} · default unit: ${category.defaultUnit ?? "pcs"}`}</Text></Pressable>{owner && <View style={s.actions}><Pressable onPress={edit} style={s.editButton}><Text style={s.editText}>Edit</Text></Pressable><Pressable disabled={deleting} onPress={() => onDelete(category)} style={s.deleteButton}>{deleting ? <ActivityIndicator size="small" color={colors.danger} /> : <Text style={s.deleteText}>Delete</Text>}</Pressable></View>}</View>;
+  return <View style={s.card}><Pressable onPress={edit} style={s.cardCopy}><Text style={s.categoryName}>{sub ? "— " : ""}{category.name}</Text><Text style={s.detail}>{lang === "bn" ? (sub ? "মূল ক্যাটাগরির ঘর ব্যবহার করে" : `${category.fields?.length ?? 0}টি ঘর · একক: ${UNIT_BN[category.defaultUnit ?? "pcs"] ?? category.defaultUnit}`) : sub ? "Uses parent's fields" : `${category.fields?.length ?? 0} ${(category.fields?.length ?? 0) === 1 ? "field" : "fields"} · default unit: ${category.defaultUnit ?? "pcs"}`}</Text></Pressable>{owner && <View style={s.actions}><Pressable onPress={edit} style={s.editButton}><Text style={s.editText}>Edit</Text></Pressable><Pressable disabled={deleting} onPress={() => onDelete(category)} style={s.deleteButton}>{deleting ? <ActivityIndicator size="small" color={colors.danger} /> : <Text style={s.deleteText}>Delete</Text>}</Pressable></View>}</View>;
 }
 function Option({ label, selected, press }: { label: string; selected: boolean; press: () => void }) { return <Pressable onPress={press} style={[s.option, selected && s.optionSelected]}><Text style={[s.optionText, selected && s.optionTextSelected]}>{label}</Text>{selected && <Ionicons name="checkmark" size={19} color={colors.primaryDark} />}</Pressable>; }
 

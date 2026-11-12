@@ -8,6 +8,8 @@ import { colors } from "../theme";
 import { amountInput } from "../utils/cashBook";
 import { CapitalPaymentDate } from "../components/CapitalInjectionInputs";
 import CashTransactions from "../components/CashTransactions";
+import { digitsOnly } from "../utils/numericInput";
+import PageTitle from "../components/PageTitle";
 
 // Cash In = the same capital injection as the partner screen, with the common fields up front.
 type InMethod = "CASH" | "BANK" | "CHEQUE" | "MOBILE_BANKING";
@@ -20,14 +22,14 @@ type Wallet = "CASH" | "BKASH" | "NAGAD" | "CARD";
 type Form = { walletPaisa: Record<Wallet, number>; partners: Partner[] };
 type Withdrawal = { id: string; partnerName: string; source: Wallet; amountPaisa: number; note?: string | null; requestedAt: string };
 const wallets: Wallet[] = ["CASH", "BKASH", "NAGAD", "CARD"];
-const walletLabel: Record<Wallet, string> = { CASH: "Cash in Hand", BKASH: "bKash", NAGAD: "Nagad", CARD: "Card" };
+const walletLabel: Record<Wallet, string> = { CASH: "Cash", BKASH: "bKash", NAGAD: "Nagad", CARD: "Card" };
 const newId = () => "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => { const r = Math.random() * 16 | 0; return (c === "x" ? r : (r & 3 | 8)).toString(16); });
 const IN = colors.primary, OUT = colors.danger;
 
 // Owner screen: টাকা জমা = partner cash investment (existing capital flow); উত্তোলন = partner withdrawal.
 export default function CashInOutScreen() {
   const auth = useAuth(); const api = useRef(auth.api); api.current = auth.api;
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const [tab, setTab] = useState<"IN" | "OUT">("IN");
   const [form, setForm] = useState<Form | null>(null);
   const [history, setHistory] = useState<Withdrawal[]>([]);
@@ -118,8 +120,9 @@ export default function CashInOutScreen() {
       <Text style={[s.chipText, on && s.chipTextOn]}>{label}</Text>{!!hint && <Text style={[s.chipHint, on && s.chipTextOn]}>{hint}</Text>}
     </Pressable>;
 
-  return <ScrollView style={s.screen} contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
-    <Text style={s.h1}>Cash In / Out</Text>
+  return <View style={s.screen}>
+    <View style={s.header}><View style={s.titleToolbar}><PageTitle>Cash In / Out</PageTitle></View></View>
+    <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
     <View style={s.tabs}>
       {(["IN", "OUT"] as const).map(k => <Pressable key={k} accessibilityRole="button" accessibilityState={{ selected: tab === k }} onPress={() => switchTab(k)}
         style={[s.tab, tab === k && { backgroundColor: k === "IN" ? IN : OUT }]}>
@@ -141,13 +144,13 @@ export default function CashInOutScreen() {
           <Text style={s.label}>Wallet</Text>
           <View style={s.row}>{wallets.map(w => chip(source === w, t(walletLabel[w]), () => setSource(w), money(form.walletPaisa[w] ?? 0), w))}</View>
         </>}
-        <Text style={s.label}>Amount</Text>
+        <Text style={s.label}>{t("Amount")} *</Text>
         <View style={[s.amountBox, tooMuch && { borderColor: OUT }]}>
           <Text style={s.taka}>৳</Text>
           <TextInput accessibilityLabel={t("Amount")} value={amount} onChangeText={v => setAmount(p => amountInput(v, p))} keyboardType="decimal-pad" inputMode="decimal"
             placeholder="0" placeholderTextColor={colors.muted} style={s.amountInput} />
         </View>
-        {tab === "OUT" && <Text style={[s.hint, tooMuch && s.error]}>{`${t("Can withdraw")}: ${money(available)}`}</Text>}
+        {tab === "OUT" && <Text style={[s.hint, tooMuch && s.error]}>{lang === "bn" ? `সর্বোচ্চ ${money(available)} তোলা যাবে` : `${t("Can withdraw")}: ${money(available)}`}</Text>}
         {tab === "IN" && <>
           <Text style={s.label}>{t("partners.injectionPaidDate")}</Text>
           <CapitalPaymentDate label={t("partners.injectionPaidDate")} value={cashIn.date} onChange={date => setIn({ date })} />
@@ -155,7 +158,7 @@ export default function CashInOutScreen() {
           <View style={s.row}>{inMethods.map(m => chip(cashIn.method === m, t(`partners.paymentMethod${m}`), () => setIn({ method: m }), undefined, m))}</View>
           {cashIn.method === "BANK" && <>
             <TextInput value={cashIn.bankName} onChangeText={bankName => setIn({ bankName })} placeholder={t("partners.injectionBankName")} placeholderTextColor={colors.muted} style={s.note} />
-            <TextInput value={cashIn.bankAccount} onChangeText={bankAccount => setIn({ bankAccount })} placeholder={t("partners.injectionBankAccount")} placeholderTextColor={colors.muted} style={s.note} />
+            <TextInput value={cashIn.bankAccount} onChangeText={v => setIn({ bankAccount: digitsOnly(v, 30) })} placeholder={t("partners.injectionBankAccount")} placeholderTextColor={colors.muted} style={s.note} />
           </>}
           {cashIn.method === "CHEQUE" && <TextInput value={cashIn.cheque} onChangeText={cheque => setIn({ cheque })} placeholder={t("partners.injectionChequeNumber")} placeholderTextColor={colors.muted} style={s.note} />}
           {cashIn.method !== "CASH" && <TextInput value={cashIn.reference} onChangeText={reference => setIn({ reference })} placeholder={t("partners.injectionReference")} placeholderTextColor={colors.muted} style={s.note} />}
@@ -187,12 +190,15 @@ export default function CashInOutScreen() {
     </View>}
 
     <CashTransactions reload={reload} />
-  </ScrollView>;
+    </ScrollView>
+  </View>;
 }
 
 const s = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#F6F7F9" },
-  content: { padding: 16, paddingBottom: 40, gap: 14, width: "100%", maxWidth: 640, alignSelf: "center" },
+  screen: { flex: 1, backgroundColor: colors.background },
+  header: { backgroundColor: colors.white, borderBottomWidth: 1, borderBottomColor: colors.divider, paddingHorizontal: 16, paddingVertical: 12 },
+  titleToolbar: { minHeight: 40, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
+  content: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 40, gap: 14 },
   flex: { flex: 1, minWidth: 0 },
   h1: { fontSize: 20, fontWeight: "700", color: "#111827" },
   partnerName: { fontSize: 16, fontWeight: "700", color: "#111827" },
@@ -219,7 +225,7 @@ const s = StyleSheet.create({
   moreToggle: { alignSelf: "flex-start", minHeight: 36, justifyContent: "center" },
   moreText: { fontSize: 13, fontWeight: "700", color: colors.primary },
   error: { fontSize: 12, color: OUT, fontWeight: "600" },
-  done: { fontSize: 13, color: IN, fontWeight: "700" },
+  done: { fontSize: 13, color: colors.successText, fontWeight: "700", backgroundColor: colors.successBackground, padding: 10, borderRadius: 8 },
   save: { minHeight: 52, alignItems: "center", justifyContent: "center", borderRadius: 13, marginTop: 4 },
   saveText: { fontSize: 15, fontWeight: "800", color: colors.white },
   disabled: { opacity: .45 },

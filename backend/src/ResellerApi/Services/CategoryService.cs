@@ -47,6 +47,7 @@ public class CategoryService : ICategoryService
     public async Task<CategoryDto> CreateAsync(UpsertCategoryRequest request, Guid userId)
     {
         await ValidateParentAsync(request.ParentCategoryId, currentId: null);
+        await EnsureUniqueNameAsync(request.Name, request.ParentCategoryId, currentId: null);
 
         var cat = new Category
         {
@@ -75,6 +76,7 @@ public class CategoryService : ICategoryService
             throw new ArgumentException("A category that already has subcategories can't become a subcategory itself.");
 
         await ValidateParentAsync(request.ParentCategoryId, currentId: id);
+        await EnsureUniqueNameAsync(request.Name, request.ParentCategoryId, currentId: id);
 
         cat.Name = request.Name.Trim();
         cat.NameBn = string.IsNullOrWhiteSpace(request.NameBn) ? null : request.NameBn.Trim();
@@ -83,6 +85,17 @@ public class CategoryService : ICategoryService
         await _db.SaveChangesAsync();
         await _log.LogAsync(_business.CurrentBusinessId, userId, "UPDATE", "Category", cat.Id);
         return await GetAsync(cat.Id);
+    }
+
+    // "Saree" and "saree " are the same category to the user — block duplicates under the same parent.
+    private async Task EnsureUniqueNameAsync(string? name, Guid? parentId, Guid? currentId)
+    {
+        var trimmed = name?.Trim() ?? "";
+        if (trimmed.Length == 0) throw new ArgumentException("Category name is required.");
+        var lower = trimmed.ToLower();
+        var exists = await _db.Categories.AnyAsync(c => c.Id != currentId && c.ParentCategoryId == parentId
+            && c.Name.Trim().ToLower() == lower);
+        if (exists) throw new ArgumentException($"A category named \"{trimmed}\" already exists.");
     }
 
     // Single-level hierarchy only — a subcategory can never itself be a parent, and a parent

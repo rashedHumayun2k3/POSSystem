@@ -120,7 +120,7 @@ AS BEGIN
  SELECT @First=FirstDay,@EndDay=EndDay,@Start=StartUtc,@End=EndUtc FROM dbo.DashboardCardRange(@Period,@Today);
  SELECT p.Id,COALESCE(SUM(i.Available),0) Available,p.LowStockThreshold INTO #Products FROM dbo.products p
  LEFT JOIN dbo.product_variants v ON v.ProductId=p.Id AND v.BusinessId=@BusinessId AND v.DeletedAt IS NULL
- OUTER APPLY(SELECT SUM(OnHand-Committed-Damaged) Available FROM dbo.branch_variant_inventories WHERE VariantId=v.Id AND (@BranchId IS NULL OR BranchId=@BranchId)) i
+ OUTER APPLY(SELECT SUM(OnHand-Committed) Available FROM dbo.branch_variant_inventories WHERE VariantId=v.Id AND (@BranchId IS NULL OR BranchId=@BranchId)) i
  WHERE p.BusinessId=@BusinessId AND p.DeletedAt IS NULL AND p.Status='ACTIVE' GROUP BY p.Id,p.LowStockThreshold;
  SELECT (SELECT COUNT(*) FROM #Products WHERE Available>0) Total,
  JSON_QUERY((SELECT 'Total active products' Name,COUNT(*) Value,'count' Unit FROM #Products FOR JSON PATH)) Metrics,

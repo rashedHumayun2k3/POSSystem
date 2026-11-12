@@ -67,3 +67,6 @@ $RECYCLE.BIN/
 /.tmp
 /backend/.build-preorder-repair
 /backend/.build-preorders
+
+# Production secrets: never commit (kept on the build machine / server only)
+appsettings.*.secrets.json

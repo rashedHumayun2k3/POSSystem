@@ -8,7 +8,9 @@ import FinancialCorrectionActions from "./FinancialCorrectionActions";
 // Draft actions and corrections only show when their handlers are passed.
 type Tone = "good" | "bad" | "wait" | "info" | "neutral";
 const money = (p: number) => `৳${(p / 100).toLocaleString("en-BD", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const date = (v: string) => new Date(v).toLocaleString(undefined, { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+const date = (v: string) => /T00:00:00(\.0+)?Z?$/.test(v)
+  ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" })
+  : new Date(v).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Dhaka" });
 
 export default function CapitalInjectionCard({ item, t, partnerName, onOpen, onCorrected, onEdit, onDelete, onSubmit, busy = false }: {
   item: Injection; t: (k: string) => string; partnerName?: string; onOpen?: () => void; onCorrected?: () => void;

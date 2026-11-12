@@ -5,7 +5,7 @@ public static class OrderMath
     public static decimal ComputeRevisedCommitted(decimal onHand, decimal committed, decimal damaged, decimal oldQty, decimal newQty)
     {
         var additional = newQty - oldQty;
-        if (additional > 0 && additional > onHand - committed - damaged)
+        if (additional > 0 && additional > onHand - committed)
             throw new InvalidOperationException("Insufficient available stock to increase the quantity.");
         return Math.Max(0, committed + additional);
     }

@@ -110,7 +110,7 @@ BEGIN
 SELECT COALESCE(SUM(CASE WHEN a.Available>0 AND a.Available<=p.LowStockThreshold THEN 1 ELSE 0 END),0) LowStock,
     COALESCE(SUM(CASE WHEN a.Available<=0 THEN 1 ELSE 0 END),0) OutOfStock
 FROM dbo.product_variants v JOIN dbo.products p ON p.Id=v.ProductId AND p.BusinessId=@BusinessId
-OUTER APPLY (SELECT COALESCE(SUM(i.OnHand-i.Committed-i.Damaged),0) Available
+OUTER APPLY (SELECT COALESCE(SUM(i.OnHand-i.Committed),0) Available
     FROM dbo.branch_variant_inventories i WHERE i.VariantId=v.Id AND (@BranchId IS NULL OR i.BranchId=@BranchId)) a
 WHERE v.BusinessId=@BusinessId AND v.DeletedAt IS NULL AND p.DeletedAt IS NULL AND p.Status='ACTIVE';
 

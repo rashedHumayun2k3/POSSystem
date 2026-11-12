@@ -29,18 +29,18 @@ export default function DueScreen() {
       if(!active)return;
       const next = {customer:customers.some(item=>item.dueAmount>0),courier:couriers.some(item=>item.pendingOrderCount>0&&item.totalCodReceivable>0)};
       setAvailable(next);
-      setTab(current=>next[current]?current:next.customer?"customer":"courier");
+      setTab(current=>next[current]||!(next.customer||next.courier)?current:next.customer?"customer":"courier");
     }).catch(reason=>{if(active)setError((reason as Error).message);})
       .finally(()=>{if(active)setLoading(false);});
     return ()=>{active=false;};
   },[reload,auth.session?.businessId,auth.session?.branchId]));
-  const visibleTabs = (["customer","courier"] as const).filter(value=>available[value]);
+  const visibleTabs = ["customer","courier"] as const;
   return <View style={s.screen}>
     <View style={s.header}>
       <Pressable accessibilityRole="button" accessibilityLabel={t("Go back")} onPress={()=>router.canGoBack()?router.back():router.replace("/sale")}><Ionicons name="chevron-back" size={24} color={colors.heading}/></Pressable>
       <Text style={s.title}>{t("dueMenu")}</Text>
     </View>
-    {loading?<ActivityIndicator style={{margin:24}} color={colors.primary}/>:error?<View style={{padding:24,gap:12}}><Text>{error}</Text><Pressable onPress={refresh}><Text>{t("Retry")}</Text></Pressable></View>:!visibleTabs.length?<View style={{padding:24,gap:12}}><Text>{t("dueNoPending")}</Text><Pressable onPress={refresh}><Text>{t("Retry")}</Text></Pressable></View>:<>
+    {loading?<ActivityIndicator style={{margin:24}} color={colors.primary}/>:error?<View style={{padding:24,gap:12}}><Text>{error}</Text><Pressable onPress={refresh}><Text>{t("Retry")}</Text></Pressable></View>:<>
     <View style={s.tabs}>{visibleTabs.map(value=><Pressable key={value} accessibilityRole="tab" accessibilityState={{selected:tab===value}} onPress={()=>setTab(value)} style={[s.tab,tab===value&&s.selected]}><Text style={[s.label,tab===value&&s.selectedLabel]}>{t(`dueTabs.${value}`)}</Text></Pressable>)}</View>
     <Text style={s.hint}>{t(`dueTabs.${tab}Hint`)}</Text>
     {tab==="customer"?<SalesRecordScreen dueOnly embedded onDueChanged={refresh}/>:<DeliveriesScreen courierDueOnly onDueChanged={refresh}/>}

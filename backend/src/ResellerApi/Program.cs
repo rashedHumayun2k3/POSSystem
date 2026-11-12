@@ -16,6 +16,10 @@ using ResellerApi.Services.Interfaces;
 using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
+// Secrets (DB password, JWT key, SMTP password) live in a git-ignored file next to appsettings.
+// Environment variables (e.g. ConnectionStrings__Default) still override it.
+builder.Configuration.AddJsonFile($"appsettings.{builder.Environment.EnvironmentName}.secrets.json", optional: true, reloadOnChange: true);
+builder.Configuration.AddEnvironmentVariables();
 var config = builder.Configuration;
 
 builder.Logging.ClearProviders();
@@ -162,6 +166,7 @@ builder.Services.AddControllers()
         opts.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
         opts.JsonSerializerOptions.DefaultIgnoreCondition =
             System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull;
+        opts.JsonSerializerOptions.Converters.Add(new ResellerApi.Infrastructure.UtcDateTimeJsonConverter());
     });
 builder.Services.AddOpenApi();
 

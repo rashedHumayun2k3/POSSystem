@@ -37,7 +37,12 @@ RETURNS TABLE AS RETURN
  -- Partner withdrawals (no approval step) take money out of shop cash. Business-wide, like capital.
  SELECT w.Id,w.PartnerId,'WITHDRAW','WITHDRAWAL',w.Source,w.RequestedAt,-CAST(w.AmountPaisa AS decimal(18,2))/100,CAST(pa.Name AS nvarchar(150))
  FROM dbo.withdrawal_requests w JOIN dbo.partners pa ON pa.Id=w.PartnerId
- WHERE w.BusinessId=@BusinessId AND w.DeletedAt IS NULL AND w.Status='APPROVED' AND w.RequestedAt<@End;
+ WHERE w.BusinessId=@BusinessId AND w.DeletedAt IS NULL AND w.Status='APPROVED' AND w.RequestedAt<@End
+ UNION ALL
+ -- Money the courier paid us for delivered COD orders, in the wallet it arrived in. Business-wide, like capital.
+ SELECT r.Id,r.Id,'REMIT','PAYMENT',CAST(r.Method AS varchar(10)),r.RemittedAt,CAST(r.Amount AS decimal(18,2)),CAST(r.RemittanceNo+N' · '+c.Name AS nvarchar(150))
+ FROM dbo.courier_remittances r JOIN dbo.couriers c ON c.Id=r.CourierId
+ WHERE r.BusinessId=@BusinessId AND r.DeletedAt IS NULL AND r.Method IN ('CASH','BKASH','NAGAD','CARD') AND r.Amount<>0 AND r.RemittedAt<@End;
 GO
 CREATE OR ALTER PROCEDURE dbo.CashActivityReport
  @BusinessId uniqueidentifier, @BranchId uniqueidentifier=NULL,

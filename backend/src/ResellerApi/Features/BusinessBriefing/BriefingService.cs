@@ -57,7 +57,7 @@ public sealed class BriefingService(AppDbContext db, ICurrentUserService user)
         var stock = db.ProductVariants.AsNoTracking().Where(v => v.Product.DeletedAt == null && v.Product.Status == "ACTIVE")
             .Select(v => new { Threshold = v.Product.LowStockThreshold, Available = db.BranchVariantInventories
                 .Where(i => i.VariantId == v.Id && (db.CurrentBranchId == null || i.BranchId == db.CurrentBranchId))
-                .Sum(i => (decimal?)(i.OnHand - i.Committed - i.Damaged)) ?? 0 });
+                .Sum(i => (decimal?)(i.OnHand - i.Committed)) ?? 0 });
         var low = await stock.CountAsync(x => x.Available > 0 && x.Available <= x.Threshold, ct);
         var outOfStock = await stock.CountAsync(x => x.Available <= 0, ct);
         // Tasks have business scope only; narrate only the caller's assigned tasks, explicitly labelled.

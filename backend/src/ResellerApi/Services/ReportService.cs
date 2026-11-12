@@ -31,7 +31,7 @@ public partial class ReportService : IReportService
                 v.Product.LowStockThreshold,
                 Available = _db.BranchVariantInventories
                     .Where(i => i.VariantId == v.Id && (_db.CurrentBranchId == null || i.BranchId == _db.CurrentBranchId))
-                    .Sum(i => (decimal?)(i.OnHand - i.Committed - i.Damaged)) ?? 0
+                    .Sum(i => (decimal?)(i.OnHand - i.Committed)) ?? 0
             })
             .ToListAsync();
 
@@ -318,7 +318,7 @@ public partial class ReportService : IReportService
 
         var stockItems = items.Select(x =>
         {
-            var available = x.OnHand - x.Committed - x.Damaged;
+            var available = x.OnHand - x.Committed;
             var isLow = available > 0 && available <= x.p.LowStockThreshold;
             var isOut = available <= 0;
             return new StockStatusItem(
@@ -608,7 +608,7 @@ public partial class ReportService : IReportService
                 Product = v.Product,
                 Quantity = _db.BranchVariantInventories
                     .Where(i => i.VariantId == v.Id && (_db.CurrentBranchId == null || i.BranchId == _db.CurrentBranchId))
-                    .Sum(i => (decimal?)(i.OnHand - i.Committed - i.Damaged)) ?? 0
+                    .Sum(i => (decimal?)(i.OnHand - i.Committed)) ?? 0
             })
             .ToListAsync();
 

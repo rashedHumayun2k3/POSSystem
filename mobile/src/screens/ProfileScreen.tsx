@@ -1,8 +1,8 @@
-import {useState} from "react";
+import {useEffect,useState} from "react";
 import {ActivityIndicator,Platform,Pressable,ScrollView,StyleSheet,View,useWindowDimensions} from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import {Ionicons} from "@expo/vector-icons";
-import {router} from "expo-router";
+import {router,useLocalSearchParams} from "expo-router";
 import {Text} from "../i18n/LocalizedText";
 import {useLanguage} from "../i18n/LanguageContext";
 import {MEDIA_URL,useAuth} from "../auth/AuthContext";
@@ -12,6 +12,9 @@ import BottomSheet from "../components/BottomSheet";
 export default function ProfileScreen(){
  const auth=useAuth(),{t,lang}=useLanguage(),mobile=useWindowDimensions().width<768;
  const [busy,setBusy]=useState<string|null>(null),[error,setError]=useState(""),[notice,setNotice]=useState(""),[logoutOpen,setLogoutOpen]=useState(false);
+ // Opened from More → Logout: start the same logout flow (daily report prompt first when applicable).
+ const {logout:logoutParam}=useLocalSearchParams<{logout?:string}>();
+ useEffect(()=>{if(logoutParam!=="1"||!auth.session?.user)return;router.setParams({logout:undefined});if(["OWNER","MANAGER","STAFF"].includes(auth.session.user.role??""))setLogoutOpen(true);else void auth.logout().then(()=>router.replace("/"));},[logoutParam]);
  const user=auth.session?.user;if(!user)return null;
  const canReport=["OWNER","MANAGER","STAFF"].includes(user.role??""),staff=user.role==="STAFF";
  const logout=async()=>{await auth.logout();router.replace("/")};
